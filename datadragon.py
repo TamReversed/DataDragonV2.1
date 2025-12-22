@@ -1313,8 +1313,29 @@ def analyze_file():
         return jsonify({'error': str(e)}), 500
 
 def generate_prefix(column_name):
-    """Generate prefix from column name - uses exact column header name"""
-    return column_name + '_'
+    """Generate prefix from column name - simplifies column name and uses appropriate separator"""
+    # Simplify column name by removing common suffixes
+    simplified = column_name
+    col_lower = simplified.lower()
+    
+    # Remove common suffixes (case-insensitive)
+    suffixes_to_remove = ['_name', '_code', '_id', '_number', '_num', '_date', '_amount', '_value', '_account']
+    
+    for suffix in suffixes_to_remove:
+        if col_lower.endswith(suffix):
+            simplified = simplified[:-len(suffix)]
+            col_lower = simplified.lower()
+            break
+    
+    # Determine separator based on column name pattern
+    # If column name contains spaces, use " - " separator (e.g., "Org Code - 1")
+    # Otherwise use "_" separator (e.g., "Vendor_1")
+    if ' ' in simplified:
+        separator = ' - '
+    else:
+        separator = '_'
+    
+    return simplified + separator
 
 def scrub_dataframe(df, columns_to_scrub, relationship_preserve=False, progress_queue=None, session_id=None):
     """

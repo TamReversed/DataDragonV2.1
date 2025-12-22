@@ -6,7 +6,7 @@
 
 ---
 
-## 🎯 Project Overview
+## Project Overview
 
 A professional web application for splitting large Excel files into smaller, manageable chunks with real-time progress tracking and dual-theme UI.
 
@@ -27,7 +27,7 @@ Full-featured web application with:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ERP Data Load Splits/
@@ -101,7 +101,7 @@ ERP Data Load Splits/
 
 ---
 
-## 🛠️ Technical Implementation
+## Technical Implementation
 
 ### Backend (Flask + Python)
 
@@ -218,7 +218,7 @@ Blob 3: 300px, Blue (#38bdf8), 35s animation
 
 ---
 
-## 💾 Data Persistence
+## Data Persistence
 
 ### localStorage Keys:
 ```javascript
@@ -257,12 +257,12 @@ Werkzeug==3.1.3
 
 ---
 
-## 📊 Performance
+## Performance
 
 ### Tested With:
-- ✅ 40,000 rows → 1 file (instant)
-- ✅ 1,000,000 rows → 25 files (40K chunks)
-- ✅ Files with 10 records → 4,000 files
+- 40,000 rows → 1 file (instant)
+- 1,000,000 rows → 25 files (40K chunks)
+- Files with 10 records → 4,000 files
 
 ### Optimization:
 - Background threading prevents UI blocking
@@ -272,7 +272,7 @@ Werkzeug==3.1.3
 
 ---
 
-## 🎯 Use Cases
+## Use Cases
 
 ### Primary Use Case: ERP Data Loads
 ```
@@ -290,7 +290,7 @@ Result: Files named PR_Amounts_Load_1of25.xlsx through PR_Amounts_Load_25of25.xl
 
 ---
 
-## 🔧 Customization Guide
+## Customization Guide
 
 ### Adding New Color Schemes:
 ```javascript
@@ -346,20 +346,20 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
 ### Version 2.0 - Future Mode Edition (Nov 3, 2025)
 - ✨ Added Future (beta) dark theme
 - 🎨 Animated lava lamp background
-- ⚙️ Customization panel (colors & speed)
-- 💾 localStorage persistence
-- 🎛️ Real-time customization
+- Customization panel (colors & speed)
+- localStorage persistence
+- Real-time customization
 
 ### Version 1.5 - Progress Update (Nov 3, 2025)
-- 📊 Real-time progress tracking with SSE
-- 🔄 Keep-alive mechanism
+- Real-time progress tracking with SSE
+- Keep-alive mechanism
 - 💬 Live status messages
-- ⚡ Background processing
+- Background processing
 
 ### Version 1.0 - Initial Release (Nov 3, 2025)
-- 📁 File upload and splitting
-- 🏷️ Custom filename support
-- 📦 ZIP packaging
+- File upload and splitting
+- Custom filename support
+- ZIP packaging
 - 🎨 Classic theme UI
 
 ---

@@ -4,12 +4,12 @@ A beautiful, easy-to-use web application for splitting large Excel files into sm
 
 ## Features
 
-- 📁 **Drag & Drop Interface** - Simply drag and drop your Excel file or click to browse
-- ⚡ **Fast Processing** - Efficiently handles files with millions of records
-- 🏷️ **Custom Filenames** - Set your own base filename for output files (e.g., "PR_Amounts_Load_1of25.xlsx")
-- 🎯 **Customizable Chunk Size** - Set the number of records per output file
-- 📦 **Automatic Zip Download** - All split files are automatically packaged into a single ZIP file
-- 💅 **Modern UI** - Beautiful, responsive design with smooth animations
+- **Drag & Drop Interface** - Simply drag and drop your Excel file or click to browse
+- **Fast Processing** - Efficiently handles files with millions of records
+- **Custom Filenames** - Set your own base filename for output files (e.g., "PR_Amounts_Load_1of25.xlsx")
+- **Customizable Chunk Size** - Set the number of records per output file
+- **Automatic Zip Download** - All split files are automatically packaged into a single ZIP file
+- **Modern UI** - Beautiful, responsive design with smooth animations
 
 ## Installation
 
