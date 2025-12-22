@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DataDragon</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #splash-video {
+            width: 100vw;
+            height: 100vh;
+            object-fit: contain;
+            background: #000;
+        }
+
+        @media (max-width: 768px) {
+            #splash-video {
+                width: 100vw;
+                height: 100vh;
+                object-fit: contain;
+                background: #000;
+            }
+        }
+    </style>
+</head>
+<body>
+    <video id="splash-video" autoplay muted playsinline>
+        <source src="{{ url_for('static', filename='images/SQUARE__11-21-2025-7-55-45.mp4') }}" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+
+    <script>
+        const video = document.getElementById('splash-video');
+        let redirectTimer;
+
+        // When video starts playing, set timer for 5 seconds
+        video.addEventListener('loadeddata', function() {
+            // Stop the video at 5 seconds if it hasn't already
+            video.addEventListener('timeupdate', function() {
+                if (video.currentTime >= 5) {
+                    video.pause();
+                }
+            });
+
+            // Redirect after 5 seconds
+            redirectTimer = setTimeout(function() {
+                window.location.href = '/landing';
+            }, 5000);
+        });
+
+        // If video fails to load, redirect after 2 seconds
+        video.addEventListener('error', function() {
+            console.log('Video failed to load, redirecting...');
+            setTimeout(function() {
+                window.location.href = '/landing';
+            }, 2000);
+        });
+
+        // Ensure video plays (some browsers require user interaction)
+        video.play().catch(function(error) {
+            console.log('Autoplay prevented, redirecting...');
+            // If autoplay is prevented, redirect immediately
+            clearTimeout(redirectTimer);
+            setTimeout(function() {
+                window.location.href = '/landing';
+            }, 100);
+        });
+
+        // Fallback: redirect after 6 seconds regardless
+        setTimeout(function() {
+            window.location.href = '/landing';
+        }, 6000);
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,1881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DataDragon - Transpose Data</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            color: #333;
+            position: relative;
+            transition: background 0.5s ease;
+        }
+
+        /* Animated background for Future mode */
+        body.future-mode {
+            background: #0a0a0a;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        .animated-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            pointer-events: none;
+        }
+
+        body.future-mode .animated-bg {
+            opacity: 1;
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(60px);
+            mix-blend-mode: screen;
+            animation: float 20s infinite ease-in-out;
+        }
+
+        .blob:nth-child(1) {
+            width: 400px;
+            height: 400px;
+            background: rgba(102, 126, 234, 0.3);
+            top: 20%;
+            left: 20%;
+            animation-delay: 0s;
+            animation-duration: 25s;
+        }
+
+        .blob:nth-child(2) {
+            width: 350px;
+            height: 350px;
+            background: rgba(118, 75, 162, 0.3);
+            top: 60%;
+            left: 60%;
+            animation-delay: 5s;
+            animation-duration: 30s;
+        }
+
+        .blob:nth-child(3) {
+            width: 300px;
+            height: 300px;
+            background: rgba(56, 189, 248, 0.3);
+            top: 40%;
+            left: 80%;
+            animation-delay: 10s;
+            animation-duration: 35s;
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translate(0, 0) scale(1);
+            }
+            33% {
+                transform: translate(50px, -50px) scale(1.1);
+            }
+            66% {
+                transform: translate(-50px, 50px) scale(0.9);
+            }
+        }
+
+        /* UI Toggle Switch */
+        .ui-toggle {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 16px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+        }
+
+        body.future-mode .ui-toggle {
+            background: rgba(30, 30, 30, 0.8);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .ui-toggle-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            transition: color 0.3s ease;
+        }
+
+        body.future-mode .ui-toggle-label {
+            color: #fff;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+            background: #e0e0e0;
+            border-radius: 13px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        body.future-mode .toggle-switch {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .toggle-switch.active {
+            background: #667eea;
+        }
+
+        body.future-mode .toggle-switch.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .toggle-switch.active .toggle-slider {
+            transform: translateX(24px);
+        }
+
+        .mode-text {
+            font-size: 11px;
+            color: #666;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        body.future-mode .mode-text {
+            color: #999;
+        }
+
+        /* Future Mode Settings Panel */
+        .future-settings {
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(30, 30, 30, 0.9);
+            backdrop-filter: blur(20px);
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            max-width: 280px;
+            opacity: 0;
+            transform: translateX(-20px);
+            pointer-events: none;
+            transition: all 0.3s ease;
+        }
+
+        body.future-mode .future-settings {
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: all;
+        }
+
+        .settings-title {
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+            padding: 10px;
+            margin: -10px -10px 0 -10px;
+            border-radius: 12px 12px 0 0;
+            transition: background 0.2s ease;
+        }
+
+        .settings-title:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .settings-title .chevron {
+            margin-left: auto;
+            transition: transform 0.3s ease;
+            font-size: 12px;
+        }
+
+        .future-settings.collapsed .settings-title .chevron {
+            transform: rotate(-90deg);
+        }
+
+        .settings-content {
+            max-height: 500px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            opacity: 1;
+        }
+
+        .future-settings.collapsed .settings-content {
+            max-height: 0;
+            opacity: 0;
+            margin-top: 0;
+            padding-top: 0;
+        }
+
+        .future-settings.collapsed {
+            padding-bottom: 10px;
+        }
+
+        .setting-group {
+            margin-bottom: 15px;
+        }
+
+        .setting-label {
+            color: #999;
+            font-size: 12px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .color-picker-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .color-picker {
+            width: 100px;
+            height: 100px;
+            border-radius: 8px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .color-picker:hover {
+            border-color: rgba(255, 255, 255, 0.4);
+            transform: scale(1.05);
+        }
+
+        .color-label {
+            color: #ccc;
+            font-size: 11px;
+            flex: 1;
+        }
+
+        .speed-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .speed-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .speed-value {
+            color: #667eea;
+            font-size: 12px;
+            font-weight: 600;
+            text-align: center;
+            margin-top: 5px;
+        }
+
+        .reset-btn {
+            width: 100%;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: #ccc;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 10px;
+        }
+
+        .reset-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #fff;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            position: relative;
+            z-index: 1;
+            transition: all 0.5s ease;
+        }
+
+        body.future-mode .container {
+            background: rgba(30, 30, 30, 0.7);
+            backdrop-filter: blur(40px) saturate(180%);
+            -webkit-backdrop-filter: blur(40px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .back-home-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: color 0.3s ease;
+        }
+
+        .back-home-link:hover {
+            color: #764ba2;
+        }
+
+        body.future-mode .back-home-link {
+            color: #a0b0ff;
+        }
+
+        body.future-mode .back-home-link:hover {
+            color: #ffffff;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 32px;
+            transition: color 0.3s ease;
+        }
+
+        body.future-mode h1 {
+            color: #fff;
+            text-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .datadragon-logo {
+            width: 100px;
+            height: 100px;
+            object-fit: contain;
+            vertical-align: middle;
+            margin-right: 10px;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+            transition: transform 0.3s ease;
+        }
+
+        body.future-mode .datadragon-logo {
+            filter: drop-shadow(0 2px 8px rgba(102, 126, 234, 0.4));
+        }
+
+        .datadragon-logo:hover {
+            transform: scale(1.1);
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+            transition: color 0.3s ease;
+        }
+
+        body.future-mode .subtitle {
+            color: #999;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background: #f8f9ff;
+            margin-bottom: 25px;
+        }
+
+        body.future-mode .upload-area {
+            border: 2px dashed rgba(102, 126, 234, 0.5);
+            background: rgba(102, 126, 234, 0.05);
+            backdrop-filter: blur(10px);
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            background: #f0f2ff;
+        }
+
+        body.future-mode .upload-area:hover {
+            border-color: rgba(118, 75, 162, 0.8);
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background: #e8ebff;
+            transform: scale(1.02);
+        }
+
+        body.future-mode .upload-area.dragover {
+            border-color: rgba(118, 75, 162, 1);
+            background: rgba(102, 126, 234, 0.15);
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .upload-text {
+            color: #667eea;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        body.future-mode .upload-text {
+            color: #a0b0ff;
+        }
+
+        .upload-subtext {
+            color: #999;
+            font-size: 14px;
+        }
+
+        body.future-mode .upload-subtext {
+            color: #666;
+        }
+
+        body.future-mode .file-size-info {
+            color: #999;
+        }
+
+        .file-size-info {
+            margin-top: 10px;
+            color: #666;
+            font-size: 13px;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        body.future-mode .btn {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 75, 162, 0.9) 100%);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        body.future-mode .btn:hover:not(:disabled) {
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .error {
+            display: none;
+            background: #fee;
+            border-left: 4px solid #dc3545;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            color: #721c24;
+            white-space: pre-line;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        body.future-mode .error {
+            background: rgba(220, 53, 69, 0.2);
+            border-left-color: rgba(220, 53, 69, 0.8);
+            color: #ff6b7a;
+        }
+
+        .column-selection {
+            background: #f8f9ff;
+            padding: 25px;
+            border-radius: 15px;
+            margin: 25px 0;
+            display: none;
+        }
+
+        .column-selection.show {
+            display: block;
+        }
+
+        body.future-mode .column-selection {
+            background: rgba(102, 126, 234, 0.1);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+
+        .column-selection-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        body.future-mode .column-selection-title {
+            color: #a0b0ff;
+        }
+
+        .columns-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .column-checkbox-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            transition: all 0.2s ease;
+        }
+
+        .column-checkbox-item:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        body.future-mode .column-checkbox-item {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        body.future-mode .column-checkbox-item:hover {
+            border-color: rgba(102, 126, 234, 0.8);
+            background: rgba(102, 126, 234, 0.1);
+        }
+
+        body.future-mode .column-checkbox-item label {
+            color: #e0e0e0;
+        }
+
+        .column-checkbox-item input[type="checkbox"] {
+            margin-right: 10px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .column-checkbox-item label {
+            flex: 1;
+            cursor: pointer;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .column-type {
+            font-size: 12px;
+            color: #999;
+            margin-left: 5px;
+        }
+
+        .options-section {
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            border: 2px solid #e0e0e0;
+            margin-top: 20px;
+        }
+
+        body.future-mode .options-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        body.future-mode .option-item label {
+            color: #e0e0e0;
+        }
+
+        body.future-mode .option-description {
+            color: #999;
+        }
+
+        .option-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .option-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .option-item input[type="checkbox"] {
+            margin-right: 10px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .option-item label {
+            flex: 1;
+            cursor: pointer;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .option-description {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+            margin-left: 28px;
+        }
+
+        .progress-container {
+            display: none;
+            margin: 25px 0;
+        }
+
+        .progress-container.show {
+            display: block;
+        }
+
+        /* Lava Lamp Loading Animation */
+        .lava-lamp-loader {
+            position: relative;
+            width: 100%;
+            height: 200px;
+            margin: 30px 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+            border-radius: 15px;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+            display: none;
+        }
+
+        .progress-container.show .lava-lamp-loader {
+            display: block;
+        }
+
+        body.future-mode .lava-lamp-loader {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+        }
+
+        .lava-bubble {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(40px);
+            opacity: 0.7;
+            mix-blend-mode: screen;
+        }
+
+        .lava-bubble-1 {
+            width: 120px;
+            height: 120px;
+            background: radial-gradient(circle, rgba(102, 126, 234, 0.8) 0%, rgba(102, 126, 234, 0.4) 100%);
+            left: 10%;
+            bottom: -60px;
+            animation: lava-float-1 8s infinite ease-in-out;
+        }
+
+        .lava-bubble-2 {
+            width: 150px;
+            height: 150px;
+            background: radial-gradient(circle, rgba(118, 75, 162, 0.8) 0%, rgba(118, 75, 162, 0.4) 100%);
+            left: 30%;
+            bottom: -75px;
+            animation: lava-float-2 10s infinite ease-in-out;
+            animation-delay: -2s;
+        }
+
+        .lava-bubble-3 {
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.8) 0%, rgba(56, 189, 248, 0.4) 100%);
+            left: 55%;
+            bottom: -50px;
+            animation: lava-float-3 9s infinite ease-in-out;
+            animation-delay: -4s;
+        }
+
+        .lava-bubble-4 {
+            width: 130px;
+            height: 130px;
+            background: radial-gradient(circle, rgba(102, 126, 234, 0.7) 0%, rgba(102, 126, 234, 0.3) 100%);
+            left: 75%;
+            bottom: -65px;
+            animation: lava-float-4 11s infinite ease-in-out;
+            animation-delay: -1s;
+        }
+
+        .lava-bubble-5 {
+            width: 90px;
+            height: 90px;
+            background: radial-gradient(circle, rgba(118, 75, 162, 0.7) 0%, rgba(118, 75, 162, 0.3) 100%);
+            left: 45%;
+            bottom: -45px;
+            animation: lava-float-5 7s infinite ease-in-out;
+            animation-delay: -3s;
+        }
+
+        .lava-bubble-6 {
+            width: 110px;
+            height: 110px;
+            background: radial-gradient(circle, rgba(56, 189, 248, 0.7) 0%, rgba(56, 189, 248, 0.3) 100%);
+            left: 20%;
+            bottom: -55px;
+            animation: lava-float-6 9.5s infinite ease-in-out;
+            animation-delay: -5s;
+        }
+
+        @keyframes lava-float-1 {
+            0%, 100% {
+                transform: translateY(0) translateX(0) scale(1);
+                border-radius: 50% 50% 50% 50%;
+            }
+            25% {
+                transform: translateY(-180px) translateX(20px) scale(1.2);
+                border-radius: 50% 45% 55% 50%;
+            }
+            50% {
+                transform: translateY(-150px) translateX(-15px) scale(0.9);
+                border-radius: 45% 55% 50% 50%;
+            }
+            75% {
+                transform: translateY(-200px) translateX(10px) scale(1.1);
+                border-radius: 55% 50% 45% 50%;
+            }
+        }
+
+        @keyframes lava-float-2 {
+            0%, 100% {
+                transform: translateY(0) translateX(0) scale(1);
+                border-radius: 50% 50% 50% 50%;
+            }
+            30% {
+                transform: translateY(-160px) translateX(-25px) scale(1.3);
+                border-radius: 50% 50% 45% 55%;
+            }
+            60% {
+                transform: translateY(-190px) translateX(30px) scale(0.8);
+                border-radius: 45% 55% 50% 50%;
+            }
+            90% {
+                transform: translateY(-140px) translateX(-10px) scale(1.15);
+                border-radius: 55% 45% 50% 50%;
+            }
+        }
+
+        @keyframes lava-float-3 {
+            0%, 100% {
+                transform: translateY(0) translateX(0) scale(1);
+                border-radius: 50% 50% 50% 50%;
+            }
+            20% {
+                transform: translateY(-170px) translateX(25px) scale(1.25);
+                border-radius: 50% 45% 50% 55%;
+            }
+            40% {
+                transform: translateY(-200px) translateX(-20px) scale(0.85);
+                border-radius: 45% 50% 55% 50%;
+            }
+            60% {
+                transform: translateY(-165px) translateX(15px) scale(1.1);
+                border-radius: 50% 55% 45% 50%;
+            }
+            80% {
+                transform: translateY(-185px) translateX(-5px) scale(0.95);
+                border-radius: 55% 50% 50% 45%;
+            }
+        }
+
+        @keyframes lava-float-4 {
+            0%, 100% {
+                transform: translateY(0) translateX(0) scale(1);
+                border-radius: 50% 50% 50% 50%;
+            }
+            25% {
+                transform: translateY(-175px) translateX(-30px) scale(1.2);
+                border-radius: 50% 50% 45% 55%;
+            }
+            50% {
+                transform: translateY(-195px) translateX(20px) scale(0.9);
+                border-radius: 45% 55% 50% 50%;
+            }
+            75% {
+                transform: translateY(-155px) translateX(-15px) scale(1.15);
+                border-radius: 55% 45% 50% 50%;
+            }
+        }
+
+        @keyframes lava-float-5 {
+            0%, 100% {
+                transform: translateY(0) translateX(0) scale(1);
+                border-radius: 50% 50% 50% 50%;
+            }
+            33% {
+                transform: translateY(-160px) translateX(30px) scale(1.3);
+                border-radius: 50% 45% 55% 50%;
+            }
+            66% {
+                transform: translateY(-180px) translateX(-25px) scale(0.8);
+                border-radius: 45% 55% 50% 50%;
+            }
+        }
+
+        @keyframes lava-float-6 {
+            0%, 100% {
+                transform: translateY(0) translateX(0) scale(1);
+                border-radius: 50% 50% 50% 50%;
+            }
+            28% {
+                transform: translateY(-165px) translateX(-20px) scale(1.25);
+                border-radius: 50% 50% 45% 55%;
+            }
+            56% {
+                transform: translateY(-190px) translateX(25px) scale(0.85);
+                border-radius: 45% 55% 50% 50%;
+            }
+            84% {
+                transform: translateY(-175px) translateX(-10px) scale(1.1);
+                border-radius: 55% 45% 50% 50%;
+            }
+        }
+
+        .progress-stage {
+            margin-bottom: 20px;
+        }
+
+        .stage-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        body.future-mode .stage-label {
+            color: #e0e0e0;
+        }
+
+        .stage-message {
+            font-size: 12px;
+            color: #666;
+            font-weight: normal;
+        }
+
+        body.future-mode .stage-message {
+            color: #999;
+        }
+
+        .progress-bar-wrapper {
+            width: 100%;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            height: 24px;
+            position: relative;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.5s ease;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .results {
+            display: none;
+            margin-top: 30px;
+        }
+
+        .results.show {
+            display: block;
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { 
+                opacity: 0; 
+                transform: translateY(10px); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translateY(0); 
+            }
+        }
+
+        .result-section {
+            background: #f8f9ff;
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        body.future-mode .result-section {
+            background: rgba(102, 126, 234, 0.1);
+            border: 1px solid rgba(102, 126, 234, 0.2);
+        }
+
+        .result-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        body.future-mode .result-title {
+            color: #a0b0ff;
+        }
+
+        body.future-mode .result-section p {
+            color: #ccc;
+        }
+
+        .download-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin: 10px;
+        }
+
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        body.future-mode .download-btn {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 75, 162, 0.9) 100%);
+        }
+
+        body.future-mode .download-btn:hover {
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+
+            .columns-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        /* Help Button and Modal */
+.help-btn {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px;
+            background: rgba(102, 126, 234, 0.1);
+            border: 2px solid #667eea;
+            border-radius: 10px;
+            color: #667eea;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 10px;
+        }
+
+        .help-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        body.future-mode .help-btn {
+            background: rgba(102, 126, 234, 0.2);
+            border-color: rgba(102, 126, 234, 0.6);
+            color: #a0b0ff;
+        }
+
+        body.future-mode .help-btn:hover {
+            background: rgba(102, 126, 234, 0.8);
+            color: white;
+        }
+
+        .help-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(5px);
+        }
+
+        .help-modal.show {
+            display: flex;
+        }
+
+        .help-modal-content {
+            background: white;
+            border-radius: 20px;
+            max-width: 800px;
+            max-height: 90vh;
+            width: 100%;
+            padding: 40px;
+            position: relative;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        body.future-mode .help-modal-content {
+            background: rgba(30, 30, 30, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        @keyframes modalSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-50px) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .help-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        body.future-mode .help-modal-header {
+            border-bottom-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .help-modal-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+            margin: 0;
+        }
+
+        body.future-mode .help-modal-title {
+            color: #fff;
+        }
+
+        .help-modal-close {
+            background: none;
+            border: none;
+            font-size: 32px;
+            color: #999;
+            cursor: pointer;
+            padding: 0;
+            width: 100px;
+            height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .help-modal-close:hover {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        body.future-mode .help-modal-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .help-section {
+            margin-bottom: 30px;
+        }
+
+        .help-section-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        body.future-mode .help-section-title {
+            color: #a0b0ff;
+        }
+
+        .help-section-content {
+            color: #555;
+            line-height: 1.7;
+            font-size: 14px;
+        }
+
+        body.future-mode .help-section-content {
+            color: #ccc;
+        }
+
+        .help-list {
+            list-style: none;
+            padding-left: 0;
+            margin: 10px 0;
+        }
+
+        .help-list li {
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+
+        .help-list li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        body.future-mode .help-list li:before {
+            color: #a0b0ff;
+        }
+
+        .help-code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #e83e8c;
+        }
+
+        body.future-mode .help-code {
+            background: rgba(255, 255, 255, 0.1);
+            color: #ff6b9d;
+        }
+
+        .help-path {
+            background: #f8f9ff;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #333;
+            border-left: 3px solid #667eea;
+            margin: 10px 0;
+            word-break: break-all;
+        }
+
+        body.future-mode .help-path {
+            background: rgba(102, 126, 234, 0.1);
+            color: #ccc;
+            border-left-color: rgba(102, 126, 234, 0.6);
+        }
+    </style>
+</head>
+<body>
+    <!-- Animated Background for Future Mode -->
+    <div class="animated-bg">
+        <div class="blob"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+    </div>
+
+    <!-- UI Toggle -->
+    <div class="ui-toggle">
+        <span class="ui-toggle-label">Classic</span>
+        <div class="toggle-switch" id="uiToggle">
+            <div class="toggle-slider"></div>
+        </div>
+        <span class="mode-text">Future (beta)</span>
+    </div>
+
+    <!-- Future Mode Settings -->
+    <div class="future-settings collapsed">
+        <div class="settings-title" id="settingsToggle">
+            Customize Background
+            <span class="chevron">▼</span>
+        </div>
+        
+        <div class="settings-content">
+            <div class="setting-group">
+                <label class="setting-label">Blob Colors</label>
+                <div class="color-picker-wrapper">
+                    <input type="color" class="color-picker" id="color1" value="#667eea">
+                    <span class="color-label">Purple</span>
+                </div>
+                <div class="color-picker-wrapper" style="margin-top: 8px;">
+                    <input type="color" class="color-picker" id="color2" value="#764ba2">
+                    <span class="color-label">Violet</span>
+                </div>
+                <div class="color-picker-wrapper" style="margin-top: 8px;">
+                    <input type="color" class="color-picker" id="color3" value="#38bdf8">
+                    <span class="color-label">Blue</span>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">Animation Speed</label>
+                <input type="range" class="speed-slider" id="speedSlider" min="10" max="60" value="30" step="5">
+                <div class="speed-value" id="speedValue">30s</div>
+            </div>
+
+            <button class="reset-btn" id="resetSettings">Reset to Default</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <a href="/" class="back-home-link">← Back to DataDragon</a>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
+            <div style="flex: 1;">
+                <h1 style="display: flex; align-items: center;">
+                    <img src="{{ url_for('static', filename='images/datadragon-logo.png') }}" alt="DataDragon Logo" class="datadragon-logo" >
+                    <span>DataDragon - Transpose Data</span>
+                </h1>
+        <p class="subtitle">Flip rows and columns - convert horizontal data to vertical (or vice versa). Perfect for restructuring client data where columns and rows are flipped.</p>
+            </div>
+            <button class="help-btn" id="helpBtn" title="How this tool works">
+                <span style="font-size: 18px;"></span>
+                <span style="margin-left: 5px; font-size: 13px;">How It Works</span>
+            </button>
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon"></div>
+            <div class="upload-text">Click to upload or drag and drop</div>
+            <div class="upload-subtext">Excel or CSV files (.xlsx, .xls, .csv)</div>
+            <div class="file-size-info" id="fileSizeInfo" style="display: none;"></div>
+            <input type="file" id="fileInput" name="file" accept=".xlsx,.xls,.csv" required aria-label="Upload file to transpose">
+        </div>
+
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <button class="btn" id="transposeBtn" disabled>Transpose Data</button>
+            <button class="btn" id="cancelBtn" style="display: none; background: #dc3545;">Cancel</button>
+        </div>
+
+        <div class="error" id="error"></div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="lava-lamp-loader">
+                <div class="lava-bubble lava-bubble-1"></div>
+                <div class="lava-bubble lava-bubble-2"></div>
+                <div class="lava-bubble lava-bubble-3"></div>
+                <div class="lava-bubble lava-bubble-4"></div>
+                <div class="lava-bubble lava-bubble-5"></div>
+                <div class="lava-bubble lava-bubble-6"></div>
+            </div>
+            <div class="progress-stage" id="loadingStage">
+                <div class="stage-label">
+                    <span>Loading File</span>
+                    <span class="stage-message" id="loadingMessage">Waiting...</span>
+                </div>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar-fill" id="loadingProgress">0%</div>
+                </div>
+            </div>
+            <div class="progress-stage" id="processingStage">
+                <div class="stage-label">
+                    <span>Transposing</span>
+                    <span class="stage-message" id="processingMessage">Waiting...</span>
+                </div>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar-fill" id="processingProgress">0%</div>
+                </div>
+            </div>
+            <div class="progress-stage" id="savingStage">
+                <div class="stage-label">
+                    <span>Saving</span>
+                    <span class="stage-message" id="savingMessage">Waiting...</span>
+                </div>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar-fill" id="savingProgress">0%</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="results" id="results">
+            <div class="result-section">
+                <div class="result-title">Anonymization Complete!</div>
+                <div id="resultsSummary" style="margin-bottom: 20px;"></div>
+                <button class="download-btn" id="downloadBtn">Download Transposed Data</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // XSS Protection
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Format file size
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // Calculate ETA
+        function calculateETA(currentPercentage, elapsedTime) {
+            if (currentPercentage <= 0 || elapsedTime <= 0) return null;
+            const remainingPercentage = 100 - currentPercentage;
+            const timePerPercent = elapsedTime / currentPercentage;
+            const remainingTime = remainingPercentage * timePerPercent;
+            return Math.round(remainingTime / 1000);
+        }
+
+        function formatTime(seconds) {
+            if (!seconds || seconds < 0) return '';
+            if (seconds < 60) return `${seconds}s`;
+            const minutes = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return secs > 0 ? `${minutes}m ${secs}s` : `${minutes}m`;
+        }
+
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const transposeBtn = document.getElementById('transposeBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const fileSizeInfo = document.getElementById('fileSizeInfo');
+        const error = document.getElementById('error');
+        const progressContainer = document.getElementById('progressContainer');
+        const results = document.getElementById('results');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const resultsSummary = document.getElementById('resultsSummary');
+
+        // Progress elements
+        const loadingProgress = document.getElementById('loadingProgress');
+        const processingProgress = document.getElementById('processingProgress');
+        const savingProgress = document.getElementById('savingProgress');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const processingMessage = document.getElementById('processingMessage');
+        const savingMessage = document.getElementById('savingMessage');
+
+        let selectedFile = null;
+        let eventSource = null;
+
+        // Click to upload
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        // File selection
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                selectedFile = e.target.files[0];
+                fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
+                fileSizeInfo.style.display = 'block';
+                error.classList.remove('show');
+                results.classList.remove('show');
+                transposeBtn.disabled = false;
+            } else {
+                transposeBtn.disabled = true;
+                fileSizeInfo.style.display = 'none';
+            }
+        });
+
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            
+            if (e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                fileInput.dispatchEvent(new Event('change'));
+            }
+        });
+
+
+        function resetProgress() {
+            loadingProgress.style.width = '0%';
+            loadingProgress.textContent = '0%';
+            processingProgress.style.width = '0%';
+            processingProgress.textContent = '0%';
+            savingProgress.style.width = '0%';
+            savingProgress.textContent = '0%';
+            loadingMessage.textContent = 'Waiting...';
+            processingMessage.textContent = 'Waiting...';
+            savingMessage.textContent = 'Waiting...';
+        }
+
+        function updateProgress(stage, percentage, message) {
+            const progressMap = {
+                'loading': { bar: loadingProgress, messageEl: loadingMessage },
+                'processing': { bar: processingProgress, messageEl: processingMessage },
+                'saving': { bar: savingProgress, messageEl: savingMessage }
+            };
+
+            if (progressMap[stage]) {
+                progressMap[stage].bar.style.width = percentage + '%';
+                progressMap[stage].bar.textContent = percentage + '%';
+                if (message) {
+                    progressMap[stage].messageEl.textContent = message;
+                }
+            }
+        }
+
+        function showError(message, details = null) {
+            let errorText = 'Error: ' + message;
+            if (details) {
+                errorText += '\n\n' + details;
+            }
+            error.textContent = errorText;
+            error.classList.add('show');
+            error.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Cancel button
+        cancelBtn.addEventListener('click', function() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+            cancelBtn.style.display = 'none';
+            transposeBtn.disabled = false;
+            transposeBtn.textContent = 'Transpose Data';
+            progressContainer.classList.remove('show');
+            resetProgress();
+            showError('Transpose cancelled by user');
+        });
+
+        // Transpose button
+        transposeBtn.addEventListener('click', async () => {
+            if (!selectedFile) return;
+
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+
+            transposeBtn.disabled = true;
+            transposeBtn.textContent = 'Transposing...';
+            cancelBtn.style.display = 'inline-block';
+            progressContainer.classList.add('show');
+            results.classList.remove('show');
+            error.classList.remove('show');
+            resetProgress();
+
+            try {
+                const response = await fetch('/transpose-data', {
+                    method: 'POST',
+                    body: formData
+                }).catch(fetchError => {
+                    throw new Error('Could not connect to server. Make sure the server is running.');
+                });
+
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    throw new Error('Invalid response from server');
+                }
+
+                if (response.ok && data.success && data.session_id) {
+                    if (eventSource) {
+                        eventSource.close();
+                    }
+                    
+                    eventSource = new EventSource('/progress/' + data.session_id);
+                    
+                    eventSource.onmessage = function(event) {
+                        const progressData = JSON.parse(event.data);
+                        
+                        if (progressData.error) {
+                            eventSource.close();
+                            showError('Server error: ' + progressData.error);
+                            transposeBtn.disabled = false;
+                            transposeBtn.textContent = 'Transpose Data';
+                            cancelBtn.style.display = 'none';
+                            progressContainer.classList.remove('show');
+                            return;
+                        }
+                        
+                        const stage = progressData.stage;
+                        const percentage = progressData.percentage || 0;
+                        const message = progressData.message || '';
+                        
+                        updateProgress(stage, percentage, message);
+                        
+                        if (stage === 'done') {
+                            eventSource.close();
+                            
+                            if (progressData.download_url) {
+                                downloadBtn.onclick = () => {
+                                    window.location.href = progressData.download_url;
+                                };
+                                
+                                // Display summary
+                                if (progressData.original_rows && progressData.original_columns) {
+                                    resultsSummary.innerHTML = `
+                                        <div style="text-align: center; margin-bottom: 15px;">
+                                            <p style="color: #666; font-size: 14px; margin-bottom: 10px;">
+                                                <strong>Original:</strong> ${progressData.original_rows.toLocaleString()} rows × ${progressData.original_columns.toLocaleString()} columns
+                                            </p>
+                                            <p style="color: #667eea; font-size: 14px; font-weight: 600;">
+                                                <strong>Transposed:</strong> ${progressData.transposed_rows.toLocaleString()} rows × ${progressData.transposed_columns.toLocaleString()} columns
+                                            </p>
+                                        </div>
+                                    `;
+                                }
+                                
+                                results.classList.add('show');
+                                transposeBtn.disabled = false;
+                                transposeBtn.textContent = 'Transpose Data';
+                                cancelBtn.style.display = 'none';
+                                progressContainer.classList.remove('show');
+                            }
+                        }
+                        
+                        if (stage === 'error') {
+                            eventSource.close();
+                            showError(progressData.message || 'An error occurred during transpose');
+                            transposeBtn.disabled = false;
+                            transposeBtn.textContent = 'Transpose Data';
+                            cancelBtn.style.display = 'none';
+                            progressContainer.classList.remove('show');
+                        }
+                    };
+                    
+                    eventSource.onerror = function(err) {
+                        console.error('EventSource error:', err);
+                        if (eventSource.readyState === EventSource.CLOSED) {
+                            eventSource.close();
+                            showError('Connection lost. Transpose may still be processing...');
+                            transposeBtn.disabled = false;
+                            transposeBtn.textContent = 'Transpose Data';
+                            cancelBtn.style.display = 'none';
+                        }
+                    };
+                } else {
+                    throw new Error(data.error || 'Failed to start transpose');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError(error.message || 'An error occurred');
+                transposeBtn.disabled = false;
+                transposeBtn.textContent = 'Transpose Data';
+                cancelBtn.style.display = 'none';
+                progressContainer.classList.remove('show');
+            }
+        });
+
+        // Theme Toggle Functionality
+        const uiToggle = document.getElementById('uiToggle');
+        const color1Picker = document.getElementById('color1');
+        const color2Picker = document.getElementById('color2');
+        const color3Picker = document.getElementById('color3');
+        const speedSlider = document.getElementById('speedSlider');
+        const speedValue = document.getElementById('speedValue');
+        const resetSettings = document.getElementById('resetSettings');
+        const blobs = document.querySelectorAll('.blob');
+
+        const defaultSettings = {
+            color1: '#667eea',
+            color2: '#764ba2',
+            color3: '#38bdf8',
+            speed: 30
+        };
+
+        function setTheme(isFutureMode) {
+            if (isFutureMode) {
+                document.body.classList.add('future-mode');
+                uiToggle.classList.add('active');
+                localStorage.setItem('uiTheme', 'future');
+            } else {
+                document.body.classList.remove('future-mode');
+                uiToggle.classList.remove('active');
+                localStorage.setItem('uiTheme', 'classic');
+            }
+        }
+
+        function hexToRgba(hex, alpha = 0.3) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function updateBlobColors() {
+            blobs[0].style.background = hexToRgba(color1Picker.value);
+            blobs[1].style.background = hexToRgba(color2Picker.value);
+            blobs[2].style.background = hexToRgba(color3Picker.value);
+            localStorage.setItem('blobColors', JSON.stringify({
+                color1: color1Picker.value,
+                color2: color2Picker.value,
+                color3: color3Picker.value
+            }));
+        }
+
+        function updateSpeed() {
+            const speed = parseInt(speedSlider.value);
+            speedValue.textContent = speed + 's';
+            blobs[0].style.animationDuration = (speed - 5) + 's';
+            blobs[1].style.animationDuration = speed + 's';
+            blobs[2].style.animationDuration = (speed + 5) + 's';
+            localStorage.setItem('animationSpeed', speed);
+        }
+
+        function loadSettings() {
+            const savedColors = localStorage.getItem('blobColors');
+            const savedSpeed = localStorage.getItem('animationSpeed');
+            if (savedColors) {
+                const colors = JSON.parse(savedColors);
+                color1Picker.value = colors.color1;
+                color2Picker.value = colors.color2;
+                color3Picker.value = colors.color3;
+                updateBlobColors();
+            }
+            if (savedSpeed) {
+                speedSlider.value = savedSpeed;
+                updateSpeed();
+            }
+        }
+
+        function resetToDefaults() {
+            color1Picker.value = defaultSettings.color1;
+            color2Picker.value = defaultSettings.color2;
+            color3Picker.value = defaultSettings.color3;
+            speedSlider.value = defaultSettings.speed;
+            updateBlobColors();
+            updateSpeed();
+        }
+
+        color1Picker.addEventListener('input', updateBlobColors);
+        color2Picker.addEventListener('input', updateBlobColors);
+        color3Picker.addEventListener('input', updateBlobColors);
+        speedSlider.addEventListener('input', updateSpeed);
+        resetSettings.addEventListener('click', resetToDefaults);
+
+        const savedTheme = localStorage.getItem('uiTheme');
+        if (savedTheme === 'future') {
+            setTheme(true);
+        }
+
+        loadSettings();
+
+        uiToggle.addEventListener('click', () => {
+            const isFutureMode = !document.body.classList.contains('future-mode');
+            setTheme(isFutureMode);
+        });
+
+        // Toggle settings panel collapse/expand
+        const settingsToggle = document.getElementById('settingsToggle');
+        const futureSettings = document.querySelector('.future-settings');
+        if (settingsToggle && futureSettings) {
+            settingsToggle.addEventListener('click', () => {
+                futureSettings.classList.toggle('collapsed');
+            });
+        }
+    </script>
+    <!-- Help Modal -->
+    <div class="help-modal" id="helpModal">
+        <div class="help-modal-content">
+            <div class="help-modal-header">
+                <h2 class="help-modal-title">How Transpose Data Works</h2>
+                <button class="help-modal-close" id="helpModalClose">&times;</button>
+            </div>
+            
+            <div class="help-section">
+                <div class="help-section-title">What This Tool Does</div>
+                <div class="help-section-content">
+                    The Transpose Data tool flips rows and columns in your Excel/CSV file. What were rows become columns, and what were columns become rows. Perfect for restructuring client data where the layout is flipped.
+                </div>
+            </div>
+
+            <div class="help-section">
+                <div class="help-section-title">How It Works</div>
+                <div class="help-section-content">
+                    <ul class="help-list">
+                        <li><strong>File Upload:</strong> Your Excel/CSV file is temporarily saved</li>
+                        <li><strong>Transposition:</strong> All rows become columns and all columns become rows</li>
+                        <li><strong>Data Preservation:</strong> All data values are preserved, only the orientation is flipped</li>
+                        <li><strong>Export:</strong> Transposed file is saved as Excel format</li>
+                        <li><strong>Cleanup:</strong> Original upload file is deleted after processing</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="help-section">
+                <div class="help-section-title">🔧 Technologies Used</div>
+                <div class="help-section-content">
+                    <ul class="help-list">
+                        <li><strong>pandas:</strong> Data manipulation and transpose operation (.T method)</li>
+                        <li><strong>openpyxl:</strong> Excel file writing</li>
+                        <li><strong>Flask:</strong> Web framework</li>
+                        <li><strong>Server-Sent Events (SSE):</strong> Real-time progress updates</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="help-section">
+                <div class="help-section-title">File Storage & Locations</div>
+                <div class="help-section-content">
+                    <strong>Upload Location:</strong>
+                    <div class="help-path">[BASE_DIR]/uploads/[session_id]_[filename]</div>
+                    
+                    <strong>Output Location:</strong>
+                    <div class="help-path">[BASE_DIR]/output/transposed_[timestamp].xlsx</div>
+                    
+                    <p style="margin-top: 15px;">
+                        <strong>Note:</strong> Original upload file is deleted after processing. Transposed file remains in the output folder for download.
+                    </p>
+                </div>
+            </div>
+
+            <div class="help-section">
+                <div class="help-section-title">Processing Flow</div>
+                <div class="help-section-content">
+                    <ol style="margin-left: 20px; line-height: 2;">
+                        <li>File is uploaded and validated</li>
+                        <li>Background thread starts processing</li>
+                        <li>File is read into memory using pandas</li>
+                        <li>DataFrame is transposed (rows ↔ columns) using .T method</li>
+                        <li>Original row numbers/indices become column headers</li>
+                        <li>Original column headers become row values in first column</li>
+                        <li>Transposed file is saved to Excel format</li>
+                        <li>Original upload file is deleted</li>
+                        <li>Transposed file is made available for download</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script>
+        // Help Modal - Initialize after DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            const helpBtn = document.getElementById('helpBtn');
+            const helpModal = document.getElementById('helpModal');
+            const helpModalClose = document.getElementById('helpModalClose');
+
+            if (helpBtn && helpModal) {
+                helpBtn.addEventListener('click', () => {
+                    helpModal.classList.add('show');
+                });
+
+                if (helpModalClose) {
+                    helpModalClose.addEventListener('click', () => {
+                        helpModal.classList.remove('show');
+                    });
+                }
+
+                // Close modal when clicking outside
+                helpModal.addEventListener('click', (e) => {
+                    if (e.target === helpModal) {
+                        helpModal.classList.remove('show');
+                    }
+                });
+
+                // Close modal with Escape key
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && helpModal.classList.contains('show')) {
+                        helpModal.classList.remove('show');
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
+

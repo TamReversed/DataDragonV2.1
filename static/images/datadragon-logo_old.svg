@@ -1,0 +1,49 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark grey circle background -->
+  <circle cx="100" cy="100" r="95" fill="#2a2a2a" stroke="#1a1a1a" stroke-width="2"/>
+  
+  <!-- Dragon silhouette in dark grey - more visible -->
+  <g fill="#3a3a3a" stroke="#2a2a2a" stroke-width="1.5">
+    <!-- Dragon body (curved, facing right) -->
+    <ellipse cx="100" cy="120" rx="25" ry="35" transform="rotate(-15 100 120)"/>
+    
+    <!-- Dragon head (pointing down and right) -->
+    <path d="M 85 100 Q 80 95 75 100 Q 80 105 85 100" fill="#3a3a3a"/>
+    <ellipse cx="78" cy="98" rx="3" ry="2" fill="#1a1a1a"/> <!-- Eye -->
+    
+    <!-- Dragon wings (bat-like, spread upward and backward) -->
+    <path d="M 100 110 
+             Q 60 60 50 80 
+             Q 55 70 65 75 
+             Q 70 65 80 70 
+             Q 85 60 95 65 
+             Q 100 55 110 60 
+             Q 115 65 120 70 
+             Q 130 65 135 75 
+             Q 145 70 150 80 
+             Q 140 60 100 110" 
+          fill="#3a3a3a"/>
+    
+    <!-- Forelegs (extending forward) -->
+    <ellipse cx="90" cy="130" rx="8" ry="12" transform="rotate(-20 90 130)"/>
+    <ellipse cx="110" cy="132" rx="8" ry="12" transform="rotate(20 110 132)"/>
+    
+    <!-- Claws -->
+    <circle cx="85" cy="140" r="2" fill="#2a2a2a"/>
+    <circle cx="88" cy="142" r="2" fill="#2a2a2a"/>
+    <circle cx="112" cy="142" r="2" fill="#2a2a2a"/>
+    <circle cx="115" cy="144" r="2" fill="#2a2a2a"/>
+    
+    <!-- Tail (curved like letter Q, extending from bottom right) -->
+    <path d="M 120 150 
+             Q 140 160 150 170 
+             Q 160 180 165 190 
+             Q 170 185 175 180 
+             Q 180 175 185 170 
+             Q 190 165 195 160" 
+          stroke="#3a3a3a" 
+          stroke-width="8" 
+          fill="none" 
+          stroke-linecap="round"/>
+  </g>
+</svg>

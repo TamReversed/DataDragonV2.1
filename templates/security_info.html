@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DataDragon - Security & Privacy Information</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            position: relative;
+            transition: background 0.5s ease;
+        }
+
+        /* Animated background for Future mode */
+        body.future-mode {
+            background: #0a0a0a;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        .animated-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            pointer-events: none;
+        }
+
+        body.future-mode .animated-bg {
+            opacity: 1;
+        }
+
+        .blob {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(60px);
+            mix-blend-mode: screen;
+            animation: float 20s infinite ease-in-out;
+        }
+
+        .blob:nth-child(1) {
+            width: 400px;
+            height: 400px;
+            background: rgba(102, 126, 234, 0.3);
+            top: 20%;
+            left: 20%;
+            animation-delay: 0s;
+            animation-duration: 25s;
+        }
+
+        .blob:nth-child(2) {
+            width: 350px;
+            height: 350px;
+            background: rgba(118, 75, 162, 0.3);
+            top: 60%;
+            left: 60%;
+            animation-delay: 5s;
+            animation-duration: 30s;
+        }
+
+        .blob:nth-child(3) {
+            width: 300px;
+            height: 300px;
+            background: rgba(56, 189, 248, 0.3);
+            top: 40%;
+            left: 80%;
+            animation-delay: 10s;
+            animation-duration: 35s;
+        }
+
+        @keyframes float {
+            0%, 100% {
+                transform: translate(0, 0) scale(1);
+            }
+            33% {
+                transform: translate(50px, -50px) scale(1.1);
+            }
+            66% {
+                transform: translate(-50px, 50px) scale(0.9);
+            }
+        }
+
+        /* UI Toggle Switch */
+        .ui-toggle {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 16px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.3s ease;
+        }
+
+        body.future-mode .ui-toggle {
+            background: rgba(30, 30, 30, 0.8);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+        }
+
+        .ui-toggle-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            transition: color 0.3s ease;
+        }
+
+        body.future-mode .ui-toggle-label {
+            color: #fff;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 50px;
+            height: 26px;
+            background: #e0e0e0;
+            border-radius: 13px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        body.future-mode .toggle-switch {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .toggle-switch.active {
+            background: #667eea;
+        }
+
+        body.future-mode .toggle-switch.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 22px;
+            height: 22px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .toggle-switch.active .toggle-slider {
+            transform: translateX(24px);
+        }
+
+        .mode-text {
+            font-size: 11px;
+            color: #666;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        body.future-mode .mode-text {
+            color: #999;
+        }
+
+        /* Future Mode Settings Panel */
+        .future-settings {
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(30, 30, 30, 0.9);
+            backdrop-filter: blur(20px);
+            padding: 20px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            max-width: 280px;
+            opacity: 0;
+            transform: translateX(-20px);
+            pointer-events: none;
+            transition: all 0.3s ease;
+        }
+
+        body.future-mode .future-settings {
+            opacity: 1;
+            transform: translateX(0);
+            pointer-events: all;
+        }
+
+        .settings-title {
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            user-select: none;
+            padding: 10px;
+            margin: -10px -10px 0 -10px;
+            border-radius: 12px 12px 0 0;
+            transition: background 0.2s ease;
+        }
+
+        .settings-title:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .settings-title .chevron {
+            margin-left: auto;
+            transition: transform 0.3s ease;
+            font-size: 12px;
+        }
+
+        .future-settings.collapsed .settings-title .chevron {
+            transform: rotate(-90deg);
+        }
+
+        .settings-content {
+            max-height: 500px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            opacity: 1;
+        }
+
+        .future-settings.collapsed .settings-content {
+            max-height: 0;
+            opacity: 0;
+            margin-top: 0;
+            padding-top: 0;
+        }
+
+        .future-settings.collapsed {
+            padding-bottom: 10px;
+        }
+
+        .setting-group {
+            margin-bottom: 15px;
+        }
+
+        .setting-label {
+            color: #999;
+            font-size: 12px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .color-picker-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .color-picker {
+            width: 100px;
+            height: 100px;
+            border-radius: 8px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .color-picker:hover {
+            border-color: rgba(255, 255, 255, 0.4);
+            transform: scale(1.05);
+        }
+
+        .color-label {
+            color: #ccc;
+            font-size: 11px;
+            flex: 1;
+        }
+
+        .speed-slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .speed-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .speed-value {
+            color: #667eea;
+            font-size: 12px;
+            font-weight: 600;
+            text-align: center;
+            margin-top: 5px;
+        }
+
+        .reset-btn {
+            width: 100%;
+            padding: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            color: #ccc;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 10px;
+        }
+
+        .reset-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.3);
+            color: #fff;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            position: relative;
+            z-index: 1;
+            transition: all 0.5s ease;
+        }
+
+        body.future-mode .container {
+            background: rgba(30, 30, 30, 0.7);
+            backdrop-filter: blur(40px) saturate(180%);
+            -webkit-backdrop-filter: blur(40px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .back-home-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: color 0.3s ease;
+        }
+
+        .back-home-link:hover {
+            color: #764ba2;
+        }
+
+        body.future-mode .back-home-link {
+            color: #a0b0ff;
+        }
+
+        body.future-mode .back-home-link:hover {
+            color: #ffffff;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 32px;
+            transition: color 0.3s ease;
+        }
+
+        body.future-mode h1 {
+            color: #fff;
+            text-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .datadragon-logo {
+            width: 100px;
+            height: 100px;
+            object-fit: contain;
+            vertical-align: middle;
+            margin-right: 10px;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+            transition: transform 0.3s ease;
+        }
+
+        body.future-mode .datadragon-logo {
+            filter: drop-shadow(0 2px 8px rgba(102, 126, 234, 0.4));
+        }
+
+        .datadragon-logo:hover {
+            transform: scale(1.1);
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+            transition: color 0.3s ease;
+        }
+
+        body.future-mode .subtitle {
+            color: #999;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        body.future-mode .section-title {
+            color: #a0b0ff;
+            border-bottom-color: rgba(102, 126, 234, 0.8);
+        }
+
+        .section-content {
+            color: #333;
+            line-height: 1.8;
+            font-size: 15px;
+        }
+
+        body.future-mode .section-content {
+            color: #e0e0e0;
+        }
+
+        .section-content ul {
+            margin-left: 20px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+
+        .section-content li {
+            margin-bottom: 8px;
+        }
+
+        .section-content code {
+            background: #f0f0f0;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        body.future-mode .section-content code {
+            background: rgba(255, 255, 255, 0.1);
+            color: #a0b0ff;
+        }
+
+        .highlight-box {
+            background: #f8f9ff;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        body.future-mode .highlight-box {
+            background: rgba(102, 126, 234, 0.1);
+            border-left-color: rgba(102, 126, 234, 0.8);
+        }
+
+        .highlight-box strong {
+            color: #667eea;
+            display: block;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        body.future-mode .highlight-box strong {
+            color: #a0b0ff;
+        }
+
+        body.future-mode .highlight-box p {
+            color: #e0e0e0;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        body.future-mode .warning-box {
+            background: rgba(255, 193, 7, 0.2);
+            border-left-color: rgba(255, 193, 7, 0.5);
+        }
+
+        .warning-box strong {
+            color: #856404;
+            display: block;
+            margin-bottom: 10px;
+        }
+
+        body.future-mode .warning-box strong {
+            color: #ffc107;
+        }
+
+        body.future-mode .warning-box {
+            color: #ffd700;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .info-item {
+            background: #f8f9ff;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        body.future-mode .info-item {
+            background: rgba(102, 126, 234, 0.1);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .info-item-label {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+
+        body.future-mode .info-item-label {
+            color: #a0b0ff;
+        }
+
+        .info-item-value {
+            color: #333;
+            font-size: 14px;
+        }
+
+        body.future-mode .info-item-value {
+            color: #e0e0e0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Animated Background for Future Mode -->
+    <div class="animated-bg">
+        <div class="blob"></div>
+        <div class="blob"></div>
+        <div class="blob"></div>
+    </div>
+
+    <!-- UI Toggle -->
+    <div class="ui-toggle">
+        <span class="ui-toggle-label">Classic</span>
+        <div class="toggle-switch" id="uiToggle">
+            <div class="toggle-slider"></div>
+        </div>
+        <span class="mode-text">Future (beta)</span>
+    </div>
+
+    <!-- Future Mode Settings -->
+    <div class="future-settings collapsed">
+        <div class="settings-title" id="settingsToggle">
+            Customize Background
+            <span class="chevron">▼</span>
+        </div>
+        
+        <div class="settings-content">
+            <div class="setting-group">
+                <label class="setting-label">Blob Colors</label>
+                <div class="color-picker-wrapper">
+                    <input type="color" class="color-picker" id="color1" value="#667eea">
+                    <span class="color-label">Purple</span>
+                </div>
+                <div class="color-picker-wrapper" style="margin-top: 8px;">
+                    <input type="color" class="color-picker" id="color2" value="#764ba2">
+                    <span class="color-label">Violet</span>
+                </div>
+                <div class="color-picker-wrapper" style="margin-top: 8px;">
+                    <input type="color" class="color-picker" id="color3" value="#38bdf8">
+                    <span class="color-label">Blue</span>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <label class="setting-label">Animation Speed</label>
+                <input type="range" class="speed-slider" id="speedSlider" min="10" max="60" value="30" step="5">
+                <div class="speed-value" id="speedValue">30s</div>
+            </div>
+
+            <button class="reset-btn" id="resetSettings">Reset to Default</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <a href="/" class="back-home-link">← Back to DataDragon</a>
+        <h1 style="display: flex; align-items: center;">
+            <img src="{{ url_for('static', filename='images/datadragon-logo.png') }}" alt="DataDragon Logo" class="datadragon-logo" >
+            <span>DataDragon - Security & Privacy Information</span>
+        </h1>
+        <p class="subtitle">Your data privacy and security is our top priority</p>
+
+        <div class="section">
+            <div class="highlight-box">
+                <strong>100% Local Processing</strong>
+                All data processing happens entirely on your local machine. Your files and data never leave your computer.
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Data Processing</h2>
+            <div class="section-content">
+                <p><strong>All processing is local:</strong></p>
+                <ul>
+                    <li>File uploads are sent only to <code>http://127.0.0.1:5000</code> (localhost)</li>
+                    <li>All analysis uses pandas running on your machine</li>
+                    <li>Results are stored temporarily in memory, then deleted</li>
+                    <li>Temporary files are stored locally and automatically cleaned up</li>
+                    <li>All communication stays within your local network</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">What We Don't Do</h2>
+            <div class="section-content">
+                <p><strong>Your data is never:</strong></p>
+                <ul>
+                    <li>Sent to cloud services or external APIs</li>
+                    <li>Stored in databases</li>
+                    <li>Logged or tracked</li>
+                    <li>Shared with third parties</li>
+                    <li>Transmitted over the internet</li>
+                    <li>Analyzed for marketing or analytics</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">External Connections</h2>
+            <div class="section-content">
+                <p>The only external connections are for JavaScript libraries (code only, no data):</p>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-item-label">Chart.js</div>
+                        <div class="info-item-value">Chart rendering library (cdn.jsdelivr.net)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">jsPDF</div>
+                        <div class="info-item-value">PDF generation library (cdnjs.cloudflare.com)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">html2canvas</div>
+                        <div class="info-item-value">Canvas conversion library (cdnjs.cloudflare.com)</div>
+                    </div>
+                </div>
+                <p style="margin-top: 15px;">
+                    <strong>Important:</strong> These are code libraries only. They run in your browser to create visualizations and PDFs. 
+                    They do <strong>not</strong> receive or transmit any of your data. They are standard, open-source libraries used by millions of applications.
+                </p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Data Lifecycle</h2>
+            <div class="section-content">
+                <ol style="margin-left: 20px;">
+                    <li><strong>Upload:</strong> File is temporarily saved to local <code>uploads/</code> folder</li>
+                    <li><strong>Processing:</strong> File is read into memory using pandas</li>
+                    <li><strong>Analysis:</strong> All calculations happen in memory</li>
+                    <li><strong>Results:</strong> Analysis results sent to browser (via localhost)</li>
+                    <li><strong>Cleanup:</strong> Original file deleted immediately after processing</li>
+                    <li><strong>Memory:</strong> DataFrames explicitly deleted from memory</li>
+                </ol>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Privacy Guarantee</h2>
+            <div class="highlight-box">
+                <strong>🔐 Your Data Never Leaves Your Machine</strong>
+                <p style="margin-top: 10px;">
+                    All data processing occurs entirely within your local environment. Files are processed, 
+                    analyzed, and results are displayed - all without any external transmission. Temporary 
+                    files are automatically deleted, and no traces of your data remain after processing.
+                </p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Technical Details</h2>
+            <div class="section-content">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-item-label">Server Location</div>
+                        <div class="info-item-value">Localhost (127.0.0.1:5000)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Processing</div>
+                        <div class="info-item-value">In-memory (pandas)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Storage</div>
+                        <div class="info-item-value">Temporary (auto-deleted)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Network</div>
+                        <div class="info-item-value">Local only</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Technical Build Document</h2>
+            <div class="section-content">
+                <p><strong>This document provides a comprehensive technical overview of the DataDragon application for security and compliance review.</strong></p>
+                
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Application Architecture</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-item-label">Application Type</div>
+                        <div class="info-item-value">Web Application (Client-Server)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Server Framework</div>
+                        <div class="info-item-value">Flask 3.0.0 (Python WSGI)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Server Location</div>
+                        <div class="info-item-value">Localhost (127.0.0.1:5000)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Communication Protocol</div>
+                        <div class="info-item-value">HTTP (Local Network Only)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Deployment Model</div>
+                        <div class="info-item-value">Single-User Local Installation</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Session Management</div>
+                        <div class="info-item-value">In-Memory (No Persistent Storage)</div>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Backend Dependencies</h3>
+                <div class="highlight-box">
+                    <strong>Python Packages (requirements.txt)</strong>
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li><strong>Flask 3.0.0</strong> - Web framework (WSGI application server)</li>
+                        <li><strong>pandas 2.1.4</strong> - Data analysis and manipulation library</li>
+                        <li><strong>openpyxl 3.1.2</strong> - Excel file reading/writing (.xlsx format)</li>
+                        <li><strong>Werkzeug 3.0.1</strong> - WSGI utility library (included with Flask, used for secure filename handling)</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Python Standard Library Modules</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-item-label">os</div>
+                        <div class="info-item-value">File system operations</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">zipfile</div>
+                        <div class="info-item-value">ZIP archive creation</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">shutil</div>
+                        <div class="info-item-value">File operations (cleanup)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">datetime, timedelta</div>
+                        <div class="info-item-value">Timestamp generation</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">json</div>
+                        <div class="info-item-value">JSON serialization</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">queue.Queue</div>
+                        <div class="info-item-value">Thread-safe progress communication</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">threading</div>
+                        <div class="info-item-value">Background task processing</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">secrets</div>
+                        <div class="info-item-value">Cryptographically secure random generation</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">time</div>
+                        <div class="info-item-value">Timing and rate limiting</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">functools.wraps</div>
+                        <div class="info-item-value">Decorator utilities</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">collections.defaultdict</div>
+                        <div class="info-item-value">Rate limit tracking</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">traceback</div>
+                        <div class="info-item-value">Error logging</div>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Frontend Technologies</h3>
+                <div class="highlight-box">
+                    <strong>Core Technologies</strong>
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li><strong>HTML5</strong> - Markup language</li>
+                        <li><strong>CSS3</strong> - Styling (including CSS Grid, Flexbox, animations, backdrop-filter)</li>
+                        <li><strong>JavaScript (ES6+)</strong> - Client-side scripting (vanilla JS, no frameworks)</li>
+                        <li><strong>Server-Sent Events (SSE)</strong> - Real-time progress updates</li>
+                        <li><strong>Fetch API</strong> - HTTP requests</li>
+                        <li><strong>localStorage</strong> - Client-side theme preferences (UI only, no data)</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">External JavaScript Libraries (CDN)</h3>
+                <div class="warning-box">
+                    <strong>External CDN Connections (Code Only - No Data Transmission)</strong>
+                    <p style="margin-top: 10px;">The following libraries are loaded from public CDNs for visualization and PDF generation. These are code-only downloads and do NOT receive or transmit any user data.</p>
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li><strong>Chart.js 4.4.0</strong> - Source: cdn.jsdelivr.net/npm/chart.js - Purpose: Data visualization charts (bar, line, pie charts)</li>
+                        <li><strong>jsPDF 2.5.1</strong> - Source: cdnjs.cloudflare.com/ajax/libs/jspdf - Purpose: PDF document generation from HTML</li>
+                        <li><strong>html2canvas 1.4.1</strong> - Source: cdnjs.cloudflare.com/ajax/libs/html2canvas - Purpose: HTML to canvas conversion for PDF export</li>
+                    </ul>
+                    <p style="margin-top: 10px;"><strong>Security Note:</strong> All three libraries are open-source, widely-used, and execute entirely in the browser. They process data that is already loaded in the browser memory and do not make external network requests with user data.</p>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Security Features Implemented</h3>
+                <div class="highlight-box">
+                    <strong>Security Measures</strong>
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li><strong>Secure Session Keys:</strong> Generated using <code>secrets.token_hex(32)</code> (64-character cryptographically secure random string)</li>
+                        <li><strong>Session Lifetime:</strong> 1 hour maximum, automatically expired</li>
+                        <li><strong>Rate Limiting:</strong> 10 requests per 60 seconds per IP address (prevents DoS attacks)</li>
+                        <li><strong>File Upload Validation:</strong> File extension and MIME type checking</li>
+                        <li><strong>Path Traversal Protection:</strong> <code>secure_filename()</code> sanitizes all file paths</li>
+                        <li><strong>File Size Limits:</strong> Maximum 500MB per file upload</li>
+                        <li><strong>Input Validation:</strong> Chunk size limits (1 to 1,000,000 records), filename sanitization</li>
+                        <li><strong>Secure Session IDs:</strong> Generated using <code>secrets.token_hex(8)</code> with timestamps</li>
+                        <li><strong>Automatic Cleanup:</strong> Temporary files deleted immediately after processing</li>
+                        <li><strong>Memory Management:</strong> DataFrames explicitly deleted from memory after use</li>
+                        <li><strong>No Persistent Storage:</strong> No database, no file system persistence of user data</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Data Processing Architecture</h3>
+                <div class="section-content">
+                    <p><strong>Processing Flow:</strong></p>
+                    <ol style="margin-left: 20px; margin-top: 10px;">
+                        <li><strong>Upload:</strong> File received via HTTP POST, saved to <code>uploads/</code> directory with session ID prefix</li>
+                        <li><strong>Validation:</strong> File extension (.xlsx, .xls, .csv), MIME type, and size checked</li>
+                        <li><strong>Processing:</strong> File read into pandas DataFrame in memory</li>
+                        <li><strong>Analysis/Transformation:</strong> All operations performed in-memory using pandas</li>
+                        <li><strong>Output:</strong> Results written to <code>output/</code> directory (temporary)</li>
+                        <li><strong>Cleanup:</strong> Original upload file deleted, output files available for download then auto-deleted</li>
+                    </ol>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">File Handling</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-item-label">Supported Formats</div>
+                        <div class="info-item-value">.xlsx, .xls, .csv</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Max File Size</div>
+                        <div class="info-item-value">500 MB</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Storage Location</div>
+                        <div class="info-item-value">Local filesystem (uploads/, output/)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Retention Policy</div>
+                        <div class="info-item-value">Immediate deletion after processing</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">File Naming</div>
+                        <div class="info-item-value">Session ID + secure_filename() sanitization</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Path Security</div>
+                        <div class="info-item-value">Absolute path validation, no directory traversal</div>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Network Architecture</h3>
+                <div class="highlight-box">
+                    <strong>Network Configuration</strong>
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li><strong>Server Binding:</strong> 127.0.0.1:5000 (localhost only, not accessible from network)</li>
+                        <li><strong>Protocol:</strong> HTTP (not HTTPS - localhost only, no external access)</li>
+                        <li><strong>Connection Types:</strong> HTTP POST (file uploads), HTTP GET (downloads), SSE (progress updates)</li>
+                        <li><strong>External Connections:</strong> Only for CDN JavaScript libraries (code download, no data)</li>
+                        <li><strong>No Outbound Data:</strong> Application never sends user data to external servers</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Session & State Management</h3>
+                <div class="section-content">
+                    <p><strong>Session Storage:</strong></p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li><strong>Progress Queues:</strong> In-memory Python Queue objects, keyed by session ID</li>
+                        <li><strong>Analysis Results:</strong> In-memory dictionary, auto-expires after 1 hour</li>
+                        <li><strong>Rate Limit Tracking:</strong> In-memory defaultdict, per-IP address</li>
+                        <li><strong>Session IDs:</strong> Format: <code>{timestamp}_{16-char-hex}</code> (e.g., "20251117_010432_a1b2c3d4e5f6g7h8")</li>
+                        <li><strong>Cleanup Thread:</strong> Background daemon thread runs every 5 minutes to remove expired sessions</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">API Endpoints</h3>
+                <div class="section-content">
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px;">
+                        <thead>
+                            <tr style="background: #f8f9ff; border-bottom: 2px solid #667eea;">
+                                <th style="padding: 10px; text-align: left;">Method</th>
+                                <th style="padding: 10px; text-align: left;">Endpoint</th>
+                                <th style="padding: 10px; text-align: left;">Purpose</th>
+                                <th style="padding: 10px; text-align: left;">Rate Limited</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">GET</td>
+                                <td style="padding: 10px;"><code>/</code></td>
+                                <td style="padding: 10px;">Landing page</td>
+                                <td style="padding: 10px;">No</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">GET</td>
+                                <td style="padding: 10px;"><code>/excel-splitter</code></td>
+                                <td style="padding: 10px;">Excel splitter tool page</td>
+                                <td style="padding: 10px;">No</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">GET</td>
+                                <td style="padding: 10px;"><code>/column-analyzer</code></td>
+                                <td style="padding: 10px;">Column analyzer tool page</td>
+                                <td style="padding: 10px;">No</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">GET</td>
+                                <td style="padding: 10px;"><code>/data-scrubber</code></td>
+                                <td style="padding: 10px;">Data scrubber tool page</td>
+                                <td style="padding: 10px;">No</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">GET</td>
+                                <td style="padding: 10px;"><code>/security-info</code></td>
+                                <td style="padding: 10px;">Security information page</td>
+                                <td style="padding: 10px;">No</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">POST</td>
+                                <td style="padding: 10px;"><code>/upload</code></td>
+                                <td style="padding: 10px;">File upload for splitting</td>
+                                <td style="padding: 10px;">Yes (10/min)</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">POST</td>
+                                <td style="padding: 10px;"><code>/analyze</code></td>
+                                <td style="padding: 10px;">File upload for analysis</td>
+                                <td style="padding: 10px;">Yes (10/min)</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">POST</td>
+                                <td style="padding: 10px;"><code>/scrub-data</code></td>
+                                <td style="padding: 10px;">File upload for anonymization</td>
+                                <td style="padding: 10px;">Yes (10/min)</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">POST</td>
+                                <td style="padding: 10px;"><code>/get-columns</code></td>
+                                <td style="padding: 10px;">Get column names from file</td>
+                                <td style="padding: 10px;">Yes (10/min)</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">GET</td>
+                                <td style="padding: 10px;"><code>/progress/&lt;session_id&gt;</code></td>
+                                <td style="padding: 10px;">Server-Sent Events progress stream</td>
+                                <td style="padding: 10px;">No</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">GET</td>
+                                <td style="padding: 10px;"><code>/fetch-analysis/&lt;session_id&gt;</code></td>
+                                <td style="padding: 10px;">Fetch large analysis results</td>
+                                <td style="padding: 10px;">No</td>
+                            </tr>
+                            <tr style="border-bottom: 1px solid #e0e0e0;">
+                                <td style="padding: 10px;">GET</td>
+                                <td style="padding: 10px;"><code>/download/&lt;filename&gt;</code></td>
+                                <td style="padding: 10px;">Download processed files</td>
+                                <td style="padding: 10px;">No</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Data Flow & Memory Management</h3>
+                <div class="section-content">
+                    <p><strong>Memory Handling:</strong></p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li><strong>DataFrames:</strong> Created in memory, explicitly deleted with <code>del df</code> after processing</li>
+                        <li><strong>File Reading:</strong> pandas reads entire file into memory (no streaming for Excel files)</li>
+                        <li><strong>Analysis Results:</strong> Stored in-memory dictionary, maximum 1 hour retention</li>
+                        <li><strong>Progress Updates:</strong> Thread-safe Queue objects, cleaned up after session completion</li>
+                        <li><strong>No Memory Leaks:</strong> All objects explicitly deleted, cleanup threads run periodically</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Error Handling & Logging</h3>
+                <div class="section-content">
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li><strong>Error Responses:</strong> JSON error messages with appropriate HTTP status codes (400, 404, 429, 500)</li>
+                        <li><strong>Exception Handling:</strong> Try-catch blocks around all file operations</li>
+                        <li><strong>Logging:</strong> Console print statements for debugging (no persistent logs)</li>
+                        <li><strong>Error Cleanup:</strong> Temporary files deleted even on error conditions</li>
+                        <li><strong>Stack Traces:</strong> Full traceback printed to console for debugging (not exposed to client)</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Threading & Concurrency</h3>
+                <div class="section-content">
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li><strong>Background Processing:</strong> File operations run in daemon threads</li>
+                        <li><strong>Thread Safety:</strong> Queue objects for thread-safe communication</li>
+                        <li><strong>Cleanup Thread:</strong> Daemon thread runs every 5 minutes to clean expired sessions</li>
+                        <li><strong>No Race Conditions:</strong> Each session has isolated queue and file paths</li>
+                        <li><strong>Thread Count:</strong> One thread per active file processing operation</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Compliance & Audit Considerations</h3>
+                <div class="warning-box">
+                    <strong>Security Compliance Notes</strong>
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        <li><strong>No Data Persistence:</strong> No databases, no long-term file storage</li>
+                        <li><strong>No User Authentication:</strong> Single-user local application</li>
+                        <li><strong>No Audit Logging:</strong> No persistent logs of user actions or data access</li>
+                        <li><strong>No Data Transmission:</strong> All processing local, no external API calls with data</li>
+                        <li><strong>Source Code Visibility:</strong> All code is visible in <code>app.py</code> for review</li>
+                        <li><strong>Dependency Transparency:</strong> All dependencies listed in <code>requirements.txt</code></li>
+                        <li><strong>No Encryption:</strong> Files stored unencrypted in temporary directories (localhost only)</li>
+                        <li><strong>No Network Encryption:</strong> HTTP only (acceptable for localhost-only access)</li>
+                    </ul>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">System Requirements</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-item-label">Python Version</div>
+                        <div class="info-item-value">3.7 or higher</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Operating System</div>
+                        <div class="info-item-value">Windows, macOS, Linux</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Browser Support</div>
+                        <div class="info-item-value">Modern browsers (Chrome, Firefox, Safari, Edge)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Memory Requirements</div>
+                        <div class="info-item-value">Sufficient RAM to load entire file into memory</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Disk Space</div>
+                        <div class="info-item-value">Temporary: 2x file size (upload + output)</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-item-label">Network</div>
+                        <div class="info-item-value">Localhost only (no external network required)</div>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 25px; margin-bottom: 15px; color: #667eea; font-size: 18px;">Known Limitations</h3>
+                <div class="section-content">
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        <li><strong>File Size:</strong> Limited by available RAM (entire file loaded into memory)</li>
+                        <li><strong>Concurrent Users:</strong> Not designed for multi-user access (single local instance)</li>
+                        <li><strong>No Authentication:</strong> Anyone with localhost access can use the application</li>
+                        <li><strong>No Encryption:</strong> Files stored unencrypted during processing</li>
+                        <li><strong>No Backup:</strong> No data persistence or recovery mechanisms</li>
+                        <li><strong>CDN Dependency:</strong> Requires internet connection for initial JavaScript library loading (code only)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2 class="section-title">Questions?</h2>
+            <div class="section-content">
+                <p>
+                    If you have any concerns about data privacy or security, you can:
+                </p>
+                <ul>
+                    <li>Review the source code (all processing is visible in <code>app.py</code>)</li>
+                    <li>Monitor network traffic (all requests go to localhost only)</li>
+                    <li>Check temporary folders (files are deleted after processing)</li>
+                    <li>Run the application in an isolated environment if needed</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Theme Toggle Functionality
+        const uiToggle = document.getElementById('uiToggle');
+        const color1Picker = document.getElementById('color1');
+        const color2Picker = document.getElementById('color2');
+        const color3Picker = document.getElementById('color3');
+        const speedSlider = document.getElementById('speedSlider');
+        const speedValue = document.getElementById('speedValue');
+        const resetSettings = document.getElementById('resetSettings');
+        const blobs = document.querySelectorAll('.blob');
+
+        const defaultSettings = {
+            color1: '#667eea',
+            color2: '#764ba2',
+            color3: '#38bdf8',
+            speed: 30
+        };
+
+        function setTheme(isFutureMode) {
+            if (isFutureMode) {
+                document.body.classList.add('future-mode');
+                uiToggle.classList.add('active');
+                localStorage.setItem('uiTheme', 'future');
+            } else {
+                document.body.classList.remove('future-mode');
+                uiToggle.classList.remove('active');
+                localStorage.setItem('uiTheme', 'classic');
+            }
+        }
+
+        function hexToRgba(hex, alpha = 0.3) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function updateBlobColors() {
+            blobs[0].style.background = hexToRgba(color1Picker.value);
+            blobs[1].style.background = hexToRgba(color2Picker.value);
+            blobs[2].style.background = hexToRgba(color3Picker.value);
+            localStorage.setItem('blobColors', JSON.stringify({
+                color1: color1Picker.value,
+                color2: color2Picker.value,
+                color3: color3Picker.value
+            }));
+        }
+
+        function updateSpeed() {
+            const speed = parseInt(speedSlider.value);
+            speedValue.textContent = speed + 's';
+            blobs[0].style.animationDuration = (speed - 5) + 's';
+            blobs[1].style.animationDuration = speed + 's';
+            blobs[2].style.animationDuration = (speed + 5) + 's';
+            localStorage.setItem('animationSpeed', speed);
+        }
+
+        function loadSettings() {
+            const savedColors = localStorage.getItem('blobColors');
+            const savedSpeed = localStorage.getItem('animationSpeed');
+            if (savedColors) {
+                const colors = JSON.parse(savedColors);
+                color1Picker.value = colors.color1;
+                color2Picker.value = colors.color2;
+                color3Picker.value = colors.color3;
+                updateBlobColors();
+            }
+            if (savedSpeed) {
+                speedSlider.value = savedSpeed;
+                updateSpeed();
+            }
+        }
+
+        function resetToDefaults() {
+            color1Picker.value = defaultSettings.color1;
+            color2Picker.value = defaultSettings.color2;
+            color3Picker.value = defaultSettings.color3;
+            speedSlider.value = defaultSettings.speed;
+            updateBlobColors();
+            updateSpeed();
+        }
+
+        color1Picker.addEventListener('input', updateBlobColors);
+        color2Picker.addEventListener('input', updateBlobColors);
+        color3Picker.addEventListener('input', updateBlobColors);
+        speedSlider.addEventListener('input', updateSpeed);
+        resetSettings.addEventListener('click', resetToDefaults);
+
+        const savedTheme = localStorage.getItem('uiTheme');
+        if (savedTheme === 'future') {
+            setTheme(true);
+        }
+
+        loadSettings();
+
+        uiToggle.addEventListener('click', () => {
+            const isFutureMode = !document.body.classList.contains('future-mode');
+            setTheme(isFutureMode);
+        });
+
+        // Toggle settings panel collapse/expand
+        const settingsToggle = document.getElementById('settingsToggle');
+        const futureSettings = document.querySelector('.future-settings');
+        if (settingsToggle && futureSettings) {
+            settingsToggle.addEventListener('click', () => {
+                futureSettings.classList.toggle('collapsed');
+            });
+        }
+    </script>
+</body>
+</html>
+
