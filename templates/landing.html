@@ -139,6 +139,10 @@
         }
 
         /* Category-specific colors */
+        .category-pipelines .category-icon { background: rgba(251, 146, 60, 0.15); }
+        .category-pipelines .category-icon::before { background: linear-gradient(135deg, #fb923c 0%, #f97316 100%); }
+        .category-pipelines .category-icon svg { stroke: #fb923c; }
+
         .category-quality .category-icon { background: rgba(168, 85, 247, 0.15); }
         .category-quality .category-icon::before { background: var(--gradient-purple-blue); }
         .category-quality .category-icon svg { stroke: var(--accent-purple); }
@@ -154,6 +158,25 @@
         .category-document .category-icon { background: rgba(16, 185, 129, 0.15); }
         .category-document .category-icon::before { background: var(--gradient-cyan-green); }
         .category-document .category-icon svg { stroke: var(--accent-green); }
+
+        /* Featured pipeline card */
+        .category-pipelines .app-card {
+            background: linear-gradient(135deg, rgba(251, 146, 60, 0.1) 0%, rgba(249, 115, 22, 0.05) 100%);
+            border-color: rgba(251, 146, 60, 0.3);
+        }
+
+        .category-pipelines .app-card:hover {
+            border-color: #fb923c;
+            box-shadow: 0 8px 32px rgba(251, 146, 60, 0.2);
+        }
+
+        .category-pipelines .card-icon {
+            background: rgba(251, 146, 60, 0.15);
+        }
+
+        .category-pipelines .card-icon svg {
+            stroke: #fb923c;
+        }
 
         .category-title {
             color: var(--text-primary);
@@ -583,15 +606,15 @@
                 </div>
             </header>
 
-            <!-- Data Quality & Analysis -->
-            <div class="category-section category-quality">
+            <!-- Data Pipelines -->
+            <div class="category-section category-pipelines">
                 <div class="category-header">
                     <div class="category-icon">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5m.75-9 3-3 2.148 2.148A12.061 12.061 0 0 1 16.5 7.605" />
                         </svg>
                     </div>
-                    <h2 class="category-title">Data Quality & Analysis</h2>
+                    <h2 class="category-title">Data Pipelines</h2>
                 </div>
                 <div class="apps-grid">
                     <a href="/data-readiness-pipeline" class="app-card">
@@ -603,7 +626,20 @@
                         <h3 class="app-title">Data Readiness Pipeline</h3>
                         <p class="app-description">Guided 5-stage workflow: analyze shape, triage gaps, discover keys, transform, and generate PDF reports.</p>
                     </a>
+                </div>
+            </div>
 
+            <!-- Data Quality & Analysis -->
+            <div class="category-section category-quality">
+                <div class="category-header">
+                    <div class="category-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+                        </svg>
+                    </div>
+                    <h2 class="category-title">Data Quality & Analysis</h2>
+                </div>
+                <div class="apps-grid">
                     <a href="/column-analyzer" class="app-card">
                         <div class="card-icon">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
