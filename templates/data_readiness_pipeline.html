@@ -2880,7 +2880,8 @@
             eventSource.onmessage = (event) => {
                 const progress = JSON.parse(event.data);
 
-                if (progress.stage === 'done') {
+                if (progress.stage === 'done' && progress.results) {
+                    // Only process 'done' if it has 'results' (key discovery completion)
                     eventSource.close();
                     // Update to 100% before hiding
                     document.getElementById('keyFill').style.width = '100%';
@@ -2900,6 +2901,9 @@
                         document.getElementById('findKeysBtn').disabled = false;
                         document.getElementById('findKeysBtn').onclick = confirmKeys;
                     }, 300);
+                } else if (progress.stage === 'done') {
+                    // Ignore 'done' messages from other stages (e.g., shape analysis with 'analysis' not 'results')
+                    return;
                 } else if (progress.stage === 'error') {
                     eventSource.close();
                     showError('keyError', progress.message);
@@ -2985,7 +2989,7 @@
     function displayKeyResults(results) {
         document.getElementById('keyResults').classList.remove('hidden');
         const container = document.getElementById('keyCards');
-        const keys = results.minimal_combinations || [];
+        const keys = (results && results.minimal_combinations) || [];
 
         if (keys.length === 0) {
             container.innerHTML = '<div class="empty-state"><div>No unique key combinations found</div></div>';
