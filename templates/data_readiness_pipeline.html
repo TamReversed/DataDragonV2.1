@@ -2093,17 +2093,45 @@
 
         state.currentStage = num;
 
-        // Stage-specific setup
-        if (num === 2 && state.analysis) {
-            // Re-render analysis if going back to stage 2
-            document.getElementById('runAnalysisBtn').style.display = 'none';
-            document.getElementById('continueToGapsBtn').style.display = 'block';
-            updatePreviewWithAnalysis(state.analysis);
+        // Manage preview panel visibility based on stage
+        const previewContainer = document.getElementById('previewContainer');
+        const emptyPreview = document.getElementById('emptyPreview');
+        const analysisDashboard = document.getElementById('analysisDashboard');
+
+        if (num === 1) {
+            // Stage 1: Show data preview table if file uploaded, otherwise empty state
+            analysisDashboard.classList.remove('visible');
+            if (state.sessionId) {
+                previewContainer.classList.remove('hidden');
+                emptyPreview.classList.add('hidden');
+            } else {
+                previewContainer.classList.add('hidden');
+                emptyPreview.classList.remove('hidden');
+                emptyPreview.querySelector('div').textContent = 'Upload a file to see preview';
+            }
         } else if (num === 2) {
-            // Reset buttons for fresh analysis
-            document.getElementById('runAnalysisBtn').style.display = 'block';
-            document.getElementById('continueToGapsBtn').style.display = 'none';
+            // Stage 2: Hide data preview, show analysis dashboard if analysis done
+            previewContainer.classList.add('hidden');
+            if (state.analysis) {
+                emptyPreview.classList.add('hidden');
+                analysisDashboard.classList.add('visible');
+                document.getElementById('runAnalysisBtn').style.display = 'none';
+                document.getElementById('continueToGapsBtn').style.display = 'block';
+                updatePreviewWithAnalysis(state.analysis);
+            } else {
+                // Show empty state with stage 2 message
+                emptyPreview.classList.remove('hidden');
+                emptyPreview.querySelector('div').textContent = 'Click "Run Analysis" to analyze your data';
+                analysisDashboard.classList.remove('visible');
+                document.getElementById('runAnalysisBtn').style.display = 'block';
+                document.getElementById('continueToGapsBtn').style.display = 'none';
+            }
+        } else {
+            // Other stages: Hide preview table and empty state, keep analysis dashboard visible
+            previewContainer.classList.add('hidden');
+            emptyPreview.classList.add('hidden');
         }
+
         if (num === 3) loadGapData();
         if (num === 5) loadTransformations();
         if (num === 6) prepareSummary();
