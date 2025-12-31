@@ -1,0 +1,736 @@
+{% extends "base.html" %}
+
+{% block title %}DataDragon - Column Operations{% endblock %}
+
+{% block styles %}
+<style>
+    /* Tool-specific styles */
+    .operations-section {
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+        display: none;
+    }
+
+    .operations-section.show {
+        display: block;
+    }
+
+    /* Tabs */
+    .tabs {
+        display: flex;
+        gap: var(--space-2);
+        margin-bottom: var(--space-6);
+        flex-wrap: wrap;
+        padding-bottom: var(--space-4);
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .tab {
+        padding: var(--space-2) var(--space-4);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 14px;
+        background: var(--bg-card);
+        color: var(--text-secondary);
+        transition: all var(--transition-base);
+    }
+
+    .tab.active {
+        border-color: var(--accent-purple);
+        background: rgba(168, 85, 247, 0.15);
+        color: var(--accent-purple);
+    }
+
+    .tab:hover:not(.active) {
+        border-color: var(--border-hover);
+        color: var(--text-primary);
+    }
+
+    .tab-content {
+        display: none;
+    }
+
+    .tab-content.active {
+        display: block;
+    }
+
+    .tab-description {
+        color: var(--text-secondary);
+        margin-bottom: var(--space-4);
+        font-size: 14px;
+    }
+
+    /* Column list for reorder */
+    .column-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        max-height: 400px;
+        overflow-y: auto;
+        padding: var(--space-4);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        background: var(--bg-tertiary);
+    }
+
+    .column-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-3) var(--space-4);
+        background: var(--bg-card);
+        border-radius: var(--radius-md);
+        cursor: grab;
+        transition: all var(--transition-base);
+        border: 1px solid var(--border-subtle);
+    }
+
+    .column-item:hover {
+        border-color: var(--accent-purple);
+    }
+
+    .column-item.dragging {
+        opacity: 0.5;
+        border-color: var(--accent-purple);
+    }
+
+    .column-item.drag-over {
+        border-color: var(--accent-pink);
+        background: rgba(168, 85, 247, 0.1);
+    }
+
+    .drag-handle {
+        color: var(--text-muted);
+        font-size: 14px;
+        cursor: grab;
+    }
+
+    .column-name {
+        flex: 1;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .column-index {
+        font-size: 12px;
+        color: var(--text-muted);
+        background: var(--bg-tertiary);
+        padding: 2px 8px;
+        border-radius: var(--radius-sm);
+    }
+
+    /* Rename items */
+    .rename-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-3) var(--space-4);
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--space-2);
+    }
+
+    .rename-old {
+        flex: 1;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    .rename-arrow {
+        color: var(--accent-purple);
+        font-weight: bold;
+    }
+
+    .rename-input {
+        flex: 1;
+        padding: var(--space-2) var(--space-3);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        background: var(--bg-input);
+        color: var(--text-primary);
+        font-size: 14px;
+    }
+
+    .rename-input:focus {
+        outline: none;
+        border-color: var(--accent-purple);
+    }
+
+    /* Delete items */
+    .delete-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .delete-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-3) var(--space-4);
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: all var(--transition-base);
+        border: 1px solid transparent;
+    }
+
+    .delete-item:hover {
+        border-color: var(--accent-red);
+    }
+
+    .delete-item.selected {
+        border-color: var(--accent-red);
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    .delete-checkbox {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent-red);
+    }
+
+    .delete-name {
+        flex: 1;
+        font-weight: 500;
+        color: var(--text-primary);
+    }
+
+    /* Checkbox list for merge */
+    .checkbox-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-3);
+        padding: var(--space-4);
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-lg);
+    }
+
+    .checkbox-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        background: var(--bg-card);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        border: 1px solid var(--border-subtle);
+        transition: all var(--transition-base);
+        color: var(--text-secondary);
+    }
+
+    .checkbox-item:hover {
+        border-color: var(--accent-purple);
+    }
+
+    .checkbox-item.selected {
+        border-color: var(--accent-purple);
+        background: rgba(168, 85, 247, 0.1);
+    }
+
+    .checkbox-item input {
+        accent-color: var(--accent-purple);
+    }
+
+    /* Cached files section */
+    .cached-files-section {
+        background: rgba(168, 85, 247, 0.1);
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        margin-bottom: var(--space-6);
+        display: none;
+    }
+
+    .cached-files-header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-3);
+        color: var(--accent-purple);
+        font-weight: 600;
+        font-size: 14px;
+    }
+
+    .cached-files-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+    }
+
+    .cached-file-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--bg-card);
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        cursor: pointer;
+        transition: all var(--transition-base);
+    }
+
+    .cached-file-item:hover {
+        border-color: var(--accent-purple);
+    }
+
+    .cached-file-name {
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--text-primary);
+    }
+
+    .cached-file-meta {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .cached-file-source {
+        font-size: 11px;
+        background: rgba(168, 85, 247, 0.15);
+        color: var(--accent-purple);
+        padding: 4px 8px;
+        border-radius: var(--radius-sm);
+    }
+
+    /* Results */
+    .results {
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: var(--radius-lg);
+        padding: var(--space-6);
+        display: none;
+    }
+
+    .results.show {
+        display: block;
+    }
+
+    .results-summary {
+        font-size: 15px;
+        color: var(--text-primary);
+        margin-bottom: var(--space-5);
+        line-height: 1.6;
+    }
+
+    .results-summary strong {
+        color: var(--accent-green);
+    }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<h1 class="page-title">Column Operations</h1>
+<p class="page-subtitle">Restructure your data: reorder columns, rename headers, delete unwanted columns, split or merge columns.</p>
+{% endblock %}
+
+{% block content %}
+<div class="cached-files-section" id="cachedFilesSection">
+    <div class="cached-files-header">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+        </svg>
+        <span>Use Previous Result</span>
+    </div>
+    <div class="cached-files-list" id="cachedFilesList"></div>
+</div>
+
+<div class="card">
+    <div class="file-upload-zone" id="uploadArea">
+        <svg class="file-upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+        </svg>
+        <div class="file-upload-text">Click to Upload or Drag & Drop</div>
+        <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files supported</div>
+        <div id="fileSizeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
+        <input type="file" id="fileInput" class="file-upload-input" accept=".xlsx,.xls,.csv">
+    </div>
+</div>
+
+<div class="operations-section" id="operationsSection">
+    <div class="tabs">
+        <div class="tab active" data-tab="reorder">Reorder</div>
+        <div class="tab" data-tab="rename">Rename</div>
+        <div class="tab" data-tab="delete">Delete</div>
+        <div class="tab" data-tab="duplicate">Duplicate</div>
+        <div class="tab" data-tab="split">Split</div>
+        <div class="tab" data-tab="merge">Merge</div>
+    </div>
+
+    <div class="tab-content active" id="reorder-tab">
+        <p class="tab-description">Drag and drop columns to reorder them:</p>
+        <div class="column-list" id="reorderList"></div>
+    </div>
+
+    <div class="tab-content" id="rename-tab">
+        <p class="tab-description">Enter new names for columns (leave empty to keep original):</p>
+        <div id="renameList"></div>
+    </div>
+
+    <div class="tab-content" id="delete-tab">
+        <p class="tab-description">Select columns to delete:</p>
+        <div class="delete-list" id="deleteList"></div>
+    </div>
+
+    <div class="tab-content" id="duplicate-tab">
+        <div class="form-group">
+            <label class="form-label">Column to Duplicate</label>
+            <select id="duplicateColumn" class="form-select"></select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">New Column Name</label>
+            <input type="text" id="duplicateName" class="form-input" placeholder="Enter new column name...">
+        </div>
+    </div>
+
+    <div class="tab-content" id="split-tab">
+        <div class="form-group">
+            <label class="form-label">Column to Split</label>
+            <select id="splitColumn" class="form-select"></select>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Delimiter</label>
+            <input type="text" id="splitDelimiter" class="form-input" placeholder="e.g., , or - or |" value=",">
+        </div>
+        <div class="form-group">
+            <label class="form-label">New Column Names (comma-separated)</label>
+            <input type="text" id="splitNames" class="form-input" placeholder="e.g., First, Last">
+        </div>
+    </div>
+
+    <div class="tab-content" id="merge-tab">
+        <div class="form-group">
+            <label class="form-label">Columns to Merge</label>
+            <div class="checkbox-list" id="mergeColumns"></div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Separator</label>
+            <input type="text" id="mergeSeparator" class="form-input" placeholder="e.g., space, comma, hyphen" value=" ">
+        </div>
+        <div class="form-group">
+            <label class="form-label">New Column Name</label>
+            <input type="text" id="mergeNewName" class="form-input" placeholder="Enter merged column name...">
+        </div>
+    </div>
+</div>
+
+<div class="btn-group mb-6">
+    <button class="btn btn-primary" id="applyBtn" disabled>Apply Changes</button>
+</div>
+
+<div class="alert alert-error" id="error" style="display: none;"></div>
+
+<div class="results" id="results">
+    <div class="results-summary" id="resultsSummary"></div>
+    <button class="btn btn-primary" id="downloadBtn">Download Modified File</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileSizeInfo = document.getElementById('fileSizeInfo');
+    const operationsSection = document.getElementById('operationsSection');
+    const applyBtn = document.getElementById('applyBtn');
+    const error = document.getElementById('error');
+    const results = document.getElementById('results');
+    const resultsSummary = document.getElementById('resultsSummary');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const cachedFilesSection = document.getElementById('cachedFilesSection');
+    const cachedFilesList = document.getElementById('cachedFilesList');
+
+    let selectedFile = null;
+    let downloadFilename = null;
+    let fileColumns = [];
+    let currentTab = 'reorder';
+    let columnOrder = [];
+
+    async function loadCachedFiles() {
+        try {
+            const response = await fetch('/get-cached-files');
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                cachedFilesSection.style.display = 'block';
+                cachedFilesList.innerHTML = data.files.map(file => `
+                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
+                        <div class="cached-file-info">
+                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
+                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns</div>
+                        </div>
+                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
+                    </div>
+                `).join('');
+            }
+        } catch (err) {
+            console.error('Error loading cached files:', err);
+        }
+    }
+
+    async function useCachedFile(cacheId) {
+        try {
+            const response = await fetch('/use-cached-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cache_id: cacheId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
+                const blob = await fileResponse.blob();
+                const file = new File([blob], data.filename, { type: blob.type });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                fileInput.files = dataTransfer.files;
+                fileInput.dispatchEvent(new Event('change'));
+            }
+        } catch (err) {
+            console.error('Error using cached file:', err);
+            showError('Failed to load cached file');
+        }
+    }
+
+    loadCachedFiles();
+
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', async (e) => {
+        if (e.target.files.length > 0) {
+            selectedFile = e.target.files[0];
+            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
+            fileSizeInfo.style.display = 'block';
+            uploadArea.classList.add('has-file');
+            error.style.display = 'none';
+            results.classList.remove('show');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+                const response = await fetch('/get-columns', { method: 'POST', body: formData });
+                const data = await response.json();
+                if (data.success && data.columns) {
+                    fileColumns = data.columns.map(c => c.name || c);
+                    columnOrder = [...fileColumns];
+                    populateAllTabs();
+                    operationsSection.classList.add('show');
+                    applyBtn.disabled = false;
+                } else {
+                    throw new Error(data.error || 'Failed to get columns');
+                }
+            } catch (err) {
+                console.error('Error reading file:', err);
+                showError('Failed to read file: ' + err.message);
+            }
+        }
+    });
+
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            fileInput.dispatchEvent(new Event('change'));
+        }
+    });
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
+            currentTab = tab.dataset.tab;
+        });
+    });
+
+    function populateAllTabs() {
+        // Reorder
+        const reorderList = document.getElementById('reorderList');
+        reorderList.innerHTML = columnOrder.map((col, idx) => `
+            <div class="column-item" draggable="true" data-col="${escapeHtml(col)}">
+                <span class="drag-handle">&#9776;</span>
+                <span class="column-name">${escapeHtml(col)}</span>
+                <span class="column-index">#${idx + 1}</span>
+            </div>
+        `).join('');
+        setupDragDrop();
+
+        // Rename
+        document.getElementById('renameList').innerHTML = fileColumns.map(col => `
+            <div class="rename-item">
+                <span class="rename-old">${escapeHtml(col)}</span>
+                <span class="rename-arrow">→</span>
+                <input type="text" class="rename-input" data-original="${escapeHtml(col)}" placeholder="${escapeHtml(col)}">
+            </div>
+        `).join('');
+
+        // Delete
+        document.getElementById('deleteList').innerHTML = fileColumns.map(col => `
+            <label class="delete-item">
+                <input type="checkbox" class="delete-checkbox" value="${escapeHtml(col)}">
+                <span class="delete-name">${escapeHtml(col)}</span>
+            </label>
+        `).join('');
+
+        // Duplicate
+        const duplicateSelect = document.getElementById('duplicateColumn');
+        duplicateSelect.innerHTML = '<option value="">Select column...</option>' + fileColumns.map(col => `<option value="${escapeHtml(col)}">${escapeHtml(col)}</option>`).join('');
+
+        // Split
+        const splitSelect = document.getElementById('splitColumn');
+        splitSelect.innerHTML = '<option value="">Select column...</option>' + fileColumns.map(col => `<option value="${escapeHtml(col)}">${escapeHtml(col)}</option>`).join('');
+
+        // Merge
+        document.getElementById('mergeColumns').innerHTML = fileColumns.map(col => `
+            <label class="checkbox-item">
+                <input type="checkbox" value="${escapeHtml(col)}">
+                <span>${escapeHtml(col)}</span>
+            </label>
+        `).join('');
+    }
+
+    function setupDragDrop() {
+        const items = document.querySelectorAll('.column-item');
+        let draggedItem = null;
+
+        items.forEach(item => {
+            item.addEventListener('dragstart', () => {
+                draggedItem = item;
+                item.classList.add('dragging');
+            });
+
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                updateColumnOrder();
+            });
+
+            item.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                item.classList.add('drag-over');
+            });
+
+            item.addEventListener('dragleave', () => {
+                item.classList.remove('drag-over');
+            });
+
+            item.addEventListener('drop', (e) => {
+                e.preventDefault();
+                item.classList.remove('drag-over');
+                if (draggedItem !== item) {
+                    const list = item.parentNode;
+                    const allItems = [...list.children];
+                    const draggedIdx = allItems.indexOf(draggedItem);
+                    const dropIdx = allItems.indexOf(item);
+                    if (draggedIdx < dropIdx) item.after(draggedItem);
+                    else item.before(draggedItem);
+                }
+            });
+        });
+    }
+
+    function updateColumnOrder() {
+        const items = document.querySelectorAll('#reorderList .column-item');
+        columnOrder = [...items].map(item => item.dataset.col);
+        items.forEach((item, idx) => {
+            item.querySelector('.column-index').textContent = `#${idx + 1}`;
+        });
+    }
+
+    function showError(message) {
+        error.textContent = 'Error: ' + message;
+        error.style.display = 'block';
+    }
+
+    applyBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('operation', currentTab);
+
+        if (currentTab === 'reorder') {
+            formData.append('column_order', JSON.stringify(columnOrder));
+        } else if (currentTab === 'rename') {
+            const renames = {};
+            document.querySelectorAll('.rename-input').forEach(input => {
+                if (input.value.trim()) renames[input.dataset.original] = input.value.trim();
+            });
+            formData.append('renames', JSON.stringify(renames));
+        } else if (currentTab === 'delete') {
+            const toDelete = [...document.querySelectorAll('.delete-checkbox:checked')].map(cb => cb.value);
+            formData.append('columns_to_delete', JSON.stringify(toDelete));
+        } else if (currentTab === 'duplicate') {
+            formData.append('source_column', document.getElementById('duplicateColumn').value);
+            formData.append('new_column_name', document.getElementById('duplicateName').value);
+        } else if (currentTab === 'split') {
+            formData.append('column_to_split', document.getElementById('splitColumn').value);
+            formData.append('delimiter', document.getElementById('splitDelimiter').value);
+            formData.append('new_names', document.getElementById('splitNames').value);
+        } else if (currentTab === 'merge') {
+            const cols = [...document.querySelectorAll('#mergeColumns input:checked')].map(cb => cb.value);
+            formData.append('columns_to_merge', JSON.stringify(cols));
+            formData.append('separator', document.getElementById('mergeSeparator').value);
+            formData.append('new_column_name', document.getElementById('mergeNewName').value);
+        }
+
+        applyBtn.disabled = true;
+        applyBtn.textContent = 'Processing...';
+        error.style.display = 'none';
+        results.classList.remove('show');
+
+        try {
+            const response = await fetch('/column-operations', { method: 'POST', body: formData });
+            const data = await response.json();
+            if (data.success) {
+                downloadFilename = data.filename;
+                resultsSummary.innerHTML = `<strong>Column Operations Complete!</strong><br><br>${data.message}`;
+                results.classList.add('show');
+            } else {
+                throw new Error(data.error || 'Operation failed');
+            }
+        } catch (err) {
+            console.error('Error:', err);
+            showError(err.message);
+        } finally {
+            applyBtn.disabled = false;
+            applyBtn.textContent = 'Apply Changes';
+        }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+        if (downloadFilename) window.location.href = `/download/${downloadFilename}`;
+    });
+</script>
+{% endblock %}

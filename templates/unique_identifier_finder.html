@@ -1,2148 +1,1609 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DataDragon - Unique Identifier Finder</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 40px 20px;
-            color: #333;
-            position: relative;
-            transition: background 0.5s ease;
-        }
-
-        /* Animated background for Future mode */
-        body.future-mode {
-            background: #0a0a0a;
-            overflow-x: hidden;
-            overflow-y: auto;
-        }
-
-        .animated-bg {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 0;
-            opacity: 0;
-            transition: opacity 0.5s ease;
-            pointer-events: none;
-        }
-
-        body.future-mode .animated-bg {
-            opacity: 1;
-        }
-
-        .blob {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(60px);
-            mix-blend-mode: screen;
-            animation: float 20s infinite ease-in-out;
-        }
-
-        .blob:nth-child(1) {
-            width: 400px;
-            height: 400px;
-            background: rgba(102, 126, 234, 0.3);
-            top: 20%;
-            left: 20%;
-            animation-delay: 0s;
-            animation-duration: 25s;
-        }
-
-        .blob:nth-child(2) {
-            width: 350px;
-            height: 350px;
-            background: rgba(118, 75, 162, 0.3);
-            top: 60%;
-            left: 60%;
-            animation-delay: 5s;
-            animation-duration: 30s;
-        }
-
-        .blob:nth-child(3) {
-            width: 300px;
-            height: 300px;
-            background: rgba(56, 189, 248, 0.3);
-            top: 40%;
-            left: 80%;
-            animation-delay: 10s;
-            animation-duration: 35s;
-        }
-
-        @keyframes float {
-            0%, 100% {
-                transform: translate(0, 0) scale(1);
-            }
-            33% {
-                transform: translate(50px, -50px) scale(1.1);
-            }
-            66% {
-                transform: translate(-50px, 50px) scale(0.9);
-            }
-        }
-
-        /* UI Toggle Switch */
-        .ui-toggle {
-            position: fixed;
-            top: 20px;
-            left: 20px;
-            z-index: 1000;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            padding: 12px 16px;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            transition: all 0.3s ease;
-        }
-
-        body.future-mode .ui-toggle {
-            background: rgba(30, 30, 30, 0.8);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-        }
-
-        .ui-toggle-label {
-            font-size: 13px;
-            font-weight: 600;
-            color: #333;
-            transition: color 0.3s ease;
-        }
-
-        body.future-mode .ui-toggle-label {
-            color: #fff;
-        }
-
-        .toggle-switch {
-            position: relative;
-            width: 50px;
-            height: 26px;
-            background: #e0e0e0;
-            border-radius: 13px;
-            cursor: pointer;
-            transition: background 0.3s ease;
-        }
-
-        body.future-mode .toggle-switch {
-            background: rgba(255, 255, 255, 0.2);
-        }
-
-        .toggle-switch.active {
-            background: #667eea;
-        }
-
-        body.future-mode .toggle-switch.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-
-        .toggle-slider {
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 22px;
-            height: 22px;
-            background: white;
-            border-radius: 50%;
-            transition: transform 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-        }
-
-        .toggle-switch.active .toggle-slider {
-            transform: translateX(24px);
-        }
-
-        .mode-text {
-            font-size: 11px;
-            color: #666;
-            font-weight: 500;
-            transition: color 0.3s ease;
-        }
-
-        body.future-mode .mode-text {
-            color: #999;
-        }
-
-        /* Future Mode Settings Panel */
-        .future-settings {
-            position: fixed;
-            top: 80px;
-            left: 20px;
-            z-index: 1000;
-            background: rgba(30, 30, 30, 0.9);
-            backdrop-filter: blur(20px);
-            padding: 20px;
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-            max-width: 280px;
-            opacity: 0;
-            transform: translateX(-20px);
-            pointer-events: none;
-            transition: all 0.3s ease;
-        }
-
-        body.future-mode .future-settings {
-            opacity: 1;
-            transform: translateX(0);
-            pointer-events: all;
-        }
-
-        .settings-title {
-            color: #fff;
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 0;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            user-select: none;
-            padding: 10px;
-            margin: -10px -10px 0 -10px;
-            border-radius: 12px 12px 0 0;
-            transition: background 0.2s ease;
-        }
-
-        .settings-title:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-
-        .settings-title .chevron {
-            margin-left: auto;
-            transition: transform 0.3s ease;
-            font-size: 12px;
-        }
-
-        .future-settings.collapsed .settings-title .chevron {
-            transform: rotate(-90deg);
-        }
-
-        .settings-content {
-            max-height: 500px;
-            overflow-x: hidden;
-            overflow-y: auto;
-            transition: max-height 0.3s ease, opacity 0.3s ease;
-            opacity: 1;
-        }
-
-        .future-settings.collapsed .settings-content {
-            max-height: 0;
-            opacity: 0;
-            margin-top: 0;
-            padding-top: 0;
-        }
-
-        .future-settings.collapsed {
-            padding-bottom: 10px;
-        }
-
-        .setting-group {
-            margin-bottom: 15px;
-        }
-
-        .setting-label {
-            color: #999;
-            font-size: 12px;
-            font-weight: 500;
-            margin-bottom: 8px;
-            display: block;
-        }
-
-        .color-picker-wrapper {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .color-picker {
-            width: 100px;
-            height: 100px;
-            border-radius: 8px;
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .color-picker:hover {
-            border-color: rgba(255, 255, 255, 0.4);
-            transform: scale(1.05);
-        }
-
-        .color-label {
-            color: #ccc;
-            font-size: 11px;
-            flex: 1;
-        }
-
-        .speed-slider {
-            width: 100%;
-            height: 6px;
-            border-radius: 3px;
-            background: rgba(255, 255, 255, 0.1);
-            outline: none;
-            -webkit-appearance: none;
-            appearance: none;
-        }
-
-        .speed-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            cursor: pointer;
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
-        }
-
-        .speed-slider::-moz-range-thumb {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            cursor: pointer;
-            border: none;
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
-        }
-
-        .speed-value {
-            color: #667eea;
-            font-size: 12px;
-            font-weight: 600;
-            text-align: center;
-            margin-top: 5px;
-        }
-
-        .reset-btn {
-            width: 100%;
-            padding: 8px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 8px;
-            color: #ccc;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-top: 10px;
-        }
-
-        .reset-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
-            border-color: rgba(255, 255, 255, 0.3);
-            color: #fff;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            padding: 40px;
-            position: relative;
-            z-index: 1;
-            transition: all 0.5s ease;
-        }
-
-        body.future-mode .container {
-            background: rgba(30, 30, 30, 0.7);
-            backdrop-filter: blur(40px) saturate(180%);
-            -webkit-backdrop-filter: blur(40px) saturate(180%);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7),
-                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        }
-
-        .back-home-link {
-            display: inline-block;
-            margin-bottom: 20px;
-            color: #667eea;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 600;
-            transition: color 0.3s ease;
-        }
-
-        .back-home-link:hover {
-            color: #764ba2;
-        }
-
-        body.future-mode .back-home-link {
-            color: #a0b0ff;
-        }
-
-        body.future-mode .back-home-link:hover {
-            color: #ffffff;
-        }
-
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-            font-size: 32px;
-            transition: color 0.3s ease;
-        }
-
-        body.future-mode h1 {
-            color: #fff;
-            text-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
-        }
-
-        .datadragon-logo {
-            width: 100px;
-            height: 100px;
-            object-fit: contain;
-            vertical-align: middle;
-            margin-right: 10px;
-            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
-            transition: transform 0.3s ease;
-        }
-
-        body.future-mode .datadragon-logo {
-            filter: drop-shadow(0 2px 8px rgba(102, 126, 234, 0.4));
-        }
-
-        .datadragon-logo:hover {
-            transform: scale(1.1);
-        }
-
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 14px;
-            transition: color 0.3s ease;
-        }
-
-        body.future-mode .subtitle {
-            color: #999;
-        }
-
-        .upload-area {
-            border: 3px dashed #667eea;
-            border-radius: 15px;
-            padding: 40px;
-            text-align: center;
-            transition: all 0.3s ease;
-            cursor: pointer;
-            background: #f8f9ff;
-            margin-bottom: 25px;
-        }
-
-        body.future-mode .upload-area {
-            border: 2px dashed rgba(102, 126, 234, 0.5);
-            background: rgba(102, 126, 234, 0.05);
-            backdrop-filter: blur(10px);
-        }
-
-        .upload-area:hover {
-            border-color: #764ba2;
-            background: #f0f2ff;
-        }
-
-        body.future-mode .upload-area:hover {
-            border-color: rgba(118, 75, 162, 0.8);
-            background: rgba(102, 126, 234, 0.1);
-        }
-
-        .upload-area.dragover {
-            border-color: #764ba2;
-            background: #e8ebff;
-            transform: scale(1.02);
-        }
-
-        body.future-mode .upload-area.dragover {
-            border-color: rgba(118, 75, 162, 1);
-            background: rgba(102, 126, 234, 0.15);
-        }
-
-        .upload-icon {
-            font-size: 48px;
-            margin-bottom: 15px;
-        }
-
-        .upload-text {
-            color: #667eea;
-            font-weight: 600;
-            margin-bottom: 5px;
-        }
-
-        body.future-mode .upload-text {
-            color: #a0b0ff;
-        }
-
-        .upload-subtext {
-            color: #999;
-            font-size: 14px;
-        }
-
-        body.future-mode .upload-subtext {
-            color: #666;
-        }
-
-        body.future-mode .file-size-info {
-            color: #999;
-        }
-
-        .file-size-info {
-            margin-top: 10px;
-            color: #666;
-            font-size: 13px;
-        }
-
-        input[type="file"] {
-            display: none;
-        }
-
-        .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            padding: 15px 30px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .btn:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        body.future-mode .btn {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 75, 162, 0.9) 100%);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-        }
-
-        body.future-mode .btn:hover:not(:disabled) {
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.5);
-        }
-
-        .error {
-            display: none;
-            background: #fee;
-            border-left: 4px solid #dc3545;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
-            color: #721c24;
-            white-space: pre-line;
-        }
-
-        .error.show {
-            display: block;
-        }
-
-        body.future-mode .error {
-            background: rgba(220, 53, 69, 0.2);
-            border-left-color: rgba(220, 53, 69, 0.8);
-            color: #ff6b7a;
-        }
-
-        .column-selector {
-            background: #f8f9ff;
-            padding: 25px;
-            border-radius: 15px;
-            margin: 25px 0;
-            display: none;
-        }
-
-        .column-selector.show {
-            display: block;
-        }
-
-        body.future-mode .column-selector {
-            background: rgba(102, 126, 234, 0.1);
-            border: 1px solid rgba(102, 126, 234, 0.2);
-        }
-
+{% extends "base.html" %}
+
+{% block title %}DataDragon - Unique Identifier Finder{% endblock %}
+
+{% block styles %}
+<style>
+    /* File Upload Zone */
+    .file-upload-zone {
+        border: 2px dashed var(--border-default);
+        border-radius: var(--radius-xl);
+        padding: var(--space-10);
+        text-align: center;
+        cursor: pointer;
+        transition: all var(--transition-base);
+        background: var(--bg-card);
+        margin-bottom: var(--space-6);
+    }
+
+    .file-upload-zone:hover {
+        border-color: var(--accent-purple);
+        background: var(--bg-card-hover);
+    }
+
+    .file-upload-zone.dragover {
+        border-color: var(--accent-purple);
+        background: rgba(168, 85, 247, 0.1);
+        box-shadow: var(--shadow-glow-purple);
+    }
+
+    .file-upload-icon {
+        width: 48px;
+        height: 48px;
+        margin: 0 auto var(--space-4);
+        color: var(--text-muted);
+    }
+
+    .file-upload-zone:hover .file-upload-icon {
+        color: var(--accent-purple);
+    }
+
+    .file-upload-text {
+        font-size: 16px;
+        color: var(--text-secondary);
+        margin-bottom: var(--space-2);
+    }
+
+    .file-upload-hint {
+        font-size: 13px;
+        color: var(--text-muted);
+    }
+
+    .file-upload-input {
+        display: none;
+    }
+
+    .file-size-info {
+        margin-top: var(--space-3);
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    /* Cached Files Section */
+    .cached-files-section {
+        background: rgba(168, 85, 247, 0.1);
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        margin-bottom: var(--space-5);
+    }
+
+    .cached-files-header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-3);
+        color: var(--accent-purple);
+        font-weight: 600;
+        font-size: 14px;
+    }
+
+    .cached-files-header svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .cached-files-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+    }
+
+    .cached-file-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--bg-card);
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        cursor: pointer;
+        transition: all var(--transition-base);
+    }
+
+    .cached-file-item:hover {
+        border-color: var(--accent-purple);
+        transform: translateX(4px);
+    }
+
+    .cached-file-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .cached-file-name {
+        font-weight: 500;
+        color: var(--text-primary);
+        font-size: 14px;
+    }
+
+    .cached-file-meta {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .cached-file-source {
+        font-size: 11px;
+        color: var(--accent-purple);
+        background: rgba(168, 85, 247, 0.15);
+        padding: 2px 8px;
+        border-radius: var(--radius-sm);
+    }
+
+    /* Data Preview Section */
+    .data-preview-section {
+        background: var(--bg-card);
+        border-radius: var(--radius-lg);
+        padding: var(--space-5);
+        margin-bottom: var(--space-5);
+        border: 1px solid var(--border-subtle);
+        display: none;
+    }
+
+    .data-preview-section.show {
+        display: block;
+    }
+
+    .preview-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--space-4);
+    }
+
+    .preview-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .preview-title svg {
+        width: 18px;
+        height: 18px;
+        color: var(--accent-purple);
+    }
+
+    .preview-stats {
+        font-size: 13px;
+        color: var(--text-secondary);
+        background: var(--bg-tertiary);
+        padding: var(--space-1) var(--space-3);
+        border-radius: var(--radius-sm);
+    }
+
+    .preview-table-wrapper {
+        overflow-x: auto;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        max-height: 300px;
+    }
+
+    .preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .preview-table th {
+        background: var(--gradient-purple-blue);
+        color: white;
+        padding: var(--space-3);
+        text-align: left;
+        font-weight: 600;
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+    }
+
+    .preview-table td {
+        padding: var(--space-2) var(--space-3);
+        border-bottom: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .preview-table tr:hover td {
+        background: var(--bg-card-hover);
+    }
+
+    .preview-more-indicator {
+        text-align: center;
+        padding: var(--space-3);
+        color: var(--text-muted);
+        font-size: 12px;
+        font-style: italic;
+    }
+
+    /* Column Selector */
+    .column-selector {
+        background: var(--bg-card);
+        padding: var(--space-6);
+        border-radius: var(--radius-xl);
+        margin: var(--space-6) 0;
+        border: 1px solid var(--border-subtle);
+        display: none;
+    }
+
+    .column-selector.show {
+        display: block;
+    }
+
+    .selector-group {
+        margin-bottom: var(--space-5);
+    }
+
+    .selector-label {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--accent-purple);
+        margin-bottom: var(--space-2);
+        display: block;
+    }
+
+    .selector-description {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: var(--space-4);
+    }
+
+    .columns-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: var(--space-3);
+        padding: var(--space-2);
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .column-checkbox-item {
+        display: flex;
+        align-items: center;
+        padding: var(--space-3);
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        transition: all var(--transition-base);
+    }
+
+    .column-checkbox-item:hover {
+        border-color: var(--accent-purple);
+        background: var(--bg-card-hover);
+    }
+
+    .column-checkbox-item input[type="checkbox"] {
+        margin-right: var(--space-3);
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+        accent-color: var(--accent-purple);
+    }
+
+    .column-checkbox-item label {
+        flex: 1;
+        cursor: pointer;
+        font-size: 14px;
+        color: var(--text-primary);
+    }
+
+    .column-type {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-left: var(--space-1);
+    }
+
+    .note-box {
+        margin-top: var(--space-4);
+        padding: var(--space-4);
+        background: rgba(234, 179, 8, 0.1);
+        border-left: 4px solid var(--accent-yellow);
+        border-radius: var(--radius-md);
+        color: var(--accent-yellow);
+        font-size: 13px;
+    }
+
+    .note-box strong {
+        color: var(--accent-yellow);
+    }
+
+    /* Error Message */
+    .error-message {
+        display: none;
+        background: rgba(239, 68, 68, 0.15);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        padding: var(--space-4);
+        border-radius: var(--radius-lg);
+        margin: var(--space-5) 0;
+        color: var(--accent-red);
+        white-space: pre-line;
+    }
+
+    .error-message.show {
+        display: block;
+    }
+
+    /* Progress Container */
+    .progress-container {
+        display: none;
+        margin: var(--space-6) 0;
+    }
+
+    .progress-container.show {
+        display: block;
+    }
+
+    /* Lava Lamp Loading Animation */
+    .lava-lamp-loader {
+        position: relative;
+        width: 100%;
+        height: 200px;
+        margin: var(--space-8) 0;
+        overflow: hidden;
+        border-radius: var(--radius-xl);
+        background: linear-gradient(135deg, rgba(168, 85, 247, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+        display: none;
+    }
+
+    .progress-container.show .lava-lamp-loader {
+        display: block;
+    }
+
+    .lava-bubble {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(40px);
+        opacity: 0.7;
+        mix-blend-mode: screen;
+    }
+
+    .lava-bubble-1 {
+        width: 120px;
+        height: 120px;
+        background: radial-gradient(circle, rgba(168, 85, 247, 0.8) 0%, rgba(168, 85, 247, 0.4) 100%);
+        left: 10%;
+        bottom: -60px;
+        animation: lava-float-1 8s infinite ease-in-out;
+    }
+
+    .lava-bubble-2 {
+        width: 150px;
+        height: 150px;
+        background: radial-gradient(circle, rgba(59, 130, 246, 0.8) 0%, rgba(59, 130, 246, 0.4) 100%);
+        left: 30%;
+        bottom: -75px;
+        animation: lava-float-2 10s infinite ease-in-out;
+        animation-delay: -2s;
+    }
+
+    .lava-bubble-3 {
+        width: 100px;
+        height: 100px;
+        background: radial-gradient(circle, rgba(6, 182, 212, 0.8) 0%, rgba(6, 182, 212, 0.4) 100%);
+        left: 55%;
+        bottom: -50px;
+        animation: lava-float-3 9s infinite ease-in-out;
+        animation-delay: -4s;
+    }
+
+    .lava-bubble-4 {
+        width: 130px;
+        height: 130px;
+        background: radial-gradient(circle, rgba(168, 85, 247, 0.7) 0%, rgba(168, 85, 247, 0.3) 100%);
+        left: 75%;
+        bottom: -65px;
+        animation: lava-float-4 11s infinite ease-in-out;
+        animation-delay: -1s;
+    }
+
+    .lava-bubble-5 {
+        width: 90px;
+        height: 90px;
+        background: radial-gradient(circle, rgba(236, 72, 153, 0.7) 0%, rgba(236, 72, 153, 0.3) 100%);
+        left: 45%;
+        bottom: -45px;
+        animation: lava-float-5 7s infinite ease-in-out;
+        animation-delay: -3s;
+    }
+
+    .lava-bubble-6 {
+        width: 110px;
+        height: 110px;
+        background: radial-gradient(circle, rgba(6, 182, 212, 0.7) 0%, rgba(6, 182, 212, 0.3) 100%);
+        left: 20%;
+        bottom: -55px;
+        animation: lava-float-6 9.5s infinite ease-in-out;
+        animation-delay: -5s;
+    }
+
+    @keyframes lava-float-1 {
+        0%, 100% { transform: translateY(0) translateX(0) scale(1); border-radius: 50%; }
+        25% { transform: translateY(-180px) translateX(20px) scale(1.2); border-radius: 50% 45% 55% 50%; }
+        50% { transform: translateY(-150px) translateX(-15px) scale(0.9); border-radius: 45% 55% 50% 50%; }
+        75% { transform: translateY(-200px) translateX(10px) scale(1.1); border-radius: 55% 50% 45% 50%; }
+    }
+
+    @keyframes lava-float-2 {
+        0%, 100% { transform: translateY(0) translateX(0) scale(1); border-radius: 50%; }
+        30% { transform: translateY(-160px) translateX(-25px) scale(1.3); border-radius: 50% 50% 45% 55%; }
+        60% { transform: translateY(-190px) translateX(30px) scale(0.8); border-radius: 45% 55% 50% 50%; }
+        90% { transform: translateY(-140px) translateX(-10px) scale(1.15); border-radius: 55% 45% 50% 50%; }
+    }
+
+    @keyframes lava-float-3 {
+        0%, 100% { transform: translateY(0) translateX(0) scale(1); border-radius: 50%; }
+        20% { transform: translateY(-170px) translateX(25px) scale(1.25); border-radius: 50% 45% 50% 55%; }
+        40% { transform: translateY(-200px) translateX(-20px) scale(0.85); border-radius: 45% 50% 55% 50%; }
+        60% { transform: translateY(-165px) translateX(15px) scale(1.1); border-radius: 50% 55% 45% 50%; }
+        80% { transform: translateY(-185px) translateX(-5px) scale(0.95); border-radius: 55% 50% 50% 45%; }
+    }
+
+    @keyframes lava-float-4 {
+        0%, 100% { transform: translateY(0) translateX(0) scale(1); border-radius: 50%; }
+        25% { transform: translateY(-175px) translateX(-30px) scale(1.2); border-radius: 50% 50% 45% 55%; }
+        50% { transform: translateY(-195px) translateX(20px) scale(0.9); border-radius: 45% 55% 50% 50%; }
+        75% { transform: translateY(-155px) translateX(-15px) scale(1.15); border-radius: 55% 45% 50% 50%; }
+    }
+
+    @keyframes lava-float-5 {
+        0%, 100% { transform: translateY(0) translateX(0) scale(1); border-radius: 50%; }
+        33% { transform: translateY(-160px) translateX(30px) scale(1.3); border-radius: 50% 45% 55% 50%; }
+        66% { transform: translateY(-180px) translateX(-25px) scale(0.8); border-radius: 45% 55% 50% 50%; }
+    }
+
+    @keyframes lava-float-6 {
+        0%, 100% { transform: translateY(0) translateX(0) scale(1); border-radius: 50%; }
+        28% { transform: translateY(-165px) translateX(-20px) scale(1.25); border-radius: 50% 50% 45% 55%; }
+        56% { transform: translateY(-190px) translateX(25px) scale(0.85); border-radius: 45% 55% 50% 50%; }
+        84% { transform: translateY(-175px) translateX(-10px) scale(1.1); border-radius: 55% 45% 50% 50%; }
+    }
+
+    .progress-stage {
+        margin-bottom: var(--space-5);
+    }
+
+    .stage-label {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: var(--space-2);
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .stage-message {
+        font-size: 12px;
+        color: var(--text-secondary);
+        font-weight: normal;
+    }
+
+    .progress-bar-wrapper {
+        width: 100%;
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        height: 24px;
+        position: relative;
+    }
+
+    .progress-bar-fill {
+        height: 100%;
+        background: var(--gradient-purple-blue);
+        width: 0%;
+        transition: width 0.5s ease;
+        border-radius: var(--radius-md);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    /* Results Section */
+    .results {
+        display: none;
+        margin-top: var(--space-8);
+    }
+
+    .results.show {
+        display: block;
+        animation: fadeIn 0.5s ease-in;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .results-summary {
+        background: var(--bg-card);
+        padding: var(--space-5);
+        border-radius: var(--radius-lg);
+        margin-bottom: var(--space-5);
+        border: 1px solid var(--border-subtle);
+    }
+
+    .summary-item {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: var(--space-3);
+        font-size: 15px;
+    }
+
+    .summary-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .summary-label {
+        font-weight: 600;
+        color: var(--accent-purple);
+    }
+
+    .summary-value {
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .result-section {
+        background: var(--bg-card);
+        padding: var(--space-6);
+        border-radius: var(--radius-xl);
+        margin-bottom: var(--space-5);
+        border: 1px solid var(--border-subtle);
+    }
+
+    .result-title {
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--accent-purple);
+        margin-bottom: var(--space-4);
+        text-align: center;
+    }
+
+    .explanation-box {
+        background: rgba(59, 130, 246, 0.1);
+        border-left: 4px solid var(--accent-blue);
+        padding: var(--space-5);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--space-5);
+    }
+
+    .explanation-box h3 {
+        color: var(--accent-blue);
+        margin: 0 0 var(--space-2) 0;
+        font-size: 18px;
+    }
+
+    .explanation-box p {
+        color: var(--accent-blue);
+        margin: 0;
+        line-height: 1.6;
+        opacity: 0.9;
+    }
+
+    .key-result-box {
+        background: rgba(16, 185, 129, 0.1);
+        border-left: 4px solid var(--accent-green);
+        padding: var(--space-5);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--space-4);
+    }
+
+    .key-result-box h3 {
+        color: var(--accent-green);
+        margin: 0 0 var(--space-3) 0;
+        font-size: 16px;
+        font-weight: 700;
+    }
+
+    .key-result-box .key-columns {
+        color: var(--accent-green);
+        font-size: 15px;
+        margin-bottom: var(--space-3);
+    }
+
+    .key-result-box .key-columns code {
+        background: rgba(16, 185, 129, 0.15);
+        padding: 2px 6px;
+        border-radius: var(--radius-sm);
+        font-family: monospace;
+    }
+
+    .key-result-box .implementation-note {
+        color: var(--accent-green);
+        font-size: 13px;
+        padding-top: var(--space-3);
+        border-top: 1px solid rgba(16, 185, 129, 0.2);
+        opacity: 0.9;
+    }
+
+    .alternatives-box {
+        background: rgba(234, 179, 8, 0.1);
+        border-left: 4px solid var(--accent-yellow);
+        padding: var(--space-5);
+        border-radius: var(--radius-md);
+        margin-bottom: var(--space-4);
+    }
+
+    .alternatives-box h3 {
+        color: var(--accent-yellow);
+        margin: 0 0 var(--space-3) 0;
+        font-size: 16px;
+        font-weight: 700;
+    }
+
+    .alternative-item {
+        color: var(--accent-yellow);
+        font-size: 14px;
+        margin-bottom: var(--space-3);
+        padding-bottom: var(--space-3);
+        border-bottom: 1px solid rgba(234, 179, 8, 0.2);
+    }
+
+    .alternative-item:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+    .alternative-item code {
+        background: rgba(234, 179, 8, 0.15);
+        padding: 2px 6px;
+        border-radius: var(--radius-sm);
+        font-family: monospace;
+    }
+
+    .download-note {
+        text-align: center;
+        color: var(--text-secondary);
+        font-size: 13px;
+        margin-bottom: var(--space-3);
+    }
+
+    /* Help Button */
+    .help-btn {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-4);
+        background: var(--bg-card);
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-md);
+        color: var(--text-secondary);
+        font-weight: 500;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all var(--transition-base);
+    }
+
+    .help-btn:hover {
+        background: var(--bg-card-hover);
+        border-color: var(--accent-purple);
+        color: var(--accent-purple);
+    }
+
+    .help-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* Help Modal */
+    .help-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 2000;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-5);
+        backdrop-filter: blur(4px);
+    }
+
+    .help-modal.show {
+        display: flex;
+    }
+
+    .help-modal-content {
+        background: var(--bg-secondary);
+        border-radius: var(--radius-xl);
+        max-width: 800px;
+        max-height: 90vh;
+        width: 100%;
+        padding: var(--space-10);
+        position: relative;
+        overflow-y: auto;
+        border: 1px solid var(--border-subtle);
+        animation: modalSlideIn 0.3s ease-out;
+    }
+
+    @keyframes modalSlideIn {
+        from { opacity: 0; transform: translateY(-50px) scale(0.9); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .help-modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-6);
+        padding-bottom: var(--space-5);
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .help-modal-title {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin: 0;
+    }
+
+    .help-modal-close {
+        background: none;
+        border: none;
+        font-size: 28px;
+        color: var(--text-muted);
+        cursor: pointer;
+        padding: 0;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-md);
+        transition: all var(--transition-base);
+    }
+
+    .help-modal-close:hover {
+        background: var(--bg-card);
+        color: var(--text-primary);
+    }
+
+    .help-section {
+        margin-bottom: var(--space-8);
+    }
+
+    .help-section-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--accent-purple);
+        margin-bottom: var(--space-3);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .help-section-content {
+        color: var(--text-secondary);
+        line-height: 1.7;
+        font-size: 14px;
+    }
+
+    .help-list {
+        list-style: none;
+        padding-left: 0;
+        margin: var(--space-3) 0;
+    }
+
+    .help-list li {
+        padding: var(--space-2) 0;
+        padding-left: var(--space-6);
+        position: relative;
+    }
+
+    .help-list li:before {
+        content: "->";
+        position: absolute;
+        left: 0;
+        color: var(--accent-purple);
+        font-weight: bold;
+    }
+
+    .help-code {
+        background: var(--bg-tertiary);
+        padding: 2px 6px;
+        border-radius: var(--radius-sm);
+        font-family: monospace;
+        font-size: 13px;
+        color: var(--accent-pink);
+    }
+
+    .help-tip {
+        margin-top: var(--space-4);
+        padding: var(--space-3);
+        background: rgba(168, 85, 247, 0.1);
+        border-radius: var(--radius-md);
+        font-size: 13px;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
         .columns-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 15px;
-            padding: 10px;
-        }
-
-        .column-checkbox-item {
-            display: flex;
-            align-items: center;
-            padding: 10px;
-            background: white;
-            border-radius: 8px;
-            border: 2px solid #e0e0e0;
-            transition: all 0.2s ease;
-        }
-
-        .column-checkbox-item:hover {
-            border-color: #667eea;
-            background: #f8f9ff;
-        }
-
-        body.future-mode .column-checkbox-item {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: rgba(255, 255, 255, 0.1);
-        }
-
-        body.future-mode .column-checkbox-item:hover {
-            border-color: rgba(102, 126, 234, 0.8);
-            background: rgba(102, 126, 234, 0.1);
-        }
-
-        body.future-mode .column-checkbox-item label {
-            color: #e0e0e0;
-        }
-
-        .column-checkbox-item input[type="checkbox"] {
-            margin-right: 10px;
-            width: 18px;
-            height: 18px;
-            cursor: pointer;
-        }
-
-        .column-checkbox-item label {
-            flex: 1;
-            cursor: pointer;
-            font-size: 14px;
-            color: #333;
-        }
-
-        .column-type {
-            font-size: 12px;
-            color: #999;
-            margin-left: 5px;
-        }
-
-        .selector-group {
-            margin-bottom: 20px;
-        }
-
-        .selector-label {
-            font-size: 16px;
-            font-weight: 600;
-            color: #667eea;
-            margin-bottom: 10px;
-            display: block;
-        }
-
-        body.future-mode .selector-label {
-            color: #a0b0ff;
-        }
-
-        .selector-description {
-            font-size: 13px;
-            color: #666;
-            margin-bottom: 15px;
-        }
-
-        body.future-mode .selector-description {
-            color: #999;
-        }
-
-        select {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 14px;
-            background: white;
-            color: #333;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        select:hover {
-            border-color: #667eea;
-        }
-
-        select:focus {
-            outline: none;
-            border-color: #764ba2;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        body.future-mode select {
-            background: rgba(255, 255, 255, 0.05);
-            border-color: rgba(255, 255, 255, 0.2);
-            color: #e0e0e0;
-        }
-
-        body.future-mode select:hover {
-            border-color: rgba(102, 126, 234, 0.8);
-        }
-
-        .progress-container {
-            display: none;
-            margin: 25px 0;
-        }
-
-        .progress-container.show {
-            display: block;
-        }
-
-        /* Lava Lamp Loading Animation */
-        .lava-lamp-loader {
-            position: relative;
-            width: 100%;
-            height: 200px;
-            margin: 30px 0;
-            overflow-x: hidden;
-            overflow-y: auto;
-            border-radius: 15px;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
-            display: none;
-        }
-
-        .progress-container.show .lava-lamp-loader {
-            display: block;
-        }
-
-        body.future-mode .lava-lamp-loader {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
-        }
-
-        .lava-bubble {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(40px);
-            opacity: 0.7;
-            mix-blend-mode: screen;
-        }
-
-        .lava-bubble-1 {
-            width: 120px;
-            height: 120px;
-            background: radial-gradient(circle, rgba(102, 126, 234, 0.8) 0%, rgba(102, 126, 234, 0.4) 100%);
-            left: 10%;
-            bottom: -60px;
-            animation: lava-float-1 8s infinite ease-in-out;
-        }
-
-        .lava-bubble-2 {
-            width: 150px;
-            height: 150px;
-            background: radial-gradient(circle, rgba(118, 75, 162, 0.8) 0%, rgba(118, 75, 162, 0.4) 100%);
-            left: 30%;
-            bottom: -75px;
-            animation: lava-float-2 10s infinite ease-in-out;
-            animation-delay: -2s;
-        }
-
-        .lava-bubble-3 {
-            width: 100px;
-            height: 100px;
-            background: radial-gradient(circle, rgba(56, 189, 248, 0.8) 0%, rgba(56, 189, 248, 0.4) 100%);
-            left: 55%;
-            bottom: -50px;
-            animation: lava-float-3 9s infinite ease-in-out;
-            animation-delay: -4s;
-        }
-
-        .lava-bubble-4 {
-            width: 130px;
-            height: 130px;
-            background: radial-gradient(circle, rgba(102, 126, 234, 0.7) 0%, rgba(102, 126, 234, 0.3) 100%);
-            left: 75%;
-            bottom: -65px;
-            animation: lava-float-4 11s infinite ease-in-out;
-            animation-delay: -1s;
-        }
-
-        .lava-bubble-5 {
-            width: 90px;
-            height: 90px;
-            background: radial-gradient(circle, rgba(118, 75, 162, 0.7) 0%, rgba(118, 75, 162, 0.3) 100%);
-            left: 45%;
-            bottom: -45px;
-            animation: lava-float-5 7s infinite ease-in-out;
-            animation-delay: -3s;
-        }
-
-        .lava-bubble-6 {
-            width: 110px;
-            height: 110px;
-            background: radial-gradient(circle, rgba(56, 189, 248, 0.7) 0%, rgba(56, 189, 248, 0.3) 100%);
-            left: 20%;
-            bottom: -55px;
-            animation: lava-float-6 9.5s infinite ease-in-out;
-            animation-delay: -5s;
-        }
-
-        @keyframes lava-float-1 {
-            0%, 100% {
-                transform: translateY(0) translateX(0) scale(1);
-                border-radius: 50% 50% 50% 50%;
-            }
-            25% {
-                transform: translateY(-180px) translateX(20px) scale(1.2);
-                border-radius: 50% 45% 55% 50%;
-            }
-            50% {
-                transform: translateY(-150px) translateX(-15px) scale(0.9);
-                border-radius: 45% 55% 50% 50%;
-            }
-            75% {
-                transform: translateY(-200px) translateX(10px) scale(1.1);
-                border-radius: 55% 50% 45% 50%;
-            }
-        }
-
-        @keyframes lava-float-2 {
-            0%, 100% {
-                transform: translateY(0) translateX(0) scale(1);
-                border-radius: 50% 50% 50% 50%;
-            }
-            30% {
-                transform: translateY(-160px) translateX(-25px) scale(1.3);
-                border-radius: 50% 50% 45% 55%;
-            }
-            60% {
-                transform: translateY(-190px) translateX(30px) scale(0.8);
-                border-radius: 45% 55% 50% 50%;
-            }
-            90% {
-                transform: translateY(-140px) translateX(-10px) scale(1.15);
-                border-radius: 55% 45% 50% 50%;
-            }
-        }
-
-        @keyframes lava-float-3 {
-            0%, 100% {
-                transform: translateY(0) translateX(0) scale(1);
-                border-radius: 50% 50% 50% 50%;
-            }
-            20% {
-                transform: translateY(-170px) translateX(25px) scale(1.25);
-                border-radius: 50% 45% 50% 55%;
-            }
-            40% {
-                transform: translateY(-200px) translateX(-20px) scale(0.85);
-                border-radius: 45% 50% 55% 50%;
-            }
-            60% {
-                transform: translateY(-165px) translateX(15px) scale(1.1);
-                border-radius: 50% 55% 45% 50%;
-            }
-            80% {
-                transform: translateY(-185px) translateX(-5px) scale(0.95);
-                border-radius: 55% 50% 50% 45%;
-            }
-        }
-
-        @keyframes lava-float-4 {
-            0%, 100% {
-                transform: translateY(0) translateX(0) scale(1);
-                border-radius: 50% 50% 50% 50%;
-            }
-            25% {
-                transform: translateY(-175px) translateX(-30px) scale(1.2);
-                border-radius: 50% 50% 45% 55%;
-            }
-            50% {
-                transform: translateY(-195px) translateX(20px) scale(0.9);
-                border-radius: 45% 55% 50% 50%;
-            }
-            75% {
-                transform: translateY(-155px) translateX(-15px) scale(1.15);
-                border-radius: 55% 45% 50% 50%;
-            }
-        }
-
-        @keyframes lava-float-5 {
-            0%, 100% {
-                transform: translateY(0) translateX(0) scale(1);
-                border-radius: 50% 50% 50% 50%;
-            }
-            33% {
-                transform: translateY(-160px) translateX(30px) scale(1.3);
-                border-radius: 50% 45% 55% 50%;
-            }
-            66% {
-                transform: translateY(-180px) translateX(-25px) scale(0.8);
-                border-radius: 45% 55% 50% 50%;
-            }
-        }
-
-        @keyframes lava-float-6 {
-            0%, 100% {
-                transform: translateY(0) translateX(0) scale(1);
-                border-radius: 50% 50% 50% 50%;
-            }
-            28% {
-                transform: translateY(-165px) translateX(-20px) scale(1.25);
-                border-radius: 50% 50% 45% 55%;
-            }
-            56% {
-                transform: translateY(-190px) translateX(25px) scale(0.85);
-                border-radius: 45% 55% 50% 50%;
-            }
-            84% {
-                transform: translateY(-175px) translateX(-10px) scale(1.1);
-                border-radius: 55% 45% 50% 50%;
-            }
-        }
-
-        .progress-stage {
-            margin-bottom: 20px;
-        }
-
-        .stage-label {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            color: #333;
-        }
-
-        body.future-mode .stage-label {
-            color: #e0e0e0;
-        }
-
-        .stage-message {
-            font-size: 12px;
-            color: #666;
-            font-weight: normal;
-        }
-
-        body.future-mode .stage-message {
-            color: #999;
-        }
-
-        .progress-bar-wrapper {
-            width: 100%;
-            background: #e0e0e0;
-            border-radius: 10px;
-            overflow-x: hidden;
-            overflow-y: auto;
-            height: 24px;
-            position: relative;
-        }
-
-        .progress-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-            width: 0%;
-            transition: width 0.5s ease;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 11px;
-            font-weight: 600;
-        }
-
-        .results {
-            display: none;
-            margin-top: 30px;
-        }
-
-        .results.show {
-            display: block;
-            animation: fadeIn 0.5s ease-in;
-        }
-
-        @keyframes fadeIn {
-            from { 
-                opacity: 0; 
-                transform: translateY(10px); 
-            }
-            to { 
-                opacity: 1; 
-                transform: translateY(0); 
-            }
-        }
-
-        .result-section {
-            background: #f8f9ff;
-            padding: 25px;
-            border-radius: 15px;
-            margin-bottom: 20px;
-        }
-
-        body.future-mode .result-section {
-            background: rgba(102, 126, 234, 0.1);
-            border: 1px solid rgba(102, 126, 234, 0.2);
-        }
-
-        .result-title {
-            font-size: 20px;
-            font-weight: 700;
-            color: #667eea;
-            margin-bottom: 15px;
-            text-align: center;
-        }
-
-        body.future-mode .result-title {
-            color: #a0b0ff;
-        }
-
-        body.future-mode .result-section p {
-            color: #ccc;
-        }
-
-        .results-summary {
-            background: #f8f9ff;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-
-        body.future-mode .results-summary {
-            background: rgba(102, 126, 234, 0.1);
-            border: 1px solid rgba(102, 126, 234, 0.2);
-        }
-
-        .summary-item {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-            font-size: 15px;
-        }
-
-        .summary-item:last-child {
-            margin-bottom: 0;
-        }
-
-        .summary-label {
-            font-weight: 600;
-            color: #667eea;
-        }
-
-        body.future-mode .summary-label {
-            color: #a0b0ff;
-        }
-
-        .summary-value {
-            font-weight: 700;
-            color: #333;
-        }
-
-        body.future-mode .summary-value {
-            color: #fff;
-        }
-
-        .results-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-            background: white;
-            border-radius: 10px;
-            overflow-x: hidden;
-            overflow-y: auto;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
-
-        body.future-mode .results-table {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .results-table th {
-            background: #667eea;
-            color: white;
-            padding: 15px;
-            text-align: left;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        body.future-mode .results-table th {
-            background: rgba(102, 126, 234, 0.8);
-        }
-
-        .results-table td {
-            padding: 12px 15px;
-            border-bottom: 1px solid #eee;
-            font-size: 14px;
-            word-break: break-word;
-        }
-
-        body.future-mode .results-table td {
-            border-bottom-color: rgba(255, 255, 255, 0.1);
-            color: #e0e0e0;
-        }
-
-        .results-table tr:hover {
-            background: #f8f9ff;
-        }
-
-        body.future-mode .results-table tr:hover {
-            background: rgba(102, 126, 234, 0.1);
-        }
-
-        .download-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            padding: 15px 30px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-            margin: 10px;
-            display: block;
-            margin-left: auto;
-            margin-right: auto;
-            margin-top: 20px;
-        }
-
-        .download-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
-        }
-
-        body.future-mode .download-btn {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.9) 0%, rgba(118, 75, 162, 0.9) 100%);
-        }
-
-        body.future-mode .download-btn:hover {
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.5);
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 20px;
-            }
-        }
-        /* Help Button and Modal */
-.help-btn {
-            display: flex;
-            align-items: center;
-            padding: 10px 16px;
-            background: rgba(102, 126, 234, 0.1);
-            border: 2px solid #667eea;
-            border-radius: 10px;
-            color: #667eea;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            margin-top: 10px;
-        }
-
-        .help-btn:hover {
-            background: #667eea;
-            color: white;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }
-
-        body.future-mode .help-btn {
-            background: rgba(102, 126, 234, 0.2);
-            border-color: rgba(102, 126, 234, 0.6);
-            color: #a0b0ff;
-        }
-
-        body.future-mode .help-btn:hover {
-            background: rgba(102, 126, 234, 0.8);
-            color: white;
-        }
-
-        .help-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.6);
-            z-index: 2000;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            backdrop-filter: blur(5px);
-        }
-
-        .help-modal.show {
-            display: flex;
-        }
-
-        .help-modal-content {
-            background: white;
-            border-radius: 20px;
-            max-width: 800px;
-            max-height: 90vh;
-            width: 100%;
-            padding: 40px;
-            position: relative;
-            overflow-y: auto;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-            animation: modalSlideIn 0.3s ease-out;
-        }
-
-        body.future-mode .help-modal-content {
-            background: rgba(30, 30, 30, 0.95);
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        @keyframes modalSlideIn {
-            from {
-                opacity: 0;
-                transform: translateY(-50px) scale(0.9);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-
-        .help-modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 25px;
-            padding-bottom: 20px;
-            border-bottom: 2px solid #e0e0e0;
-        }
-
-        body.future-mode .help-modal-header {
-            border-bottom-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .help-modal-title {
-            font-size: 28px;
-            font-weight: 700;
-            color: #333;
-            margin: 0;
-        }
-
-        body.future-mode .help-modal-title {
-            color: #fff;
-        }
-
-        .help-modal-close {
-            background: none;
-            border: none;
-            font-size: 32px;
-            color: #999;
-            cursor: pointer;
-            padding: 0;
-            width: 100px;
-            height: 100px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            transition: all 0.2s ease;
-        }
-
-        .help-modal-close:hover {
-            background: #f0f0f0;
-            color: #333;
-        }
-
-        body.future-mode .help-modal-close:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: #fff;
-        }
-
-        .help-section {
-            margin-bottom: 30px;
-        }
-
-        .help-section-title {
-            font-size: 18px;
-            font-weight: 700;
-            color: #667eea;
-            margin-bottom: 12px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        body.future-mode .help-section-title {
-            color: #a0b0ff;
-        }
-
-        .help-section-content {
-            color: #555;
-            line-height: 1.7;
-            font-size: 14px;
-        }
-
-        body.future-mode .help-section-content {
-            color: #ccc;
-        }
-
-        .help-list {
-            list-style: none;
-            padding-left: 0;
-            margin: 10px 0;
-        }
-
-        .help-list li {
-            padding: 8px 0;
-            padding-left: 25px;
-            position: relative;
-        }
-
-        .help-list li:before {
-            content: "→";
-            position: absolute;
-            left: 0;
-            color: #667eea;
-            font-weight: bold;
-        }
-
-        body.future-mode .help-list li:before {
-            color: #a0b0ff;
-        }
-
-        .help-code {
-            background: #f5f5f5;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-family: 'Courier New', monospace;
-            font-size: 13px;
-            color: #e83e8c;
-        }
-
-        body.future-mode .help-code {
-            background: rgba(255, 255, 255, 0.1);
-            color: #ff6b9d;
-        }
-
-        .help-path {
-            background: #f8f9ff;
-            padding: 12px;
-            border-radius: 8px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            color: #333;
-            border-left: 3px solid #667eea;
-            margin: 10px 0;
-            word-break: break-all;
-        }
-
-        body.future-mode .help-path {
-            background: rgba(102, 126, 234, 0.1);
-            color: #ccc;
-            border-left-color: rgba(102, 126, 234, 0.6);
-        }
-    </style>
-</head>
-<body>
-    <!-- Animated Background for Future Mode -->
-    <div class="animated-bg">
-        <div class="blob"></div>
-        <div class="blob"></div>
-        <div class="blob"></div>
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<div class="flex items-center justify-between" style="width: 100%;">
+    <div>
+        <h1 class="page-title">Unique Identifier Finder</h1>
+        <p class="page-subtitle">Discover minimal natural key candidates by identifying the smallest column combination that uniquely identifies each record in your dataset.</p>
+    </div>
+    <button class="help-btn" id="helpBtn" title="How this tool works">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+        </svg>
+        <span>How It Works</span>
+    </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Cached Files Section -->
+<div class="cached-files-section" id="cachedFilesSection" style="display: none;">
+    <div class="cached-files-header">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+        </svg>
+        <span>Use Previous Result</span>
+    </div>
+    <div class="cached-files-list" id="cachedFilesList"></div>
+</div>
+
+<!-- File Upload Zone -->
+<div class="file-upload-zone" id="uploadArea">
+    <div class="file-upload-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+        </svg>
+    </div>
+    <div class="file-upload-text">Click to upload or drag and drop</div>
+    <div class="file-upload-hint">Excel or CSV files (.xlsx, .xls, .csv)</div>
+    <div class="file-size-info" id="fileSizeInfo" style="display: none;"></div>
+    <input type="file" id="fileInput" name="file" accept=".xlsx,.xls,.csv" required class="file-upload-input">
+</div>
+
+<!-- Data Preview Section -->
+<div class="data-preview-section" id="dataPreviewSection">
+    <div class="preview-header">
+        <div class="preview-title">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span>Data Preview</span>
+        </div>
+        <div class="preview-stats" id="previewStats"></div>
+    </div>
+    <div class="preview-table-wrapper">
+        <table class="preview-table" id="previewTable">
+            <thead id="previewTableHead"></thead>
+            <tbody id="previewTableBody"></tbody>
+        </table>
+    </div>
+    <div class="preview-more-indicator" id="previewMoreIndicator"></div>
+</div>
+
+<!-- Column Selector -->
+<div class="column-selector" id="columnSelector">
+    <div class="selector-group">
+        <label class="selector-label">Select Columns to Analyze *</label>
+        <p class="selector-description">Select the columns to evaluate as potential key components. The algorithm will determine the minimal column combination required to uniquely identify each record.</p>
+        <div class="btn-group mb-4">
+            <button type="button" class="btn btn-secondary btn-sm" id="selectAllBtn">Select All</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="deselectAllBtn">Deselect All</button>
+        </div>
+        <div class="columns-grid" id="columnsGrid"></div>
     </div>
 
-    <!-- UI Toggle -->
-    <div class="ui-toggle">
-        <span class="ui-toggle-label">Classic</span>
-        <div class="toggle-switch" id="uiToggle">
-            <div class="toggle-slider"></div>
-        </div>
-        <span class="mode-text">Future (beta)</span>
+    <div class="note-box">
+        <strong>Note:</strong> This tool identifies natural key candidates - column combinations that can serve as unique identifiers. For example, if <em>Region</em> + <em>CustomerID</em> uniquely identifies each record, that combination is a valid composite key. Duplicate records (where all column values are identical) are automatically excluded from analysis.
     </div>
+</div>
 
-    <!-- Future Mode Settings -->
-    <div class="future-settings collapsed">
-        <div class="settings-title" id="settingsToggle">
-            Customize Background
-            <span class="chevron">▼</span>
+<div class="btn-group mb-6">
+    <button class="btn btn-primary btn-lg" id="findBtn" disabled>Analyze Key Candidates</button>
+    <button class="btn btn-danger btn-lg" id="cancelBtn" style="display: none;">Cancel</button>
+</div>
+
+<div class="error-message" id="error"></div>
+
+<!-- Progress Container -->
+<div class="progress-container" id="progressContainer">
+    <div class="lava-lamp-loader">
+        <div class="lava-bubble lava-bubble-1"></div>
+        <div class="lava-bubble lava-bubble-2"></div>
+        <div class="lava-bubble lava-bubble-3"></div>
+        <div class="lava-bubble lava-bubble-4"></div>
+        <div class="lava-bubble lava-bubble-5"></div>
+        <div class="lava-bubble lava-bubble-6"></div>
+    </div>
+    <div class="progress-stage" id="loadingStage">
+        <div class="stage-label">
+            <span>Data Ingestion</span>
+            <span class="stage-message" id="loadingMessage">Pending...</span>
         </div>
-        
-        <div class="settings-content">
-            <div class="setting-group">
-                <label class="setting-label">Blob Colors</label>
-                <div class="color-picker-wrapper">
-                    <input type="color" class="color-picker" id="color1" value="#667eea">
-                    <span class="color-label">Purple</span>
-                </div>
-                <div class="color-picker-wrapper" style="margin-top: 8px;">
-                    <input type="color" class="color-picker" id="color2" value="#764ba2">
-                    <span class="color-label">Violet</span>
-                </div>
-                <div class="color-picker-wrapper" style="margin-top: 8px;">
-                    <input type="color" class="color-picker" id="color3" value="#38bdf8">
-                    <span class="color-label">Blue</span>
-                </div>
-            </div>
-
-            <div class="setting-group">
-                <label class="setting-label">Animation Speed</label>
-                <input type="range" class="speed-slider" id="speedSlider" min="10" max="60" value="30" step="5">
-                <div class="speed-value" id="speedValue">30s</div>
-            </div>
-
-            <button class="reset-btn" id="resetSettings">Reset to Default</button>
+        <div class="progress-bar-wrapper">
+            <div class="progress-bar-fill" id="loadingProgress">0%</div>
         </div>
     </div>
+    <div class="progress-stage" id="filteringStage">
+        <div class="stage-label">
+            <span>Duplicate Exclusion</span>
+            <span class="stage-message" id="filteringMessage">Pending...</span>
+        </div>
+        <div class="progress-bar-wrapper">
+            <div class="progress-bar-fill" id="filteringProgress">0%</div>
+        </div>
+    </div>
+    <div class="progress-stage" id="analyzingStage">
+        <div class="stage-label">
+            <span>Key Discovery</span>
+            <span class="stage-message" id="analyzingMessage">Pending...</span>
+        </div>
+        <div class="progress-bar-wrapper">
+            <div class="progress-bar-fill" id="analyzingProgress">0%</div>
+        </div>
+    </div>
+    <div class="progress-stage" id="savingStage">
+        <div class="stage-label">
+            <span>Results Export</span>
+            <span class="stage-message" id="savingMessage">Pending...</span>
+        </div>
+        <div class="progress-bar-wrapper">
+            <div class="progress-bar-fill" id="savingProgress">0%</div>
+        </div>
+    </div>
+</div>
 
-    <div class="container">
-        <a href="/" class="back-home-link">← Back to DataDragon</a>
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
-            <div style="flex: 1;">
-                <h1 style="display: flex; align-items: center;">
-                    <img src="{{ url_for('static', filename='images/datadragon-logo.png') }}" alt="DataDragon Logo" class="datadragon-logo" >
-                    <span>DataDragon - Unique Identifier Finder</span>
-                </h1>
-        <p class="subtitle">Find which columns, when concatenated together, can be used as a unique ID for each row. The tool finds the smallest combination that works.</p>
-            </div>
-            <button class="help-btn" id="helpBtn" title="How this tool works">
-                <span style="font-size: 18px;"></span>
-                <span style="margin-left: 5px; font-size: 13px;">How It Works</span>
+<!-- Results Section -->
+<div class="results" id="results">
+    <div class="results-summary" id="resultsSummary"></div>
+    <div class="result-section">
+        <div class="result-title">Natural Key Analysis Complete</div>
+        <div id="resultsTableContainer"></div>
+        <p class="download-note">Download includes: PDF Analysis Report + Excel Data File</p>
+        <div class="text-center">
+            <button class="btn btn-primary btn-lg" id="downloadBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+                Download Results Package (.zip)
             </button>
         </div>
+    </div>
+</div>
 
-        <div class="upload-area" id="uploadArea">
-            <div class="upload-icon"></div>
-            <div class="upload-text">Click to upload or drag and drop</div>
-            <div class="upload-subtext">Excel or CSV files (.xlsx, .xls, .csv)</div>
-            <div class="file-size-info" id="fileSizeInfo" style="display: none;"></div>
-            <input type="file" id="fileInput" name="file" accept=".xlsx,.xls,.csv" required>
+<!-- Help Modal -->
+<div class="help-modal" id="helpModal">
+    <div class="help-modal-content">
+        <div class="help-modal-header">
+            <h2 class="help-modal-title">How Unique Identifier Finder Works</h2>
+            <button class="help-modal-close" id="helpModalClose">&times;</button>
         </div>
 
-        <div class="column-selector" id="columnSelector">
-            <div class="selector-group">
-                <label class="selector-label">Select Columns to Analyze *</label>
-                <p class="selector-description">Select the columns you want to consider for creating a unique ID. The tool will find the smallest combination of these columns that, when concatenated, creates a unique identifier for each row.</p>
-                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                    <button type="button" class="btn" id="selectAllBtn" style="padding: 8px 16px; font-size: 14px;">Select All</button>
-                    <button type="button" class="btn" id="deselectAllBtn" style="padding: 8px 16px; font-size: 14px; background: #6c757d;">Deselect All</button>
-                </div>
-                <div class="columns-grid" id="columnsGrid" style="max-height: 300px; overflow-y: auto; margin-top: 15px;"></div>
+        <div class="help-section">
+            <div class="help-section-title">Overview</div>
+            <div class="help-section-content">
+                <p style="margin-bottom: 10px;">
+                    This tool identifies <strong>natural key candidates</strong> - minimal column combinations that uniquely identify each record in your dataset without requiring a synthetic identifier.
+                </p>
+                <p style="margin-bottom: 10px;">
+                    <strong>Use Case:</strong> Given columns like <em>Region</em>, <em>Department</em>, and <em>EmployeeCode</em>, the tool determines whether a single column or a composite key (e.g., <em>Region</em> + <em>EmployeeCode</em>) is required for unique identification.
+                </p>
+                <p>
+                    The analysis first excludes exact duplicate records, then evaluates selected columns to identify the minimum column set required for record uniqueness.
+                </p>
             </div>
-            
-            <p style="margin-top: 15px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 5px; color: #856404; font-size: 13px;">
-                <strong>What this does:</strong> This tool finds which columns you can concatenate (combine) to create a unique ID for each row. For example, if columns "FirstName" and "LastName" together create unique values, that's a viable ID combination. The tool finds the smallest number of columns needed. Fully duplicate rows are automatically excluded first.
-            </p>
         </div>
 
-        <div style="display: flex; gap: 10px; align-items: center;">
-            <button class="btn" id="findBtn" disabled>Find Unique Identifier</button>
-            <button class="btn" id="cancelBtn" style="display: none; background: #dc3545;">Cancel</button>
-        </div>
+        <div class="help-section">
+            <div class="help-section-title">Algorithm: Apriori-Based Key Discovery</div>
+            <div class="help-section-content">
+                <p style="margin-bottom: 15px;">
+                    This tool employs the <strong>Apriori algorithm</strong>, an established data mining technique adapted for efficient discovery of minimal unique column combinations.
+                </p>
 
-        <div class="error" id="error"></div>
+                <p style="margin-bottom: 10px; font-weight: 600; color: var(--accent-purple);">Computational Efficiency</p>
+                <p style="margin-bottom: 15px;">
+                    A brute-force approach would evaluate every possible column combination, resulting in exponential complexity (2<sup>n</sup> combinations for n columns). The Apriori principle provides significant optimization: <strong>if a column set is already unique, no superset needs evaluation</strong> - additional columns cannot increase uniqueness.
+                </p>
 
-        <div class="progress-container" id="progressContainer">
-            <div class="lava-lamp-loader">
-                <div class="lava-bubble lava-bubble-1"></div>
-                <div class="lava-bubble lava-bubble-2"></div>
-                <div class="lava-bubble lava-bubble-3"></div>
-                <div class="lava-bubble lava-bubble-4"></div>
-                <div class="lava-bubble lava-bubble-5"></div>
-                <div class="lava-bubble lava-bubble-6"></div>
-            </div>
-            <div class="progress-stage" id="loadingStage">
-                <div class="stage-label">
-                    <span>Loading File</span>
-                    <span class="stage-message" id="loadingMessage">Waiting...</span>
-                </div>
-                <div class="progress-bar-wrapper">
-                    <div class="progress-bar-fill" id="loadingProgress">0%</div>
-                </div>
-            </div>
-            <div class="progress-stage" id="filteringStage">
-                <div class="stage-label">
-                    <span>Filtering Duplicates</span>
-                    <span class="stage-message" id="filteringMessage">Waiting...</span>
-                </div>
-                <div class="progress-bar-wrapper">
-                    <div class="progress-bar-fill" id="filteringProgress">0%</div>
-                </div>
-            </div>
-            <div class="progress-stage" id="analyzingStage">
-                <div class="stage-label">
-                    <span>Analyzing</span>
-                    <span class="stage-message" id="analyzingMessage">Waiting...</span>
-                </div>
-                <div class="progress-bar-wrapper">
-                    <div class="progress-bar-fill" id="analyzingProgress">0%</div>
-                </div>
-            </div>
-            <div class="progress-stage" id="savingStage">
-                <div class="stage-label">
-                    <span>Saving</span>
-                    <span class="stage-message" id="savingMessage">Waiting...</span>
-                </div>
-                <div class="progress-bar-wrapper">
-                    <div class="progress-bar-fill" id="savingProgress">0%</div>
+                <p style="margin-bottom: 10px; font-weight: 600; color: var(--accent-purple);">Processing Levels</p>
+                <ul class="help-list">
+                    <li><strong>Level 1 - Single Column Evaluation:</strong> Each column is tested individually for uniqueness. Unique columns are recorded as minimal keys; non-unique columns are candidates for composite key formation.</li>
+                    <li><strong>Level k - Apriori Candidate Generation:</strong> Candidates of size k are generated only when all (k-1) subsets were non-unique. This ensures supersets of known keys are never evaluated.</li>
+                    <li><strong>Uniqueness Testing:</strong> Each candidate is validated using vectorized duplicate detection for optimal performance.</li>
+                    <li><strong>Termination Criteria:</strong> Processing concludes when no candidates remain for expansion, or the maximum key limit (10) is reached.</li>
+                </ul>
+
+                <div class="help-tip">
+                    <strong>Example:</strong> If <code class="help-code">CustomerID</code> is unique at Level 1, composite candidates like <code class="help-code">(CustomerID, Region)</code> are automatically excluded from Level 2 evaluation, as they would be non-minimal supersets.
                 </div>
             </div>
         </div>
 
-        <div class="results" id="results">
-            <div class="results-summary" id="resultsSummary"></div>
-            <div class="result-section">
-                <div class="result-title">Unique Identifier Analysis Complete!</div>
-                <div id="resultsTableContainer"></div>
-                <button class="download-btn" id="downloadBtn">Download Results (Excel)</button>
+        <div class="help-section">
+            <div class="help-section-title">Processing Pipeline</div>
+            <div class="help-section-content">
+                <ul class="help-list">
+                    <li><strong>Data Ingestion:</strong> Source file (Excel/CSV) is loaded into memory for analysis</li>
+                    <li><strong>Column Selection:</strong> User specifies columns to evaluate as potential key components</li>
+                    <li><strong>Duplicate Exclusion:</strong> Exact duplicate records are filtered to ensure valid key discovery</li>
+                    <li><strong>Level 1 Evaluation:</strong> Single-column uniqueness testing</li>
+                    <li><strong>Level k Evaluation:</strong> Composite key candidates generated via Apriori pruning</li>
+                    <li><strong>Key Identification:</strong> Up to 10 minimal unique column combinations recorded</li>
+                    <li><strong>Results Export:</strong> Excel workbook generated with summary statistics, augmented dataset, and key alternatives</li>
+                    <li><strong>Resource Cleanup:</strong> Temporary files securely removed post-processing</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="help-section">
+            <div class="help-section-title">Output Specification</div>
+            <div class="help-section-content">
+                <p style="margin-bottom: 15px;">The download package (.zip) contains two files:</p>
+
+                <p style="margin-bottom: 10px; font-weight: 600; color: var(--accent-purple);">PDF Analysis Report</p>
+                <ul class="help-list">
+                    <li><strong>Executive Summary:</strong> Key findings and primary recommendation</li>
+                    <li><strong>Data Overview:</strong> Record counts, columns evaluated, and analysis metrics</li>
+                    <li><strong>Primary Key Recommendation:</strong> Recommended natural key with implementation guidance</li>
+                    <li><strong>Alternative Candidates:</strong> Other valid minimal key combinations</li>
+                    <li><strong>Sample Identifiers:</strong> Preview of generated unique IDs</li>
+                    <li><strong>Methodology:</strong> Explanation of the Apriori algorithm used</li>
+                </ul>
+
+                <p style="margin-bottom: 10px; margin-top: 15px; font-weight: 600; color: var(--accent-purple);">Excel Data File</p>
+                <ul class="help-list">
+                    <li><strong>Data with Unique IDs:</strong> Complete dataset with pre-computed <em>Unique_ID</em> column</li>
+                    <li><strong>Key Candidates:</strong> List of all valid minimal key combinations</li>
+                </ul>
+
+                <div class="help-tip">
+                    <strong>Data Handling:</strong> Source files are processed in-memory and securely deleted upon completion. No persistent storage of uploaded data occurs.
+                </div>
             </div>
         </div>
     </div>
+</div>
+{% endblock %}
 
-    <script>
-        // XSS Protection
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
+{% block scripts %}
+<script>
+    // XSS Protection
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
 
-        // Format file size
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-        }
+    // Format file size
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
 
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const findBtn = document.getElementById('findBtn');
-        const cancelBtn = document.getElementById('cancelBtn');
-        const columnSelector = document.getElementById('columnSelector');
-        const columnsGrid = document.getElementById('columnsGrid');
-        const selectAllBtn = document.getElementById('selectAllBtn');
-        const deselectAllBtn = document.getElementById('deselectAllBtn');
-        const fileSizeInfo = document.getElementById('fileSizeInfo');
-        const error = document.getElementById('error');
-        const results = document.getElementById('results');
-        const resultsSummary = document.getElementById('resultsSummary');
-        const resultsTableContainer = document.getElementById('resultsTableContainer');
-        const downloadBtn = document.getElementById('downloadBtn');
-        const progressContainer = document.getElementById('progressContainer');
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const findBtn = document.getElementById('findBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const columnSelector = document.getElementById('columnSelector');
+    const columnsGrid = document.getElementById('columnsGrid');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const deselectAllBtn = document.getElementById('deselectAllBtn');
+    const fileSizeInfo = document.getElementById('fileSizeInfo');
+    const error = document.getElementById('error');
+    const results = document.getElementById('results');
+    const resultsSummary = document.getElementById('resultsSummary');
+    const resultsTableContainer = document.getElementById('resultsTableContainer');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const progressContainer = document.getElementById('progressContainer');
 
-        // Progress elements
-        const loadingProgress = document.getElementById('loadingProgress');
-        const filteringProgress = document.getElementById('filteringProgress');
-        const analyzingProgress = document.getElementById('analyzingProgress');
-        const savingProgress = document.getElementById('savingProgress');
-        const loadingMessage = document.getElementById('loadingMessage');
-        const filteringMessage = document.getElementById('filteringMessage');
-        const analyzingMessage = document.getElementById('analyzingMessage');
-        const savingMessage = document.getElementById('savingMessage');
+    // Preview and cached files elements
+    const cachedFilesSection = document.getElementById('cachedFilesSection');
+    const cachedFilesList = document.getElementById('cachedFilesList');
+    const dataPreviewSection = document.getElementById('dataPreviewSection');
+    const previewStats = document.getElementById('previewStats');
+    const previewTableHead = document.getElementById('previewTableHead');
+    const previewTableBody = document.getElementById('previewTableBody');
+    const previewMoreIndicator = document.getElementById('previewMoreIndicator');
 
-        let selectedFile = null;
-        let eventSource = null;
-        let fileColumns = [];
+    // Progress elements
+    const loadingProgress = document.getElementById('loadingProgress');
+    const filteringProgress = document.getElementById('filteringProgress');
+    const analyzingProgress = document.getElementById('analyzingProgress');
+    const savingProgress = document.getElementById('savingProgress');
+    const loadingMessage = document.getElementById('loadingMessage');
+    const filteringMessage = document.getElementById('filteringMessage');
+    const analyzingMessage = document.getElementById('analyzingMessage');
+    const savingMessage = document.getElementById('savingMessage');
 
-        // Click to upload
-        uploadArea.addEventListener('click', () => fileInput.click());
+    let selectedFile = null;
+    let eventSource = null;
+    let fileColumns = [];
 
-        // File selection
-        fileInput.addEventListener('change', async (e) => {
-            if (e.target.files.length > 0) {
-                selectedFile = e.target.files[0];
-                fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
-                fileSizeInfo.style.display = 'block';
-                error.classList.remove('show');
-                results.classList.remove('show');
-                columnSelector.classList.remove('show');
-                findBtn.disabled = true;
-                
-                // Get columns from server
-                try {
-                    const formData = new FormData();
-                    formData.append('file', selectedFile);
-                    
-                    const response = await fetch('/get-columns', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error('Failed to read file columns');
-                    }
-                    
-                    const data = await response.json();
-                    if (data.success && data.columns) {
-                        fileColumns = data.columns;
-                        populateColumnDropdowns();
-                    } else {
-                        throw new Error(data.error || 'Failed to get columns');
-                    }
-                } catch (err) {
-                    console.error('Error reading file:', err);
-                    showError('Failed to read file: ' + err.message);
-                }
+    // Cached files functions
+    async function loadCachedFiles() {
+        try {
+            const response = await fetch('/get-cached-files');
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                cachedFilesSection.style.display = 'block';
+                cachedFilesList.innerHTML = data.files.map(file => `
+                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
+                        <div class="cached-file-info">
+                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
+                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns - ${file.cached_at}</div>
+                        </div>
+                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
+                    </div>
+                `).join('');
             }
-        });
+        } catch (err) {
+            console.error('Error loading cached files:', err);
+        }
+    }
 
-        // Drag and drop
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragover');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragover');
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragover');
-            
-            if (e.dataTransfer.files.length) {
-                fileInput.files = e.dataTransfer.files;
+    async function useCachedFile(cacheId) {
+        try {
+            const response = await fetch('/use-cached-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cache_id: cacheId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
+                const blob = await fileResponse.blob();
+                const file = new File([blob], data.filename, { type: blob.type });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                fileInput.files = dataTransfer.files;
                 fileInput.dispatchEvent(new Event('change'));
             }
-        });
-
-        function populateColumnDropdowns() {
-            columnsGrid.innerHTML = '';
-            
-            fileColumns.forEach((colInfo, idx) => {
-                const colName = colInfo.name || colInfo;
-                const colType = colInfo.dtype || 'string';
-                
-                // Add to column checkboxes
-                const item = document.createElement('div');
-                item.className = 'column-checkbox-item';
-                item.innerHTML = `
-                    <input type="checkbox" id="col_${idx}" name="selected_columns" value="${escapeHtml(colName)}">
-                    <label for="col_${idx}">
-                        ${escapeHtml(colName)}
-                        <span class="column-type">(${escapeHtml(colType)})</span>
-                    </label>
-                `;
-                columnsGrid.appendChild(item);
-            });
-            
-            columnSelector.classList.add('show');
-            
-            // Enable find button when at least one column is selected
-            function updateFindButton() {
-                const selected = document.querySelectorAll('input[name="selected_columns"]:checked').length > 0;
-                findBtn.disabled = !selected;
-            }
-            
-            columnsGrid.addEventListener('change', (e) => {
-                if (e.target.type === 'checkbox') {
-                    updateFindButton();
-                }
-            });
-            
-            // Select All / Deselect All buttons
-            selectAllBtn.addEventListener('click', () => {
-                document.querySelectorAll('input[name="selected_columns"]').forEach(cb => cb.checked = true);
-                updateFindButton();
-            });
-            
-            deselectAllBtn.addEventListener('click', () => {
-                document.querySelectorAll('input[name="selected_columns"]').forEach(cb => cb.checked = false);
-                updateFindButton();
-            });
+        } catch (err) {
+            console.error('Error using cached file:', err);
+            showError('Failed to load cached file');
         }
+    }
 
-        function resetProgress() {
-            loadingProgress.style.width = '0%';
-            loadingProgress.textContent = '0%';
-            filteringProgress.style.width = '0%';
-            filteringProgress.textContent = '0%';
-            analyzingProgress.style.width = '0%';
-            analyzingProgress.textContent = '0%';
-            savingProgress.style.width = '0%';
-            savingProgress.textContent = '0%';
-            loadingMessage.textContent = 'Waiting...';
-            filteringMessage.textContent = 'Waiting...';
-            analyzingMessage.textContent = 'Waiting...';
-            savingMessage.textContent = 'Waiting...';
+    function displayPreview(previewData) {
+        previewStats.textContent = `${previewData.total_rows.toLocaleString()} rows x ${previewData.columns.length} columns`;
+        previewTableHead.innerHTML = '<tr>' + previewData.columns.map(col => `<th>${escapeHtml(col)}</th>`).join('') + '</tr>';
+        previewTableBody.innerHTML = previewData.rows.map(row =>
+            '<tr>' + previewData.columns.map(col => `<td>${escapeHtml(String(row[col] ?? ''))}</td>`).join('') + '</tr>'
+        ).join('');
+        if (previewData.total_rows > previewData.rows.length) {
+            previewMoreIndicator.textContent = `Showing first ${previewData.rows.length} of ${previewData.total_rows.toLocaleString()} rows`;
+        } else {
+            previewMoreIndicator.textContent = '';
         }
+        dataPreviewSection.classList.add('show');
+    }
 
-        function updateProgress(stage, percentage, message) {
-            const progressMap = {
-                'loading': { bar: loadingProgress, messageEl: loadingMessage },
-                'filtering': { bar: filteringProgress, messageEl: filteringMessage },
-                'analyzing': { bar: analyzingProgress, messageEl: analyzingMessage },
-                'saving': { bar: savingProgress, messageEl: savingMessage }
-            };
-
-            if (progressMap[stage]) {
-                progressMap[stage].bar.style.width = percentage + '%';
-                progressMap[stage].bar.textContent = percentage + '%';
-                if (message) {
-                    progressMap[stage].messageEl.textContent = message;
-                }
-            }
-        }
-
-        function showError(message, details = null) {
-            let errorText = 'Error: ' + message;
-            if (details) {
-                errorText += '\n\n' + details;
-            }
-            error.textContent = errorText;
-            error.classList.add('show');
-            error.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-
-        // Cancel button
-        cancelBtn.addEventListener('click', function() {
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
-            }
-            cancelBtn.style.display = 'none';
-            findBtn.disabled = false;
-            findBtn.textContent = 'Find Unique Identifier';
-            progressContainer.classList.remove('show');
-            resetProgress();
-            showError('Unique identifier finding cancelled by user');
-        });
-
-        // Find unique identifier button
-        findBtn.addEventListener('click', async () => {
-            if (!selectedFile) return;
-
-            // Get selected columns
-            const selectedColumns = Array.from(document.querySelectorAll('input[name="selected_columns"]:checked')).map(cb => cb.value);
-            
-            if (selectedColumns.length === 0) {
-                showError('Please select at least one column to analyze');
-                return;
-            }
-
+    async function fetchPreview(file) {
+        try {
             const formData = new FormData();
-            formData.append('file', selectedFile);
-            selectedColumns.forEach(col => formData.append('selected_columns[]', col));
+            formData.append('file', file);
+            const response = await fetch('/preview-data', { method: 'POST', body: formData });
+            const data = await response.json();
+            if (data.success) {
+                displayPreview(data);
+            }
+        } catch (err) {
+            console.error('Error fetching preview:', err);
+        }
+    }
 
-            findBtn.disabled = true;
-            findBtn.textContent = 'Finding Unique Identifier...';
-            cancelBtn.style.display = 'inline-block';
-            progressContainer.classList.add('show');
-            results.classList.remove('show');
+    // Load cached files on page load
+    loadCachedFiles();
+
+    // Click to upload
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // File selection
+    fileInput.addEventListener('change', async (e) => {
+        if (e.target.files.length > 0) {
+            selectedFile = e.target.files[0];
+            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
+            fileSizeInfo.style.display = 'block';
             error.classList.remove('show');
-            resetProgress();
+            results.classList.remove('show');
+            columnSelector.classList.remove('show');
+            findBtn.disabled = true;
 
+            // Get columns from server
             try {
-                const response = await fetch('/find-unique-identifier', {
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+
+                const response = await fetch('/get-columns', {
                     method: 'POST',
                     body: formData
-                }).catch(fetchError => {
-                    throw new Error('Could not connect to server. Make sure the server is running.');
                 });
 
-                let data;
-                try {
-                    data = await response.json();
-                } catch (jsonError) {
-                    throw new Error('Invalid response from server');
+                if (!response.ok) {
+                    throw new Error('Failed to read file columns');
                 }
 
-                if (response.ok && data.success && data.session_id) {
-                    if (eventSource) {
-                        eventSource.close();
-                    }
-                    
-                    eventSource = new EventSource('/progress/' + data.session_id);
-                    
-                    eventSource.onmessage = function(event) {
-                        const progressData = JSON.parse(event.data);
-                        
-                        if (progressData.error) {
-                            eventSource.close();
-                            showError('Server error: ' + progressData.error);
-                            findBtn.disabled = false;
-                            findBtn.textContent = 'Find Unique Identifier';
-                            cancelBtn.style.display = 'none';
-                            progressContainer.classList.remove('show');
-                            return;
-                        }
-                        
-                        const stage = progressData.stage;
-                        const percentage = progressData.percentage || 0;
-                        const message = progressData.message || '';
-                        
-                        updateProgress(stage, percentage, message);
-                        
-                        if (stage === 'done') {
-                            eventSource.close();
-                            
-                            if (progressData.download_url) {
-                                downloadBtn.onclick = () => {
-                                    window.location.href = progressData.download_url;
-                                };
-                                
-                                // Display results
-                                displayResults(progressData);
-                                
-                                results.classList.add('show');
-                                findBtn.disabled = false;
-                                findBtn.textContent = 'Find Unique Identifier';
-                                cancelBtn.style.display = 'none';
-                                progressContainer.classList.remove('show');
-                            }
-                        }
-                        
-                        if (stage === 'error') {
-                            eventSource.close();
-                            showError(progressData.message || 'An error occurred during unique identifier finding');
-                            findBtn.disabled = false;
-                            findBtn.textContent = 'Find Unique Identifier';
-                            cancelBtn.style.display = 'none';
-                            progressContainer.classList.remove('show');
-                        }
-                    };
-                    
-                    eventSource.onerror = function(err) {
-                        console.error('EventSource error:', err);
-                        if (eventSource.readyState === EventSource.CLOSED) {
-                            eventSource.close();
-                            showError('Connection lost. Unique identifier finding may still be processing...');
-                            findBtn.disabled = false;
-                            findBtn.textContent = 'Find Unique Identifier';
-                            cancelBtn.style.display = 'none';
-                        }
-                    };
+                const data = await response.json();
+                if (data.success && data.columns) {
+                    fileColumns = data.columns;
+                    populateColumnDropdowns();
+                    // Fetch preview
+                    fetchPreview(selectedFile);
                 } else {
-                    throw new Error(data.error || 'Failed to start unique identifier finding');
+                    throw new Error(data.error || 'Failed to get columns');
                 }
-            } catch (error) {
-                console.error('Error:', error);
-                showError(error.message || 'An error occurred');
-                findBtn.disabled = false;
-                findBtn.textContent = 'Find Unique Identifier';
-                cancelBtn.style.display = 'none';
-                progressContainer.classList.remove('show');
+            } catch (err) {
+                console.error('Error reading file:', err);
+                showError('Failed to read file: ' + err.message);
+            }
+        }
+    });
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+
+        if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            fileInput.dispatchEvent(new Event('change'));
+        }
+    });
+
+    function populateColumnDropdowns() {
+        columnsGrid.innerHTML = '';
+
+        fileColumns.forEach((colInfo, idx) => {
+            const colName = colInfo.name || colInfo;
+            const colType = colInfo.dtype || 'string';
+
+            // Add to column checkboxes
+            const item = document.createElement('div');
+            item.className = 'column-checkbox-item';
+            item.innerHTML = `
+                <input type="checkbox" id="col_${idx}" name="selected_columns" value="${escapeHtml(colName)}">
+                <label for="col_${idx}">
+                    ${escapeHtml(colName)}
+                    <span class="column-type">(${escapeHtml(colType)})</span>
+                </label>
+            `;
+            columnsGrid.appendChild(item);
+        });
+
+        columnSelector.classList.add('show');
+
+        // Enable find button when at least one column is selected
+        function updateFindButton() {
+            const selected = document.querySelectorAll('input[name="selected_columns"]:checked').length > 0;
+            findBtn.disabled = !selected;
+        }
+
+        columnsGrid.addEventListener('change', (e) => {
+            if (e.target.type === 'checkbox') {
+                updateFindButton();
             }
         });
 
-        function displayResults(progressData) {
-            // Summary
-            resultsSummary.innerHTML = `
-                <div class="summary-item">
-                    <span class="summary-label">Original Rows:</span>
-                    <span class="summary-value">${progressData.original_rows || 0}</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">Fully Duplicate Rows Removed:</span>
-                    <span class="summary-value">${progressData.duplicate_rows_removed || 0}</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">Rows After Filtering:</span>
-                    <span class="summary-value">${progressData.rows_after_filtering || 0}</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">Selected Columns:</span>
-                    <span class="summary-value">${progressData.selected_columns_count || 0}</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">Minimal Columns Needed:</span>
-                    <span class="summary-value">${progressData.minimal_columns_count || 0}</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">Alternative Combinations Found:</span>
-                    <span class="summary-value">${progressData.alternatives_count || 0}</span>
-                </div>
-            `;
-            
-            // Display minimal columns and alternatives with clear explanation
-            let resultsHTML = '<div style="margin-top: 20px;">';
-            
-            // Add explanation box
-            resultsHTML += `
-                <div style="background: #e7f3ff; border-left: 4px solid #2196F3; padding: 20px; border-radius: 5px; margin-bottom: 20px;">
-                    <h3 style="color: #1976D2; margin-top: 0; margin-bottom: 10px; font-size: 18px;">What You're Looking At</h3>
-                    <p style="color: #1565C0; margin: 0; line-height: 1.6;">
-                        Below are the column combinations that can be <strong>concatenated (combined)</strong> to create a unique ID for each row. 
-                        For example, if the combination is "FirstName, LastName", you would combine those two column values to create a unique identifier. 
-                        The tool found the <strong>smallest number of columns</strong> needed to achieve uniqueness.
-                    </p>
-                </div>
-            `;
-            
-            if (progressData.minimal_columns && progressData.minimal_columns.length > 0) {
-                const columnsList = progressData.minimal_columns.map(col => `<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: monospace;">${escapeHtml(col)}</code>`).join(' + ');
-                resultsHTML += `
-                    <div style="background: #d4edda; border-left: 4px solid #28a745; padding: 20px; border-radius: 5px; margin-bottom: 15px;">
-                        <h3 style="color: #155724; margin-top: 0; margin-bottom: 12px; font-size: 16px; font-weight: 700;">Recommended: Concatenate These Columns</h3>
-                        <div style="color: #155724; font-size: 15px; margin-bottom: 10px;">
-                            <strong>Columns:</strong> ${columnsList}
-                        </div>
-                        <div style="color: #155724; font-size: 13px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(21, 87, 36, 0.2);">
-                            <strong>How to use:</strong> Combine the values from these ${progressData.minimal_columns.length} column(s) to create a unique ID. 
-                            The downloaded Excel file includes a "Unique_ID" column showing the concatenated result.
-                        </div>
-                    </div>
-                `;
-            }
-            
-            if (progressData.alternatives && progressData.alternatives.length > 1) {
-                resultsHTML += '<div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 20px; border-radius: 5px; margin-bottom: 15px;">';
-                resultsHTML += '<h3 style="color: #856404; margin-top: 0; margin-bottom: 12px; font-size: 16px; font-weight: 700;">Alternative Options (Also Work)</h3>';
-                progressData.alternatives.slice(1).forEach((alt, idx) => {
-                    const altColumnsList = alt.map(col => `<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-family: monospace;">${escapeHtml(col)}</code>`).join(' + ');
-                    resultsHTML += `
-                        <div style="margin-bottom: ${idx < progressData.alternatives.length - 2 ? '12px' : '0'}; padding-bottom: ${idx < progressData.alternatives.length - 2 ? '12px' : '0'}; border-bottom: ${idx < progressData.alternatives.length - 2 ? '1px solid rgba(133, 100, 4, 0.2)' : 'none'};">
-                            <div style="color: #856404; font-size: 14px;">
-                                <strong>Option ${idx + 2}:</strong> ${altColumnsList}
-                            </div>
-                        </div>
-                    `;
-                });
-                resultsHTML += '</div>';
-            }
-            
-            resultsHTML += '</div>';
-            
-            resultsTableContainer.innerHTML = resultsHTML;
-        }
+        // Select All / Deselect All buttons
+        selectAllBtn.addEventListener('click', () => {
+            document.querySelectorAll('input[name="selected_columns"]').forEach(cb => cb.checked = true);
+            updateFindButton();
+        });
 
-        // Theme Toggle Functionality
-        const uiToggle = document.getElementById('uiToggle');
-        const color1Picker = document.getElementById('color1');
-        const color2Picker = document.getElementById('color2');
-        const color3Picker = document.getElementById('color3');
-        const speedSlider = document.getElementById('speedSlider');
-        const speedValue = document.getElementById('speedValue');
-        const resetSettings = document.getElementById('resetSettings');
-        const blobs = document.querySelectorAll('.blob');
+        deselectAllBtn.addEventListener('click', () => {
+            document.querySelectorAll('input[name="selected_columns"]').forEach(cb => cb.checked = false);
+            updateFindButton();
+        });
+    }
 
-        const defaultSettings = {
-            color1: '#667eea',
-            color2: '#764ba2',
-            color3: '#38bdf8',
-            speed: 30
+    function resetProgress() {
+        loadingProgress.style.width = '0%';
+        loadingProgress.textContent = '0%';
+        filteringProgress.style.width = '0%';
+        filteringProgress.textContent = '0%';
+        analyzingProgress.style.width = '0%';
+        analyzingProgress.textContent = '0%';
+        savingProgress.style.width = '0%';
+        savingProgress.textContent = '0%';
+        loadingMessage.textContent = 'Pending...';
+        filteringMessage.textContent = 'Pending...';
+        analyzingMessage.textContent = 'Pending...';
+        savingMessage.textContent = 'Pending...';
+    }
+
+    function updateProgress(stage, percentage, message) {
+        const progressMap = {
+            'loading': { bar: loadingProgress, messageEl: loadingMessage },
+            'filtering': { bar: filteringProgress, messageEl: filteringMessage },
+            'analyzing': { bar: analyzingProgress, messageEl: analyzingMessage },
+            'saving': { bar: savingProgress, messageEl: savingMessage }
         };
 
-        function setTheme(isFutureMode) {
-            if (isFutureMode) {
-                document.body.classList.add('future-mode');
-                uiToggle.classList.add('active');
-                localStorage.setItem('uiTheme', 'future');
-            } else {
-                document.body.classList.remove('future-mode');
-                uiToggle.classList.remove('active');
-                localStorage.setItem('uiTheme', 'classic');
+        if (progressMap[stage]) {
+            progressMap[stage].bar.style.width = percentage + '%';
+            progressMap[stage].bar.textContent = percentage + '%';
+            if (message) {
+                progressMap[stage].messageEl.textContent = message;
             }
         }
+    }
 
-        function hexToRgba(hex, alpha = 0.3) {
-            const r = parseInt(hex.slice(1, 3), 16);
-            const g = parseInt(hex.slice(3, 5), 16);
-            const b = parseInt(hex.slice(5, 7), 16);
-            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    function showError(message, details = null) {
+        let errorText = 'Error: ' + message;
+        if (details) {
+            errorText += '\n\n' + details;
+        }
+        error.textContent = errorText;
+        error.classList.add('show');
+        error.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // Cancel button
+    cancelBtn.addEventListener('click', function() {
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+        cancelBtn.style.display = 'none';
+        findBtn.disabled = false;
+        findBtn.textContent = 'Analyze Key Candidates';
+        progressContainer.classList.remove('show');
+        resetProgress();
+        showError('Analysis cancelled by user');
+    });
+
+    // Find unique identifier button
+    findBtn.addEventListener('click', async () => {
+        if (!selectedFile) return;
+
+        // Get selected columns
+        const selectedColumns = Array.from(document.querySelectorAll('input[name="selected_columns"]:checked')).map(cb => cb.value);
+
+        if (selectedColumns.length === 0) {
+            showError('Please select at least one column to analyze');
+            return;
         }
 
-        function updateBlobColors() {
-            blobs[0].style.background = hexToRgba(color1Picker.value);
-            blobs[1].style.background = hexToRgba(color2Picker.value);
-            blobs[2].style.background = hexToRgba(color3Picker.value);
-            localStorage.setItem('blobColors', JSON.stringify({
-                color1: color1Picker.value,
-                color2: color2Picker.value,
-                color3: color3Picker.value
-            }));
-        }
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        selectedColumns.forEach(col => formData.append('selected_columns[]', col));
 
-        function updateSpeed() {
-            const speed = parseInt(speedSlider.value);
-            speedValue.textContent = speed + 's';
-            blobs[0].style.animationDuration = (speed - 5) + 's';
-            blobs[1].style.animationDuration = speed + 's';
-            blobs[2].style.animationDuration = (speed + 5) + 's';
-            localStorage.setItem('animationSpeed', speed);
-        }
+        findBtn.disabled = true;
+        findBtn.textContent = 'Analyzing...';
+        cancelBtn.style.display = 'inline-flex';
+        progressContainer.classList.add('show');
+        results.classList.remove('show');
+        error.classList.remove('show');
+        resetProgress();
 
-        function loadSettings() {
-            const savedColors = localStorage.getItem('blobColors');
-            const savedSpeed = localStorage.getItem('animationSpeed');
-            if (savedColors) {
-                const colors = JSON.parse(savedColors);
-                color1Picker.value = colors.color1;
-                color2Picker.value = colors.color2;
-                color3Picker.value = colors.color3;
-                updateBlobColors();
-            }
-            if (savedSpeed) {
-                speedSlider.value = savedSpeed;
-                updateSpeed();
-            }
-        }
-
-        function resetToDefaults() {
-            color1Picker.value = defaultSettings.color1;
-            color2Picker.value = defaultSettings.color2;
-            color3Picker.value = defaultSettings.color3;
-            speedSlider.value = defaultSettings.speed;
-            updateBlobColors();
-            updateSpeed();
-        }
-
-        color1Picker.addEventListener('input', updateBlobColors);
-        color2Picker.addEventListener('input', updateBlobColors);
-        color3Picker.addEventListener('input', updateBlobColors);
-        speedSlider.addEventListener('input', updateSpeed);
-        resetSettings.addEventListener('click', resetToDefaults);
-
-        const savedTheme = localStorage.getItem('uiTheme');
-        if (savedTheme === 'future') {
-            setTheme(true);
-        }
-
-        loadSettings();
-
-        uiToggle.addEventListener('click', () => {
-            const isFutureMode = !document.body.classList.contains('future-mode');
-            setTheme(isFutureMode);
-        });
-
-        // Toggle settings panel collapse/expand
-        const settingsToggle = document.getElementById('settingsToggle');
-        const futureSettings = document.querySelector('.future-settings');
-        if (settingsToggle && futureSettings) {
-            settingsToggle.addEventListener('click', () => {
-                futureSettings.classList.toggle('collapsed');
+        try {
+            const response = await fetch('/find-unique-identifier', {
+                method: 'POST',
+                body: formData
+            }).catch(fetchError => {
+                throw new Error('Could not connect to server. Make sure the server is running.');
             });
-        }
-    </script>
-    <!-- Help Modal -->
-    <div class="help-modal" id="helpModal">
-        <div class="help-modal-content">
-            <div class="help-modal-header">
-                <h2 class="help-modal-title">How Unique Identifier Finder Works</h2>
-                <button class="help-modal-close" id="helpModalClose">&times;</button>
-            </div>
-            
-            <div class="help-section">
-                <div class="help-section-title">What This Tool Does</div>
-                <div class="help-section-content">
-                    <p style="margin-bottom: 10px;">
-                        This tool finds which columns you can <strong>concatenate (combine together)</strong> to create a unique ID for each row in your data.
-                    </p>
-                    <p style="margin-bottom: 10px;">
-                        <strong>Example:</strong> If you have columns "FirstName" and "LastName", and combining them creates unique values for each row, that's a viable ID combination. The tool finds the <strong>smallest number of columns</strong> needed.
-                    </p>
-                    <p>
-                        The tool first removes fully duplicate rows (where all columns are identical), then analyzes your selected columns to find minimal combinations that create unique identifiers.
-                    </p>
-                </div>
-            </div>
 
-            <div class="help-section">
-                <div class="help-section-title">How It Works</div>
-                <div class="help-section-content">
-                    <ul class="help-list">
-                        <li><strong>File Upload:</strong> Your Excel/CSV file is temporarily saved</li>
-                        <li><strong>Column Selection:</strong> Select which columns to consider for creating unique identifiers</li>
-                        <li><strong>Duplicate Filtering:</strong> Fully duplicate rows (all columns identical) are automatically removed</li>
-                        <li><strong>Single Column Analysis:</strong> System checks if any single column creates unique IDs</li>
-                        <li><strong>Combination Analysis:</strong> If needed, tries pairs, triplets, etc. to find minimal combinations</li>
-                        <li><strong>Alternative Finding:</strong> Discovers multiple minimal combinations if they exist</li>
-                        <li><strong>Results Generation:</strong> Excel file with summary, data with unique IDs, and alternative combinations</li>
-                        <li><strong>Cleanup:</strong> Original upload file is deleted</li>
-                    </ul>
-                </div>
-            </div>
+            let data;
+            try {
+                data = await response.json();
+            } catch (jsonError) {
+                throw new Error('Invalid response from server');
+            }
 
-            <div class="help-section">
-                <div class="help-section-title">Technologies Used</div>
-                <div class="help-section-content">
-                    <ul class="help-list">
-                        <li><strong>pandas:</strong> Data manipulation, duplicate filtering, and unique identifier analysis</li>
-                        <li><strong>itertools:</strong> Generating column combinations for analysis</li>
-                        <li><strong>openpyxl:</strong> Excel file writing</li>
-                        <li><strong>Flask:</strong> Web framework</li>
-                        <li><strong>Server-Sent Events (SSE):</strong> Real-time progress updates</li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="help-section">
-                <div class="help-section-title">File Storage & Locations</div>
-                <div class="help-section-content">
-                    <strong>Upload Location:</strong>
-                    <div class="help-path">[BASE_DIR]/uploads/[session_id]_[filename]</div>
-                    
-                    <strong>Output Location:</strong>
-                    <div class="help-path">[BASE_DIR]/output/unique_identifier_[timestamp].xlsx</div>
-                    
-                    <p style="margin-top: 15px;">
-                        <strong>Note:</strong> Output file contains four sheets: "Summary" (statistics), "Data with Unique IDs" (original data with new Unique_ID column), "Alternative Combinations" (other minimal sets found), and "Sample Unique IDs" (preview). Original upload file is deleted after processing.
-                    </p>
-                </div>
-            </div>
-
-            <div class="help-section">
-                <div class="help-section-title">Processing Flow</div>
-                <div class="help-section-content">
-                    <ol style="margin-left: 20px; line-height: 2;">
-                        <li>File is uploaded and validated</li>
-                        <li>User selects columns to analyze</li>
-                        <li>Background thread starts processing</li>
-                        <li>File is read into memory</li>
-                        <li>Fully duplicate rows are identified and removed</li>
-                        <li>System checks if single columns create unique IDs</li>
-                        <li>If not, tries combinations of 2, 3, etc. columns</li>
-                        <li>Finds minimal combination(s) that create unique identifiers</li>
-                        <li>Discovers alternative minimal combinations if available</li>
-                        <li>Results are compiled with unique IDs added to data</li>
-                        <li>Excel file with results is generated</li>
-                        <li>Original upload file is deleted</li>
-                        <li>Results file is made available for download</li>
-                    </ol>
-                </div>
-            </div>
-        </div>
-    </div>
-
-
-    <script>
-        // Help Modal - Initialize after DOM is loaded
-        document.addEventListener('DOMContentLoaded', function() {
-            const helpBtn = document.getElementById('helpBtn');
-            const helpModal = document.getElementById('helpModal');
-            const helpModalClose = document.getElementById('helpModalClose');
-
-            if (helpBtn && helpModal) {
-                helpBtn.addEventListener('click', () => {
-                    helpModal.classList.add('show');
-                });
-
-                if (helpModalClose) {
-                    helpModalClose.addEventListener('click', () => {
-                        helpModal.classList.remove('show');
-                    });
+            if (response.ok && data.success && data.session_id) {
+                if (eventSource) {
+                    eventSource.close();
                 }
 
-                // Close modal when clicking outside
-                helpModal.addEventListener('click', (e) => {
-                    if (e.target === helpModal) {
-                        helpModal.classList.remove('show');
-                    }
-                });
+                eventSource = new EventSource('/progress/' + data.session_id);
 
-                // Close modal with Escape key
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape' && helpModal.classList.contains('show')) {
-                        helpModal.classList.remove('show');
+                eventSource.onmessage = function(event) {
+                    const progressData = JSON.parse(event.data);
+
+                    if (progressData.error) {
+                        eventSource.close();
+                        showError('Server error: ' + progressData.error);
+                        findBtn.disabled = false;
+                        findBtn.textContent = 'Analyze Key Candidates';
+                        cancelBtn.style.display = 'none';
+                        progressContainer.classList.remove('show');
+                        return;
                     }
+
+                    const stage = progressData.stage;
+                    const percentage = progressData.percentage || 0;
+                    const message = progressData.message || '';
+
+                    updateProgress(stage, percentage, message);
+
+                    if (stage === 'done') {
+                        eventSource.close();
+
+                        if (progressData.download_url) {
+                            downloadBtn.onclick = () => {
+                                window.location.href = progressData.download_url;
+                            };
+
+                            // Display results
+                            displayResults(progressData);
+
+                            results.classList.add('show');
+                            findBtn.disabled = false;
+                            findBtn.textContent = 'Analyze Key Candidates';
+                            cancelBtn.style.display = 'none';
+                            progressContainer.classList.remove('show');
+                        }
+                    }
+
+                    if (stage === 'error') {
+                        eventSource.close();
+                        showError(progressData.message || 'An error occurred during analysis');
+                        findBtn.disabled = false;
+                        findBtn.textContent = 'Analyze Key Candidates';
+                        cancelBtn.style.display = 'none';
+                        progressContainer.classList.remove('show');
+                    }
+                };
+
+                eventSource.onerror = function(err) {
+                    console.error('EventSource error:', err);
+                    if (eventSource.readyState === EventSource.CLOSED) {
+                        eventSource.close();
+                        showError('Connection interrupted. Analysis may still be processing.');
+                        findBtn.disabled = false;
+                        findBtn.textContent = 'Analyze Key Candidates';
+                        cancelBtn.style.display = 'none';
+                    }
+                };
+            } else {
+                throw new Error(data.error || 'Failed to initiate analysis');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            showError(error.message || 'An error occurred');
+            findBtn.disabled = false;
+            findBtn.textContent = 'Analyze Key Candidates';
+            cancelBtn.style.display = 'none';
+            progressContainer.classList.remove('show');
+        }
+    });
+
+    function displayResults(progressData) {
+        // Summary
+        resultsSummary.innerHTML = `
+            <div class="summary-item">
+                <span class="summary-label">Total Records:</span>
+                <span class="summary-value">${(progressData.original_rows || 0).toLocaleString()}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Duplicate Records Excluded:</span>
+                <span class="summary-value">${(progressData.duplicate_rows_removed || 0).toLocaleString()}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Records Analyzed:</span>
+                <span class="summary-value">${(progressData.rows_after_filtering || 0).toLocaleString()}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Columns Evaluated:</span>
+                <span class="summary-value">${progressData.selected_columns_count || 0}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Minimum Key Size:</span>
+                <span class="summary-value">${progressData.minimal_columns_count || 0} column${(progressData.minimal_columns_count || 0) !== 1 ? 's' : ''}</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-label">Valid Key Combinations:</span>
+                <span class="summary-value">${progressData.alternatives_count || 0}</span>
+            </div>
+        `;
+
+        // Display minimal columns and alternatives with clear explanation
+        let resultsHTML = '<div style="margin-top: 20px;">';
+
+        // Add explanation box
+        resultsHTML += `
+            <div class="explanation-box">
+                <h3>Analysis Results</h3>
+                <p>
+                    The following column combinations represent <strong>minimal natural keys</strong> - the smallest set of columns that uniquely identify each record.
+                    These can be used as composite primary keys or for data deduplication and record matching.
+                </p>
+            </div>
+        `;
+
+        if (progressData.minimal_columns && progressData.minimal_columns.length > 0) {
+            const columnsList = progressData.minimal_columns.map(col => `<code>${escapeHtml(col)}</code>`).join(' + ');
+            resultsHTML += `
+                <div class="key-result-box">
+                    <h3>Primary Key Candidate</h3>
+                    <div class="key-columns">
+                        <strong>Key Columns:</strong> ${columnsList}
+                    </div>
+                    <div class="implementation-note">
+                        <strong>Implementation:</strong> Concatenate values from ${progressData.minimal_columns.length === 1 ? 'this column' : 'these ' + progressData.minimal_columns.length + ' columns'} to generate a unique identifier.
+                        The download package includes a detailed PDF report and an Excel file with pre-computed <em>Unique_ID</em> values.
+                    </div>
+                </div>
+            `;
+        }
+
+        if (progressData.alternatives && progressData.alternatives.length > 1) {
+            resultsHTML += '<div class="alternatives-box">';
+            resultsHTML += '<h3>Alternative Key Candidates</h3>';
+            progressData.alternatives.slice(1).forEach((alt, idx) => {
+                const altColumnsList = alt.map(col => `<code>${escapeHtml(col)}</code>`).join(' + ');
+                resultsHTML += `
+                    <div class="alternative-item">
+                        <strong>Candidate ${idx + 2}:</strong> ${altColumnsList}
+                    </div>
+                `;
+            });
+            resultsHTML += '</div>';
+        }
+
+        resultsHTML += '</div>';
+
+        resultsTableContainer.innerHTML = resultsHTML;
+    }
+
+    // Help Modal
+    document.addEventListener('DOMContentLoaded', function() {
+        const helpBtn = document.getElementById('helpBtn');
+        const helpModal = document.getElementById('helpModal');
+        const helpModalClose = document.getElementById('helpModalClose');
+
+        if (helpBtn && helpModal) {
+            helpBtn.addEventListener('click', () => {
+                helpModal.classList.add('show');
+            });
+
+            if (helpModalClose) {
+                helpModalClose.addEventListener('click', () => {
+                    helpModal.classList.remove('show');
                 });
             }
-        });
-    </script>
-</body>
-</html>
 
+            // Close modal when clicking outside
+            helpModal.addEventListener('click', (e) => {
+                if (e.target === helpModal) {
+                    helpModal.classList.remove('show');
+                }
+            });
+
+            // Close modal with Escape key
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && helpModal.classList.contains('show')) {
+                    helpModal.classList.remove('show');
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

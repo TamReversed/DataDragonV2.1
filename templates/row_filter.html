@@ -1,0 +1,768 @@
+{% extends "base.html" %}
+
+{% block title %}DataDragon - Row Filter{% endblock %}
+
+{% block styles %}
+<style>
+    /* Cached Files Section */
+    .cached-files-section {
+        background: rgba(168, 85, 247, 0.1);
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        margin-bottom: var(--space-6);
+        display: none;
+    }
+
+    .cached-files-header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-3);
+        color: var(--accent-purple);
+        font-weight: 600;
+        font-size: 14px;
+    }
+
+    .cached-files-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+    }
+
+    .cached-file-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--bg-card);
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        cursor: pointer;
+        transition: all var(--transition-base);
+    }
+
+    .cached-file-item:hover {
+        border-color: var(--accent-purple);
+    }
+
+    .cached-file-name {
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--text-primary);
+    }
+
+    .cached-file-meta {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+
+    .cached-file-source {
+        font-size: 11px;
+        background: rgba(168, 85, 247, 0.15);
+        color: var(--accent-purple);
+        padding: 4px 8px;
+        border-radius: var(--radius-sm);
+    }
+
+    /* Data Preview Section */
+    .data-preview-section {
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
+        padding: var(--space-5);
+        margin-bottom: var(--space-6);
+        display: none;
+    }
+
+    .data-preview-section.show {
+        display: block;
+    }
+
+    .preview-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-4);
+    }
+
+    .preview-title {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .preview-stats {
+        font-size: 13px;
+        color: var(--text-secondary);
+        background: var(--bg-tertiary);
+        padding: 4px 10px;
+        border-radius: var(--radius-sm);
+    }
+
+    .preview-table-wrapper {
+        overflow-x: auto;
+        max-height: 250px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+    }
+
+    .preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .preview-table th {
+        background: var(--gradient-purple-blue);
+        color: white;
+        padding: var(--space-2) var(--space-3);
+        text-align: left;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        white-space: nowrap;
+    }
+
+    .preview-table td {
+        padding: var(--space-2) var(--space-3);
+        border-bottom: 1px solid var(--border-subtle);
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-primary);
+    }
+
+    .preview-table tr:hover td {
+        background: rgba(168, 85, 247, 0.05);
+    }
+
+    .preview-more-indicator {
+        text-align: center;
+        padding: var(--space-2);
+        color: var(--text-muted);
+        font-size: 12px;
+        font-style: italic;
+    }
+
+    /* Filter Section */
+    .filter-section {
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+        display: none;
+    }
+
+    .filter-section.show {
+        display: block;
+    }
+
+    .section-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: var(--space-5);
+    }
+
+    .conditions-container {
+        margin-bottom: var(--space-5);
+    }
+
+    .condition-row {
+        display: flex;
+        gap: var(--space-3);
+        align-items: center;
+        margin-bottom: var(--space-3);
+        flex-wrap: wrap;
+        padding: var(--space-4);
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-lg);
+        border: 1px solid var(--border-subtle);
+    }
+
+    .condition-logic {
+        display: flex;
+        gap: var(--space-3);
+        padding: var(--space-3) var(--space-4);
+        margin-bottom: var(--space-3);
+        background: rgba(168, 85, 247, 0.1);
+        border-radius: var(--radius-md);
+        align-items: center;
+    }
+
+    .condition-logic span {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--accent-purple);
+    }
+
+    .logic-btn {
+        padding: 6px 16px;
+        border: 1px solid var(--accent-purple);
+        background: transparent;
+        color: var(--accent-purple);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+        transition: all var(--transition-base);
+    }
+
+    .logic-btn.active {
+        background: var(--accent-purple);
+        color: white;
+    }
+
+    .logic-btn:hover:not(.active) {
+        background: rgba(168, 85, 247, 0.1);
+    }
+
+    .condition-select,
+    .condition-input {
+        padding: var(--space-2) var(--space-3);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        font-size: 14px;
+        transition: all var(--transition-base);
+        background: var(--bg-input);
+        color: var(--text-primary);
+    }
+
+    .condition-select:focus,
+    .condition-input:focus {
+        outline: none;
+        border-color: var(--accent-purple);
+        box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.15);
+    }
+
+    .condition-select option {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+    }
+
+    .condition-column {
+        min-width: 150px;
+    }
+
+    .condition-operator {
+        min-width: 140px;
+    }
+
+    .condition-value {
+        flex: 1;
+        min-width: 150px;
+    }
+
+    .remove-condition-btn {
+        padding: var(--space-2) var(--space-3);
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--accent-red);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-size: 16px;
+        transition: all var(--transition-base);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .remove-condition-btn:hover {
+        background: rgba(239, 68, 68, 0.25);
+        border-color: rgba(239, 68, 68, 0.5);
+    }
+
+    .add-condition-btn {
+        padding: var(--space-3) var(--space-5);
+        background: transparent;
+        border: 2px dashed var(--border-default);
+        color: var(--text-secondary);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: all var(--transition-base);
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-2);
+    }
+
+    .add-condition-btn:hover {
+        border-color: var(--accent-purple);
+        color: var(--accent-purple);
+        background: rgba(168, 85, 247, 0.05);
+    }
+
+    .filter-preview {
+        background: rgba(168, 85, 247, 0.1);
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        margin-top: var(--space-5);
+    }
+
+    .filter-preview-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--accent-purple);
+        margin-bottom: var(--space-2);
+    }
+
+    .filter-preview-count {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .filter-preview-label {
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    /* Results */
+    .results {
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: var(--radius-lg);
+        padding: var(--space-6);
+        display: none;
+    }
+
+    .results.show {
+        display: block;
+    }
+
+    .results-summary {
+        font-size: 15px;
+        color: var(--text-primary);
+        margin-bottom: var(--space-5);
+        line-height: 1.6;
+    }
+
+    .results-summary strong {
+        color: var(--accent-green);
+    }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<h1 class="page-title">Row Filter</h1>
+<p class="page-subtitle">Filter and subset your data based on conditions. Keep only the rows that match your criteria with support for multiple conditions and AND/OR logic.</p>
+{% endblock %}
+
+{% block content %}
+<div class="cached-files-section" id="cachedFilesSection">
+    <div class="cached-files-header">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+        </svg>
+        <span>Use Previous Result</span>
+    </div>
+    <div class="cached-files-list" id="cachedFilesList"></div>
+</div>
+
+<div class="card mb-6">
+    <div class="file-upload-zone" id="uploadArea">
+        <svg class="file-upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+        </svg>
+        <div class="file-upload-text">Click to Upload or Drag & Drop</div>
+        <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files supported</div>
+        <div id="fileSizeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
+        <input type="file" id="fileInput" class="file-upload-input" accept=".xlsx,.xls,.csv">
+    </div>
+</div>
+
+<!-- Data Preview Section -->
+<div class="data-preview-section" id="dataPreviewSection">
+    <div class="preview-header">
+        <div class="preview-title">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span>Data Preview</span>
+        </div>
+        <div class="preview-stats" id="previewStats"></div>
+    </div>
+    <div class="preview-table-wrapper">
+        <table class="preview-table" id="previewTable">
+            <thead id="previewTableHead"></thead>
+            <tbody id="previewTableBody"></tbody>
+        </table>
+    </div>
+    <div class="preview-more-indicator" id="previewMoreIndicator"></div>
+</div>
+
+<!-- Filter Options -->
+<div class="filter-section" id="filterSection">
+    <div class="section-title">Filter Conditions</div>
+
+    <div class="conditions-container" id="conditionsContainer">
+        <!-- Conditions will be added here dynamically -->
+    </div>
+
+    <button class="add-condition-btn" id="addConditionBtn">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+        Add Condition
+    </button>
+
+    <div class="filter-preview" id="filterPreview" style="display: none;">
+        <div class="filter-preview-title">Matching Rows</div>
+        <div class="filter-preview-count" id="matchingCount">0</div>
+        <div class="filter-preview-label" id="matchingLabel">of 0 total rows</div>
+    </div>
+</div>
+
+<div class="btn-group mb-6">
+    <button class="btn btn-primary" id="filterBtn" disabled>Apply Filter</button>
+    <button class="btn btn-secondary" id="previewBtn" disabled>Preview Results</button>
+</div>
+
+<div class="alert alert-error" id="error" style="display: none;"></div>
+
+<div class="results" id="results">
+    <div class="results-summary" id="resultsSummary"></div>
+    <button class="btn btn-primary" id="downloadBtn">Download Filtered File</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileSizeInfo = document.getElementById('fileSizeInfo');
+    const filterSection = document.getElementById('filterSection');
+    const conditionsContainer = document.getElementById('conditionsContainer');
+    const addConditionBtn = document.getElementById('addConditionBtn');
+    const filterBtn = document.getElementById('filterBtn');
+    const previewBtn = document.getElementById('previewBtn');
+    const filterPreview = document.getElementById('filterPreview');
+    const matchingCount = document.getElementById('matchingCount');
+    const matchingLabel = document.getElementById('matchingLabel');
+    const error = document.getElementById('error');
+    const results = document.getElementById('results');
+    const resultsSummary = document.getElementById('resultsSummary');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    const cachedFilesSection = document.getElementById('cachedFilesSection');
+    const cachedFilesList = document.getElementById('cachedFilesList');
+    const dataPreviewSection = document.getElementById('dataPreviewSection');
+    const previewStats = document.getElementById('previewStats');
+    const previewTableHead = document.getElementById('previewTableHead');
+    const previewTableBody = document.getElementById('previewTableBody');
+    const previewMoreIndicator = document.getElementById('previewMoreIndicator');
+
+    let selectedFile = null;
+    let downloadFilename = null;
+    let fileColumns = [];
+    let totalRows = 0;
+    let conditionCount = 0;
+    let currentLogic = 'AND';
+
+    const operators = [
+        { value: 'equals', label: 'Equals' },
+        { value: 'not_equals', label: 'Does Not Equal' },
+        { value: 'contains', label: 'Contains' },
+        { value: 'not_contains', label: 'Does Not Contain' },
+        { value: 'starts_with', label: 'Starts With' },
+        { value: 'ends_with', label: 'Ends With' },
+        { value: 'greater_than', label: 'Greater Than' },
+        { value: 'less_than', label: 'Less Than' },
+        { value: 'greater_equal', label: 'Greater or Equal' },
+        { value: 'less_equal', label: 'Less or Equal' },
+        { value: 'is_empty', label: 'Is Empty' },
+        { value: 'is_not_empty', label: 'Is Not Empty' },
+        { value: 'in_list', label: 'In List (comma-separated)' }
+    ];
+
+    async function loadCachedFiles() {
+        try {
+            const response = await fetch('/get-cached-files');
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                cachedFilesSection.style.display = 'block';
+                cachedFilesList.innerHTML = data.files.map(file => `
+                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
+                        <div class="cached-file-info">
+                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
+                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns</div>
+                        </div>
+                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
+                    </div>
+                `).join('');
+            }
+        } catch (err) { console.error('Error loading cached files:', err); }
+    }
+
+    async function useCachedFile(cacheId) {
+        try {
+            const response = await fetch('/use-cached-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cache_id: cacheId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
+                const blob = await fileResponse.blob();
+                const file = new File([blob], data.filename, { type: blob.type });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                fileInput.files = dataTransfer.files;
+                fileInput.dispatchEvent(new Event('change'));
+            }
+        } catch (err) { console.error('Error using cached file:', err); showError('Failed to load cached file'); }
+    }
+
+    function displayPreview(previewData) {
+        totalRows = previewData.total_rows;
+        previewStats.textContent = `${previewData.total_rows.toLocaleString()} rows x ${previewData.columns.length} columns`;
+        previewTableHead.innerHTML = '<tr>' + previewData.columns.map(col => `<th>${escapeHtml(col)}</th>`).join('') + '</tr>';
+        previewTableBody.innerHTML = previewData.rows.map(row =>
+            '<tr>' + previewData.columns.map(col => `<td>${escapeHtml(String(row[col] ?? ''))}</td>`).join('') + '</tr>'
+        ).join('');
+        if (previewData.total_rows > previewData.rows.length) {
+            previewMoreIndicator.textContent = `Showing first ${previewData.rows.length} of ${previewData.total_rows.toLocaleString()} rows`;
+        } else {
+            previewMoreIndicator.textContent = '';
+        }
+        dataPreviewSection.classList.add('show');
+        matchingLabel.textContent = `of ${totalRows.toLocaleString()} total rows`;
+    }
+
+    async function fetchPreview(file) {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await fetch('/preview-data', { method: 'POST', body: formData });
+            const data = await response.json();
+            if (data.success) displayPreview(data);
+        } catch (err) { console.error('Error fetching preview:', err); }
+    }
+
+    loadCachedFiles();
+
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', async (e) => {
+        if (e.target.files.length > 0) {
+            selectedFile = e.target.files[0];
+            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
+            fileSizeInfo.style.display = 'block';
+            uploadArea.classList.add('has-file');
+            error.style.display = 'none';
+            results.classList.remove('show');
+
+            try {
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+                const response = await fetch('/get-columns', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.success && data.columns) {
+                    fileColumns = data.columns;
+                    filterSection.classList.add('show');
+                    conditionsContainer.innerHTML = '';
+                    conditionCount = 0;
+                    addCondition();
+                    updateButtons();
+                    fetchPreview(selectedFile);
+                } else {
+                    throw new Error(data.error || 'Failed to get columns');
+                }
+            } catch (err) {
+                console.error('Error reading file:', err);
+                showError('Failed to read file: ' + err.message);
+            }
+        }
+    });
+
+    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+    uploadArea.addEventListener('dragleave', () => { uploadArea.classList.remove('dragover'); });
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            fileInput.dispatchEvent(new Event('change'));
+        }
+    });
+
+    function addCondition() {
+        conditionCount++;
+        const conditionId = conditionCount;
+
+        const conditionHtml = `
+            ${conditionCount > 1 ? `
+            <div class="condition-logic" id="logic_${conditionId}">
+                <span>Combine with:</span>
+                <button class="logic-btn ${currentLogic === 'AND' ? 'active' : ''}" onclick="setLogic('AND', this)">AND</button>
+                <button class="logic-btn ${currentLogic === 'OR' ? 'active' : ''}" onclick="setLogic('OR', this)">OR</button>
+            </div>
+            ` : ''}
+            <div class="condition-row" id="condition_${conditionId}">
+                <select class="condition-select condition-column" id="column_${conditionId}" onchange="updateButtons()">
+                    <option value="">Select Column</option>
+                    ${fileColumns.map(c => `<option value="${escapeHtml(c.name || c)}">${escapeHtml(c.name || c)}</option>`).join('')}
+                </select>
+                <select class="condition-select condition-operator" id="operator_${conditionId}" onchange="handleOperatorChange(${conditionId}); updateButtons()">
+                    ${operators.map(op => `<option value="${op.value}">${op.label}</option>`).join('')}
+                </select>
+                <input type="text" class="condition-input condition-value" id="value_${conditionId}" placeholder="Enter value..." onchange="updateButtons()">
+                ${conditionCount > 1 ? `<button class="remove-condition-btn" onclick="removeCondition(${conditionId})"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>` : ''}
+            </div>
+        `;
+
+        conditionsContainer.insertAdjacentHTML('beforeend', conditionHtml);
+        updateButtons();
+    }
+
+    function removeCondition(id) {
+        const conditionEl = document.getElementById(`condition_${id}`);
+        const logicEl = document.getElementById(`logic_${id}`);
+        if (conditionEl) conditionEl.remove();
+        if (logicEl) logicEl.remove();
+        updateButtons();
+    }
+
+    function setLogic(logic, btn) {
+        currentLogic = logic;
+        document.querySelectorAll('.logic-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.logic-btn').forEach(b => {
+            if (b.textContent === logic) b.classList.add('active');
+        });
+    }
+
+    function handleOperatorChange(id) {
+        const operator = document.getElementById(`operator_${id}`).value;
+        const valueInput = document.getElementById(`value_${id}`);
+        if (operator === 'is_empty' || operator === 'is_not_empty') {
+            valueInput.style.display = 'none';
+            valueInput.value = '';
+        } else {
+            valueInput.style.display = 'block';
+        }
+    }
+
+    function getConditions() {
+        const conditions = [];
+        const conditionRows = conditionsContainer.querySelectorAll('.condition-row');
+        conditionRows.forEach((row, idx) => {
+            const id = row.id.split('_')[1];
+            const column = document.getElementById(`column_${id}`)?.value;
+            const operator = document.getElementById(`operator_${id}`)?.value;
+            const value = document.getElementById(`value_${id}`)?.value;
+            if (column && operator) {
+                conditions.push({ column, operator, value, logic: idx > 0 ? currentLogic : null });
+            }
+        });
+        return conditions;
+    }
+
+    function updateButtons() {
+        const conditions = getConditions();
+        const valid = conditions.length > 0 && conditions.every(c => {
+            if (c.operator === 'is_empty' || c.operator === 'is_not_empty') return true;
+            return c.value !== '';
+        });
+        filterBtn.disabled = !selectedFile || !valid;
+        previewBtn.disabled = !selectedFile || !valid;
+    }
+
+    function showError(message) {
+        error.textContent = 'Error: ' + message;
+        error.style.display = 'block';
+        error.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    addConditionBtn.addEventListener('click', addCondition);
+
+    previewBtn.addEventListener('click', async () => {
+        const conditions = getConditions();
+        if (!selectedFile || conditions.length === 0) return;
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('conditions', JSON.stringify(conditions));
+        formData.append('preview_only', 'true');
+
+        try {
+            const response = await fetch('/row-filter', { method: 'POST', body: formData });
+            const data = await response.json();
+            if (data.success) {
+                matchingCount.textContent = data.matching_rows.toLocaleString();
+                filterPreview.style.display = 'block';
+            } else {
+                throw new Error(data.error || 'Preview failed');
+            }
+        } catch (err) { console.error('Preview error:', err); showError(err.message); }
+    });
+
+    filterBtn.addEventListener('click', async () => {
+        const conditions = getConditions();
+        if (!selectedFile || conditions.length === 0) return;
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('conditions', JSON.stringify(conditions));
+
+        filterBtn.disabled = true;
+        filterBtn.textContent = 'Filtering...';
+        error.style.display = 'none';
+        results.classList.remove('show');
+
+        try {
+            const response = await fetch('/row-filter', { method: 'POST', body: formData });
+            const data = await response.json();
+
+            if (data.success) {
+                downloadFilename = data.filename;
+                resultsSummary.innerHTML = `
+                    <strong>Filter Applied Successfully!</strong><br><br>
+                    Original rows: <strong>${data.original_rows.toLocaleString()}</strong><br>
+                    Matching rows: <strong>${data.matching_rows.toLocaleString()}</strong><br>
+                    Removed: <strong>${(data.original_rows - data.matching_rows).toLocaleString()}</strong> rows
+                `;
+                results.classList.add('show');
+            } else {
+                throw new Error(data.error || 'Filter failed');
+            }
+        } catch (err) { console.error('Filter error:', err); showError(err.message); }
+        finally {
+            filterBtn.disabled = false;
+            filterBtn.textContent = 'Apply Filter';
+        }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+        if (downloadFilename) window.location.href = `/download/${downloadFilename}`;
+    });
+</script>
+{% endblock %}

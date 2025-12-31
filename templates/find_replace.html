@@ -1,0 +1,744 @@
+{% extends "base.html" %}
+
+{% block title %}DataDragon - Find & Replace{% endblock %}
+
+{% block styles %}
+<style>
+    /* Cached files section */
+    .cached-files-section {
+        background: rgba(168, 85, 247, 0.1);
+        border: 1px solid rgba(168, 85, 247, 0.3);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        margin-bottom: var(--space-6);
+        display: none;
+    }
+
+    .cached-files-header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-3);
+        color: var(--accent-purple);
+        font-weight: 600;
+        font-size: 14px;
+    }
+
+    .cached-files-list {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+    }
+
+    .cached-file-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--bg-card);
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+        cursor: pointer;
+        transition: all var(--transition-base);
+    }
+
+    .cached-file-item:hover {
+        border-color: var(--accent-purple);
+    }
+
+    .cached-file-name {
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--text-primary);
+    }
+
+    .cached-file-meta {
+        font-size: 12px;
+        color: var(--text-muted);
+    }
+
+    .cached-file-source {
+        font-size: 11px;
+        background: rgba(168, 85, 247, 0.15);
+        color: var(--accent-purple);
+        padding: 4px 8px;
+        border-radius: var(--radius-sm);
+    }
+
+    /* Data preview section */
+    .data-preview-section {
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+        display: none;
+    }
+
+    .data-preview-section.show {
+        display: block;
+    }
+
+    .preview-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-4);
+    }
+
+    .preview-title {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .preview-title svg {
+        width: 18px;
+        height: 18px;
+        color: var(--accent-purple);
+    }
+
+    .preview-stats {
+        font-size: 13px;
+        color: var(--text-secondary);
+        background: var(--bg-tertiary);
+        padding: 4px 10px;
+        border-radius: var(--radius-sm);
+    }
+
+    .preview-table-wrapper {
+        overflow-x: auto;
+        max-height: 300px;
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-subtle);
+    }
+
+    .preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .preview-table th {
+        background: var(--gradient-purple-blue);
+        color: white;
+        padding: var(--space-3) var(--space-4);
+        text-align: left;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        white-space: nowrap;
+    }
+
+    .preview-table td {
+        padding: var(--space-2) var(--space-4);
+        border-bottom: 1px solid var(--border-subtle);
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-primary);
+    }
+
+    .preview-table tr:hover td {
+        background: rgba(168, 85, 247, 0.05);
+    }
+
+    .preview-more-indicator {
+        text-align: center;
+        padding: var(--space-3);
+        color: var(--text-muted);
+        font-size: 12px;
+        font-style: italic;
+    }
+
+    /* Options section */
+    .options-section {
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+        display: none;
+    }
+
+    .options-section.show {
+        display: block;
+    }
+
+    .options-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: var(--space-5);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .options-title svg {
+        width: 20px;
+        height: 20px;
+        color: var(--accent-purple);
+    }
+
+    /* Checkbox group */
+    .checkbox-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-5);
+    }
+
+    .checkbox-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        cursor: pointer;
+    }
+
+    .checkbox-item input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent-purple);
+        cursor: pointer;
+    }
+
+    .checkbox-item label {
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 14px;
+        color: var(--text-secondary);
+    }
+
+    /* Progress container */
+    .progress-container {
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-xl);
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+        display: none;
+    }
+
+    .progress-container.show {
+        display: block;
+    }
+
+    .progress-stage {
+        margin-top: var(--space-4);
+    }
+
+    .stage-label {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: var(--space-2);
+        font-size: 14px;
+        color: var(--text-primary);
+    }
+
+    .stage-message {
+        color: var(--text-secondary);
+        font-size: 12px;
+    }
+
+    .progress-bar-wrapper {
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        height: 24px;
+    }
+
+    .progress-bar-fill {
+        height: 100%;
+        background: var(--gradient-purple-blue);
+        border-radius: var(--radius-md);
+        transition: width var(--transition-slow);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: 600;
+        min-width: 40px;
+    }
+
+    /* Lava lamp loader */
+    .lava-lamp-loader {
+        width: 100%;
+        height: 60px;
+        background: linear-gradient(135deg, rgba(168, 85, 247, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+        border-radius: 30px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .lava-bubble {
+        position: absolute;
+        border-radius: 50%;
+        animation: lavaBubble 3s ease-in-out infinite;
+    }
+
+    .lava-bubble-1 { width: 30px; height: 30px; background: rgba(168, 85, 247, 0.6); left: 10%; animation-delay: 0s; }
+    .lava-bubble-2 { width: 20px; height: 20px; background: rgba(59, 130, 246, 0.6); left: 25%; animation-delay: 0.5s; }
+    .lava-bubble-3 { width: 25px; height: 25px; background: rgba(168, 85, 247, 0.6); left: 40%; animation-delay: 1s; }
+    .lava-bubble-4 { width: 18px; height: 18px; background: rgba(59, 130, 246, 0.6); left: 55%; animation-delay: 1.5s; }
+    .lava-bubble-5 { width: 28px; height: 28px; background: rgba(168, 85, 247, 0.6); left: 70%; animation-delay: 2s; }
+    .lava-bubble-6 { width: 22px; height: 22px; background: rgba(59, 130, 246, 0.6); left: 85%; animation-delay: 2.5s; }
+
+    @keyframes lavaBubble {
+        0%, 100% { bottom: 5px; transform: scale(1); opacity: 0.6; }
+        50% { bottom: 25px; transform: scale(1.2); opacity: 1; }
+    }
+
+    /* Results */
+    .results {
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: var(--radius-lg);
+        padding: var(--space-6);
+        display: none;
+    }
+
+    .results.show {
+        display: block;
+    }
+
+    .results-summary {
+        font-size: 15px;
+        color: var(--text-primary);
+        margin-bottom: var(--space-5);
+        line-height: 1.6;
+    }
+
+    .results-summary strong {
+        color: var(--accent-green);
+    }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<h1 class="page-title">Find & Replace</h1>
+<p class="page-subtitle">Perform bulk text replacement across your data. Replace values in one or all columns with support for case sensitivity and regular expressions.</p>
+{% endblock %}
+
+{% block content %}
+<!-- Cached Files Section -->
+<div class="cached-files-section" id="cachedFilesSection">
+    <div class="cached-files-header">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+        </svg>
+        <span>Use Previous Result</span>
+    </div>
+    <div class="cached-files-list" id="cachedFilesList"></div>
+</div>
+
+<!-- Upload Area -->
+<div class="card mb-6">
+    <div class="file-upload-zone" id="uploadArea">
+        <svg class="file-upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
+        <div class="file-upload-text">Click to Upload or Drag & Drop</div>
+        <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files supported</div>
+        <div id="fileSizeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
+        <input type="file" id="fileInput" class="file-upload-input" accept=".xlsx,.xls,.csv">
+    </div>
+</div>
+
+<!-- Data Preview Section -->
+<div class="data-preview-section" id="dataPreviewSection">
+    <div class="preview-header">
+        <div class="preview-title">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span>Data Preview</span>
+        </div>
+        <div class="preview-stats" id="previewStats"></div>
+    </div>
+    <div class="preview-table-wrapper">
+        <table class="preview-table" id="previewTable">
+            <thead id="previewTableHead"></thead>
+            <tbody id="previewTableBody"></tbody>
+        </table>
+    </div>
+    <div class="preview-more-indicator" id="previewMoreIndicator"></div>
+</div>
+
+<!-- Find Replace Options -->
+<div class="options-section" id="optionsSection">
+    <div class="options-title">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+        </svg>
+        Find & Replace Options
+    </div>
+
+    <div class="form-group">
+        <label class="form-label" for="columnSelect">Column to Search</label>
+        <select id="columnSelect" class="form-select">
+            <option value="__all__">All Columns</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label class="form-label" for="findText">Find Text</label>
+        <input type="text" id="findText" class="form-input" placeholder="Enter text to find...">
+    </div>
+
+    <div class="form-group">
+        <label class="form-label" for="replaceText">Replace With</label>
+        <input type="text" id="replaceText" class="form-input" placeholder="Enter replacement text (leave empty to delete)">
+    </div>
+
+    <div class="form-group">
+        <div class="checkbox-group">
+            <div class="checkbox-item">
+                <input type="checkbox" id="caseSensitive">
+                <label for="caseSensitive">Case Sensitive</label>
+            </div>
+            <div class="checkbox-item">
+                <input type="checkbox" id="useRegex">
+                <label for="useRegex">Use Regular Expression</label>
+            </div>
+            <div class="checkbox-item">
+                <input type="checkbox" id="matchWholeCell">
+                <label for="matchWholeCell">Match Whole Cell Only</label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="btn-group mb-6">
+    <button class="btn btn-primary" id="replaceBtn" disabled>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
+        Find & Replace
+    </button>
+    <button class="btn btn-danger" id="cancelBtn" style="display: none;">Cancel</button>
+</div>
+
+<div class="alert alert-error" id="error" style="display: none;"></div>
+
+<div class="progress-container" id="progressContainer">
+    <div class="lava-lamp-loader">
+        <div class="lava-bubble lava-bubble-1"></div>
+        <div class="lava-bubble lava-bubble-2"></div>
+        <div class="lava-bubble lava-bubble-3"></div>
+        <div class="lava-bubble lava-bubble-4"></div>
+        <div class="lava-bubble lava-bubble-5"></div>
+        <div class="lava-bubble lava-bubble-6"></div>
+    </div>
+    <div class="progress-stage">
+        <div class="stage-label">
+            <span>Processing</span>
+            <span class="stage-message" id="progressMessage">Loading file...</span>
+        </div>
+        <div class="progress-bar-wrapper">
+            <div class="progress-bar-fill" id="progressBar">0%</div>
+        </div>
+    </div>
+</div>
+
+<div class="results" id="results">
+    <div class="results-summary" id="resultsSummary"></div>
+    <button class="btn btn-primary" id="downloadBtn">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+        </svg>
+        Download Modified File
+    </button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // XSS Protection
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Format file size
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    // Elements
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileSizeInfo = document.getElementById('fileSizeInfo');
+    const optionsSection = document.getElementById('optionsSection');
+    const columnSelect = document.getElementById('columnSelect');
+    const findText = document.getElementById('findText');
+    const replaceText = document.getElementById('replaceText');
+    const caseSensitive = document.getElementById('caseSensitive');
+    const useRegex = document.getElementById('useRegex');
+    const matchWholeCell = document.getElementById('matchWholeCell');
+    const replaceBtn = document.getElementById('replaceBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const error = document.getElementById('error');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressMessage = document.getElementById('progressMessage');
+    const results = document.getElementById('results');
+    const resultsSummary = document.getElementById('resultsSummary');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    // Preview elements
+    const cachedFilesSection = document.getElementById('cachedFilesSection');
+    const cachedFilesList = document.getElementById('cachedFilesList');
+    const dataPreviewSection = document.getElementById('dataPreviewSection');
+    const previewStats = document.getElementById('previewStats');
+    const previewTableHead = document.getElementById('previewTableHead');
+    const previewTableBody = document.getElementById('previewTableBody');
+    const previewMoreIndicator = document.getElementById('previewMoreIndicator');
+
+    let selectedFile = null;
+    let downloadFilename = null;
+    let fileColumns = [];
+
+    // Cached files functions
+    async function loadCachedFiles() {
+        try {
+            const response = await fetch('/get-cached-files');
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                cachedFilesSection.style.display = 'block';
+                cachedFilesList.innerHTML = data.files.map(file => `
+                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
+                        <div class="cached-file-info">
+                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
+                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns</div>
+                        </div>
+                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
+                    </div>
+                `).join('');
+            }
+        } catch (err) {
+            console.error('Error loading cached files:', err);
+        }
+    }
+
+    async function useCachedFile(cacheId) {
+        try {
+            const response = await fetch('/use-cached-file', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cache_id: cacheId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
+                const blob = await fileResponse.blob();
+                const file = new File([blob], data.filename, { type: blob.type });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                fileInput.files = dataTransfer.files;
+                fileInput.dispatchEvent(new Event('change'));
+            }
+        } catch (err) {
+            console.error('Error using cached file:', err);
+            showError('Failed to load cached file');
+        }
+    }
+
+    function displayPreview(previewData) {
+        previewStats.textContent = `${previewData.total_rows.toLocaleString()} rows x ${previewData.columns.length} columns`;
+        previewTableHead.innerHTML = '<tr>' + previewData.columns.map(col => `<th>${escapeHtml(col)}</th>`).join('') + '</tr>';
+        previewTableBody.innerHTML = previewData.rows.map(row =>
+            '<tr>' + previewData.columns.map(col => `<td>${escapeHtml(String(row[col] ?? ''))}</td>`).join('') + '</tr>'
+        ).join('');
+        if (previewData.total_rows > previewData.rows.length) {
+            previewMoreIndicator.textContent = `Showing first ${previewData.rows.length} of ${previewData.total_rows.toLocaleString()} rows`;
+        } else {
+            previewMoreIndicator.textContent = '';
+        }
+        dataPreviewSection.classList.add('show');
+    }
+
+    async function fetchPreview(file) {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            const response = await fetch('/preview-data', { method: 'POST', body: formData });
+            const data = await response.json();
+            if (data.success) {
+                displayPreview(data);
+            }
+        } catch (err) {
+            console.error('Error fetching preview:', err);
+        }
+    }
+
+    // Load cached files on page load
+    loadCachedFiles();
+
+    // Click to upload
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // File selection
+    fileInput.addEventListener('change', async (e) => {
+        if (e.target.files.length > 0) {
+            selectedFile = e.target.files[0];
+            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
+            fileSizeInfo.style.display = 'block';
+            uploadArea.classList.add('has-file');
+            error.style.display = 'none';
+            results.classList.remove('show');
+
+            // Get columns
+            try {
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+                const response = await fetch('/get-columns', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.success && data.columns) {
+                    fileColumns = data.columns;
+                    populateColumnSelect();
+                    optionsSection.classList.add('show');
+                    updateReplaceButton();
+                    fetchPreview(selectedFile);
+                } else {
+                    throw new Error(data.error || 'Failed to get columns');
+                }
+            } catch (err) {
+                console.error('Error reading file:', err);
+                showError('Failed to read file: ' + err.message);
+            }
+        }
+    });
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length) {
+            fileInput.files = e.dataTransfer.files;
+            fileInput.dispatchEvent(new Event('change'));
+        }
+    });
+
+    function populateColumnSelect() {
+        columnSelect.innerHTML = '<option value="__all__">All Columns</option>';
+        fileColumns.forEach(colInfo => {
+            const colName = colInfo.name || colInfo;
+            const option = document.createElement('option');
+            option.value = colName;
+            option.textContent = colName;
+            columnSelect.appendChild(option);
+        });
+    }
+
+    function updateReplaceButton() {
+        const hasFindText = findText.value.trim().length > 0;
+        replaceBtn.disabled = !selectedFile || !hasFindText;
+    }
+
+    findText.addEventListener('input', updateReplaceButton);
+
+    function showError(message) {
+        error.textContent = 'Error: ' + message;
+        error.style.display = 'block';
+        error.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    // Replace button click
+    replaceBtn.addEventListener('click', async () => {
+        if (!selectedFile || !findText.value.trim()) return;
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('find_text', findText.value);
+        formData.append('replace_text', replaceText.value);
+        formData.append('column', columnSelect.value);
+        formData.append('case_sensitive', caseSensitive.checked);
+        formData.append('use_regex', useRegex.checked);
+        formData.append('match_whole_cell', matchWholeCell.checked);
+
+        replaceBtn.disabled = true;
+        replaceBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="spinner" style="width: 18px; height: 18px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+            </svg>
+            Processing...
+        `;
+        cancelBtn.style.display = 'inline-flex';
+        progressContainer.classList.add('show');
+        results.classList.remove('show');
+        error.style.display = 'none';
+
+        try {
+            const response = await fetch('/find-replace', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                progressBar.style.width = '100%';
+                progressBar.textContent = '100%';
+                progressMessage.textContent = 'Complete!';
+
+                downloadFilename = data.filename;
+                resultsSummary.innerHTML = `
+                    <strong>Find & Replace Complete!</strong><br><br>
+                    Searched for: "<strong>${escapeHtml(findText.value)}</strong>"<br>
+                    Replaced with: "<strong>${escapeHtml(replaceText.value || '(empty)')}</strong>"<br>
+                    Column: <strong>${escapeHtml(columnSelect.value === '__all__' ? 'All Columns' : columnSelect.value)}</strong><br><br>
+                    <strong>${data.replacements_made.toLocaleString()}</strong> replacement(s) made across <strong>${data.rows_affected.toLocaleString()}</strong> row(s)
+                `;
+                results.classList.add('show');
+            } else {
+                throw new Error(data.error || 'Find & replace failed');
+            }
+        } catch (err) {
+            console.error('Error:', err);
+            showError(err.message);
+        } finally {
+            replaceBtn.disabled = false;
+            replaceBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                Find & Replace
+            `;
+            cancelBtn.style.display = 'none';
+            setTimeout(() => {
+                progressContainer.classList.remove('show');
+            }, 1000);
+        }
+    });
+
+    // Download button
+    downloadBtn.addEventListener('click', () => {
+        if (downloadFilename) {
+            window.location.href = `/download/${downloadFilename}`;
+        }
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DataDragon{% endblock %}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    {% block head_extra %}{% endblock %}
+    {% block styles %}{% endblock %}
+</head>
+<body>
+    <!-- Animated gradient background -->
+    <div class="gradient-bg">
+        <div class="gradient-orb orb-1"></div>
+        <div class="gradient-orb orb-2"></div>
+        <div class="gradient-orb orb-3"></div>
+        <div class="gradient-orb orb-4"></div>
+    </div>
+
+    <!-- Grid overlay -->
+    <div class="grid-overlay"></div>
+
+    <!-- Main content -->
+    <div class="main-content {% block content_class %}{% endblock %}">
+        {% block header %}
+        <div class="page-header">
+            <a href="/" class="back-link">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                </svg>
+                Back to Tools
+            </a>
+            {% block page_title %}{% endblock %}
+        </div>
+        {% endblock %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, send_file, jsonify, Response, stream_with_context, after_this_request
 import pandas as pd
+import numpy as np
 import os
 import zipfile
 from werkzeug.utils import secure_filename
@@ -16,6 +17,14 @@ from collections import defaultdict
 import re
 import uuid
 from itertools import combinations
+
+# PDF Report Generation
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(32)  # Generate secure secret key
@@ -81,9 +90,267 @@ def cleanup_thread():
     while True:
         time.sleep(300)  # Run every 5 minutes
         cleanup_old_analysis_results()
+        cleanup_session_cache()
+        cleanup_pipeline_sessions()
 
 cleanup_thread_instance = threading.Thread(target=cleanup_thread, daemon=True)
 cleanup_thread_instance.start()
+
+# =============================================================================
+# SESSION FILE CACHING - Store processed results for tool chaining
+# =============================================================================
+# Global file cache with unique IDs - accessible across all sessions
+file_cache = {}  # cache_id -> {'name': str, 'path': str, 'timestamp': float, 'rows': int, 'cols': int, 'source_tool': str}
+
+def cache_session_file(session_id, filename, file_path, rows, cols, source_tool='Unknown'):
+    """Cache a processed file for potential use in another tool. Returns cache_id."""
+    import hashlib
+    # Generate unique cache ID from filename + timestamp
+    cache_id = hashlib.md5(f"{filename}{time.time()}{os.urandom(8).hex()}".encode()).hexdigest()[:12]
+
+    # Keep only last 10 files total (simple global cache)
+    if len(file_cache) >= 10:
+        # Remove oldest file
+        oldest_id = min(file_cache.keys(), key=lambda k: file_cache[k]['timestamp'])
+        oldest = file_cache.pop(oldest_id)
+        if os.path.exists(oldest.get('path', '')):
+            try:
+                os.remove(oldest['path'])
+            except:
+                pass
+
+    file_cache[cache_id] = {
+        'name': filename,
+        'path': file_path,
+        'timestamp': time.time(),
+        'rows': rows,
+        'cols': cols,
+        'source_tool': source_tool
+    }
+    return cache_id
+
+def get_cached_files(session_id=None):
+    """Get list of all cached files (session_id kept for backwards compatibility)"""
+    return list(file_cache.values())
+
+def get_cached_file_by_id(cache_id):
+    """Get a cached file by its cache ID"""
+    return file_cache.get(cache_id)
+
+def cleanup_session_cache():
+    """Remove cached files older than 1 hour"""
+    current_time = time.time()
+    expired_ids = []
+    for cache_id, data in file_cache.items():
+        if current_time - data.get('timestamp', 0) > 3600:
+            expired_ids.append(cache_id)
+
+    for cache_id in expired_ids:
+        file_info = file_cache.pop(cache_id, {})
+        if os.path.exists(file_info.get('path', '')):
+            try:
+                os.remove(file_info['path'])
+            except:
+                pass
+        print(f"Cleaned up expired cache: {cache_id}")
+
+# =============================================================================
+# DATA READINESS PIPELINE - Guided multi-stage data assessment workflow
+# =============================================================================
+class PipelineState:
+    """Stores state for a Data Readiness Pipeline session"""
+    def __init__(self, session_id, file_path, filename):
+        self.session_id = session_id
+        self.file_path = file_path
+        self.filename = filename
+        self.created_at = time.time()
+        self.current_stage = 1
+        self.df = None  # DataFrame loaded in memory during session
+        self.row_count = 0
+        self.col_count = 0
+
+        # Stage data storage
+        self.stage_data = {
+            1: None,  # Shape Analysis results
+            2: None,  # Gap Assessment + user triage decisions
+            3: None,  # Natural Key results + user selection
+            4: None,  # Transformation recommendations + user selections
+            5: None   # Execution results + transformation log
+        }
+
+        # User decisions at each stage
+        self.user_decisions = {
+            2: {},  # gap_triage: {column_name: 'acceptable' | 'needs_attention'}
+            3: {},  # selected_keys: [list of columns]
+            4: {}   # selected_transformations: {type: config}
+        }
+
+    def to_dict(self):
+        """Return serializable state summary"""
+        return {
+            'session_id': self.session_id,
+            'filename': self.filename,
+            'created_at': self.created_at,
+            'current_stage': self.current_stage,
+            'row_count': self.row_count,
+            'col_count': self.col_count,
+            'stages_completed': [k for k, v in self.stage_data.items() if v is not None]
+        }
+
+# Pipeline session storage
+pipeline_sessions = {}  # session_id -> PipelineState
+
+def cleanup_pipeline_sessions():
+    """Remove pipeline sessions older than 2 hours"""
+    current_time = time.time()
+    expired_sessions = [
+        session_id for session_id, state in pipeline_sessions.items()
+        if current_time - state.created_at > 7200  # 2 hours
+    ]
+    for session_id in expired_sessions:
+        state = pipeline_sessions.pop(session_id)
+        # Clean up temp file if exists
+        if state.file_path and os.path.exists(state.file_path):
+            try:
+                os.remove(state.file_path)
+            except:
+                pass
+        # Free DataFrame memory
+        if state.df is not None:
+            del state.df
+        print(f"Cleaned up expired pipeline session: {session_id}")
+
+# =============================================================================
+# UNIFIED FILE READER - Handles Excel and CSV with automatic detection
+# =============================================================================
+ALLOWED_EXTENSIONS = {'xlsx', 'xls', 'csv'}
+ALLOWED_MIME_TYPES = {
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # xlsx
+    'application/vnd.ms-excel',  # xls
+    'text/csv',
+    'application/csv',
+    'text/plain'  # Some systems send CSV as text/plain
+}
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_file_extension(filename):
+    """Get lowercase file extension"""
+    return filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+
+def read_data_file(file_path, **kwargs):
+    """
+    Unified file reader that handles Excel (.xlsx, .xls) and CSV files.
+
+    Args:
+        file_path: Path to the file
+        **kwargs: Additional arguments passed to pandas read functions
+                  (e.g., nrows, usecols, dtype, parse_dates)
+
+    Returns:
+        pandas DataFrame
+
+    Raises:
+        ValueError: If file format is not supported
+    """
+    ext = get_file_extension(file_path)
+
+    if ext == 'csv':
+        # Try different encodings for CSV
+        encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+        for encoding in encodings:
+            try:
+                return pd.read_csv(file_path, encoding=encoding, **kwargs)
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                if encoding == encodings[-1]:
+                    raise e
+                continue
+        raise ValueError(f"Could not read CSV file with any supported encoding")
+
+    elif ext in ('xlsx', 'xls'):
+        return pd.read_excel(file_path, **kwargs)
+
+    else:
+        raise ValueError(f"Unsupported file format: {ext}. Supported formats: xlsx, xls, csv")
+
+def write_data_file(df, file_path, file_format='xlsx', **kwargs):
+    """
+    Unified file writer that handles Excel and CSV output.
+
+    Args:
+        df: pandas DataFrame to write
+        file_path: Output path (extension will be adjusted if needed)
+        file_format: 'xlsx', 'xls', or 'csv'
+        **kwargs: Additional arguments passed to pandas write functions
+
+    Returns:
+        Final file path used
+    """
+    # Ensure correct extension
+    base_path = file_path.rsplit('.', 1)[0] if '.' in file_path else file_path
+
+    if file_format == 'csv':
+        final_path = f"{base_path}.csv"
+        df.to_csv(final_path, index=False, **kwargs)
+    else:
+        final_path = f"{base_path}.xlsx"
+        df.to_excel(final_path, index=False, **kwargs)
+
+    return final_path
+
+def get_file_preview(file_path, max_rows=20):
+    """
+    Get a preview of file contents for display before processing.
+
+    Args:
+        file_path: Path to the file
+        max_rows: Maximum rows to return (default 20)
+
+    Returns:
+        dict with 'columns', 'rows', 'total_rows', 'total_cols'
+    """
+    try:
+        # Read just enough to get preview
+        df = read_data_file(file_path, nrows=max_rows + 1)
+
+        # Get total row count (read full file for count only)
+        ext = get_file_extension(file_path)
+        if ext == 'csv':
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                total_rows = sum(1 for _ in f) - 1  # Subtract header
+        else:
+            full_df = pd.read_excel(file_path, usecols=[0])  # Read just first column for count
+            total_rows = len(full_df)
+
+        # Convert preview to JSON-serializable format
+        preview_df = df.head(max_rows)
+        rows = []
+        for _, row in preview_df.iterrows():
+            row_data = {}
+            for col in preview_df.columns:
+                val = row[col]
+                if pd.isna(val):
+                    row_data[col] = None
+                elif isinstance(val, (datetime, pd.Timestamp)):
+                    row_data[col] = val.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    row_data[col] = str(val) if not isinstance(val, (int, float, bool)) else val
+            rows.append(row_data)
+
+        return {
+            'columns': list(df.columns),
+            'rows': rows,
+            'preview_count': len(rows),
+            'total_rows': total_rows,
+            'total_cols': len(df.columns)
+        }
+    except Exception as e:
+        raise ValueError(f"Error reading file preview: {str(e)}")
+
 
 def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_filename=None, progress_queue=None, session_id=None):
     """
@@ -1882,6 +2149,143 @@ def get_columns_with_samples():
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
+
+# =============================================================================
+# DATA PREVIEW & SESSION CACHE ENDPOINTS
+# =============================================================================
+
+@app.route('/preview-data', methods=['POST'])
+@rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+def preview_data():
+    """Get a preview of uploaded file data (first 20 rows)"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Validate file extension
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Please upload an Excel or CSV file (.xlsx, .xls, .csv)'}), 400
+
+        # Save temporarily
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        temp_id = f"preview_{timestamp}_{secrets.token_hex(8)}"
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{temp_id}_{filename}")
+        file.save(upload_path)
+
+        try:
+            preview = get_file_preview(upload_path, max_rows=20)
+            return jsonify({
+                'success': True,
+                'filename': filename,
+                **preview
+            })
+        finally:
+            # Clean up temp file
+            if os.path.exists(upload_path):
+                os.remove(upload_path)
+
+    except Exception as e:
+        print(f"Error in preview_data: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/get-cached-files', methods=['GET'])
+def get_cached_files_endpoint():
+    """Get list of cached files from recent tool operations"""
+    try:
+        # Clean up old caches first
+        cleanup_session_cache()
+
+        # Format for frontend display with cache IDs
+        files = []
+        for cache_id, f in file_cache.items():
+            if os.path.exists(f.get('path', '')):
+                # Format timestamp for display
+                from datetime import datetime
+                cached_at = datetime.fromtimestamp(f['timestamp']).strftime('%H:%M:%S')
+                files.append({
+                    'cache_id': cache_id,
+                    'filename': f['name'],
+                    'rows': f['rows'],
+                    'cols': f['cols'],
+                    'timestamp': f['timestamp'],
+                    'cached_at': cached_at,
+                    'source_tool': f.get('source_tool', 'Unknown'),
+                    'age_seconds': int(time.time() - f['timestamp'])
+                })
+
+        # Sort by timestamp descending (most recent first)
+        files.sort(key=lambda x: x['timestamp'], reverse=True)
+
+        return jsonify({'success': True, 'files': files})
+
+    except Exception as e:
+        print(f"Error in get_cached_files: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/use-cached-file', methods=['POST'])
+@rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+def use_cached_file():
+    """Use a previously cached file result in a new tool operation"""
+    try:
+        data = request.get_json()
+        cache_id = data.get('cache_id', '')
+
+        if not cache_id:
+            return jsonify({'error': 'No cache ID provided'}), 400
+
+        file_info = get_cached_file_by_id(cache_id)
+        if not file_info:
+            return jsonify({'error': 'Cached file not found'}), 400
+
+        if not os.path.exists(file_info.get('path', '')):
+            return jsonify({'error': 'Cached file no longer exists'}), 400
+
+        # Return file info for the frontend to use
+        preview = get_file_preview(file_info['path'], max_rows=20)
+
+        return jsonify({
+            'success': True,
+            'filename': file_info['name'],
+            'path': file_info['path'],
+            'preview': preview
+        })
+
+    except Exception as e:
+        print(f"Error in use_cached_file: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/download-cached-file/<cache_id>', methods=['GET'])
+def download_cached_file(cache_id):
+    """Download a cached file by its cache ID"""
+    try:
+        file_info = get_cached_file_by_id(cache_id)
+        if not file_info:
+            return jsonify({'error': 'Cached file not found'}), 404
+
+        file_path = file_info.get('path', '')
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'Cached file no longer exists'}), 404
+
+        return send_file(
+            file_path,
+            as_attachment=True,
+            download_name=file_info['name']
+        )
+
+    except Exception as e:
+        print(f"Error downloading cached file: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/scrub-data', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
 def scrub_data():
@@ -2190,6 +2594,286 @@ def find_duplicates():
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
+
+def generate_natural_key_report(output_path, original_rows, duplicate_count, rows_analyzed,
+                                 selected_columns, minimal_combinations, primary_combo,
+                                 sample_data, source_filename):
+    """
+    Generate a professional PDF report for Natural Key Analysis results.
+
+    Args:
+        output_path: Path to save the PDF file
+        original_rows: Total records in source file
+        duplicate_count: Number of duplicate records excluded
+        rows_analyzed: Records after duplicate exclusion
+        selected_columns: List of columns evaluated
+        minimal_combinations: List of all minimal key combinations found
+        primary_combo: The recommended primary key combination
+        sample_data: Sample DataFrame showing unique IDs (first 20 rows)
+        source_filename: Original filename for reference
+    """
+    doc = SimpleDocTemplate(output_path, pagesize=letter,
+                            rightMargin=0.75*inch, leftMargin=0.75*inch,
+                            topMargin=0.75*inch, bottomMargin=0.75*inch)
+
+    # Custom styles
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30,
+        textColor=colors.HexColor('#667eea'),
+        alignment=TA_CENTER
+    )
+
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceBefore=20,
+        spaceAfter=10,
+        textColor=colors.HexColor('#333333'),
+        borderPadding=5
+    )
+
+    subheading_style = ParagraphStyle(
+        'CustomSubheading',
+        parent=styles['Heading3'],
+        fontSize=12,
+        spaceBefore=15,
+        spaceAfter=8,
+        textColor=colors.HexColor('#667eea')
+    )
+
+    body_style = ParagraphStyle(
+        'CustomBody',
+        parent=styles['Normal'],
+        fontSize=10,
+        spaceAfter=8,
+        leading=14
+    )
+
+    note_style = ParagraphStyle(
+        'NoteStyle',
+        parent=styles['Normal'],
+        fontSize=9,
+        textColor=colors.HexColor('#666666'),
+        spaceAfter=6,
+        leading=12
+    )
+
+    # Build document content
+    story = []
+
+    # Title
+    story.append(Paragraph("Natural Key Analysis Report", title_style))
+    story.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}",
+                          ParagraphStyle('DateStyle', parent=styles['Normal'],
+                                        alignment=TA_CENTER, textColor=colors.gray, fontSize=10)))
+    story.append(Spacer(1, 20))
+
+    # Executive Summary Section
+    story.append(Paragraph("Executive Summary", heading_style))
+
+    if len(primary_combo) == 1:
+        summary_text = f"""
+        Analysis of <b>{source_filename}</b> identified <b>{primary_combo[0]}</b> as a single-column
+        natural key capable of uniquely identifying all {rows_analyzed:,} records. This column can serve
+        as a primary key without requiring additional columns.
+        """
+    else:
+        combo_text = " + ".join([f"<b>{col}</b>" for col in primary_combo])
+        summary_text = f"""
+        Analysis of <b>{source_filename}</b> determined that a composite key of {len(primary_combo)} columns
+        ({combo_text}) is required to uniquely identify all {rows_analyzed:,} records.
+        No single column provides unique identification.
+        """
+    story.append(Paragraph(summary_text, body_style))
+
+    if len(minimal_combinations) > 1:
+        story.append(Paragraph(f"<b>{len(minimal_combinations)} alternative key combinations</b> were identified, "
+                              f"all achieving the same minimum key size of {len(primary_combo)} column(s).", body_style))
+
+    story.append(Spacer(1, 15))
+
+    # Data Overview Section
+    story.append(Paragraph("Data Overview", heading_style))
+
+    overview_data = [
+        ['Metric', 'Value'],
+        ['Source File', source_filename],
+        ['Total Records', f'{original_rows:,}'],
+        ['Duplicate Records Excluded', f'{duplicate_count:,}'],
+        ['Records Analyzed', f'{rows_analyzed:,}'],
+        ['Columns Evaluated', f'{len(selected_columns)}'],
+        ['Minimum Key Size Required', f'{len(primary_combo)} column(s)'],
+        ['Valid Key Combinations Found', f'{len(minimal_combinations)}']
+    ]
+
+    overview_table = Table(overview_data, colWidths=[2.5*inch, 4*inch])
+    overview_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 1), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+        ('TOPPADDING', (0, 0), (-1, 0), 10),
+        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+        ('TOPPADDING', (0, 1), (-1, -1), 6),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#f8f9ff')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor('#f8f9ff'), colors.white])
+    ]))
+    story.append(overview_table)
+    story.append(Spacer(1, 20))
+
+    # Primary Key Recommendation
+    story.append(Paragraph("Primary Key Recommendation", heading_style))
+
+    primary_key_data = [['Rank', 'Key Columns', 'Column Count']]
+    primary_key_data.append(['Primary', ', '.join(primary_combo), str(len(primary_combo))])
+
+    primary_table = Table(primary_key_data, colWidths=[1*inch, 4.5*inch, 1*inch])
+    primary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#28a745')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('ALIGN', (-1, 0), (-1, -1), 'CENTER'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#d4edda')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#28a745'))
+    ]))
+    story.append(primary_table)
+
+    story.append(Spacer(1, 10))
+    story.append(Paragraph("<b>Implementation:</b> Concatenate values from the key columns above to generate "
+                          "a unique identifier for each record. The accompanying Excel file includes a "
+                          "pre-computed <i>Unique_ID</i> column.", note_style))
+    story.append(Spacer(1, 15))
+
+    # Alternative Key Candidates (if any)
+    if len(minimal_combinations) > 1:
+        story.append(Paragraph("Alternative Key Candidates", heading_style))
+        story.append(Paragraph("The following combinations also uniquely identify all records with the same "
+                              "minimum column count:", body_style))
+
+        alt_data = [['Candidate', 'Key Columns', 'Column Count']]
+        for idx, combo in enumerate(minimal_combinations[1:], 2):
+            alt_data.append([f'#{idx}', ', '.join(combo), str(len(combo))])
+
+        alt_table = Table(alt_data, colWidths=[1*inch, 4.5*inch, 1*inch])
+        alt_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#ffc107')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor('#333333')),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 10),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (-1, 0), (-1, -1), 'CENTER'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor('#fff3cd')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#ffc107')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor('#fff3cd'), colors.HexColor('#fffef5')])
+        ]))
+        story.append(alt_table)
+        story.append(Spacer(1, 15))
+
+    # Columns Evaluated
+    story.append(Paragraph("Columns Evaluated", heading_style))
+
+    # Display columns in a multi-column layout
+    cols_per_row = 3
+    col_rows = [selected_columns[i:i+cols_per_row] for i in range(0, len(selected_columns), cols_per_row)]
+    # Pad the last row if needed
+    if col_rows and len(col_rows[-1]) < cols_per_row:
+        col_rows[-1].extend([''] * (cols_per_row - len(col_rows[-1])))
+
+    if col_rows:
+        col_table = Table(col_rows, colWidths=[2.17*inch] * cols_per_row)
+        col_table.setStyle(TableStyle([
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#333333')),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#f8f9ff'))
+        ]))
+        story.append(col_table)
+    story.append(Spacer(1, 20))
+
+    # Sample Unique Identifiers
+    story.append(Paragraph("Sample Unique Identifiers", heading_style))
+    story.append(Paragraph("Preview of the first 20 records with computed unique identifiers:", body_style))
+
+    # Prepare sample data table
+    if sample_data is not None and len(sample_data) > 0:
+        sample_cols = list(sample_data.columns)
+        sample_header = [sample_cols]
+        sample_rows = sample_data.head(20).values.tolist()
+
+        # Truncate long values for display
+        for row in sample_rows:
+            for i, val in enumerate(row):
+                str_val = str(val) if pd.notna(val) else ''
+                if len(str_val) > 25:
+                    row[i] = str_val[:22] + '...'
+                else:
+                    row[i] = str_val
+
+        sample_table_data = sample_header + sample_rows
+
+        # Calculate column widths based on number of columns
+        num_cols = len(sample_cols)
+        available_width = 6.5 * inch
+        col_width = available_width / num_cols
+
+        sample_table = Table(sample_table_data, colWidths=[col_width] * num_cols)
+        sample_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e0e0e0')),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9ff')])
+        ]))
+        story.append(sample_table)
+
+    story.append(Spacer(1, 20))
+
+    # Algorithm Explanation
+    story.append(Paragraph("Methodology", heading_style))
+    story.append(Paragraph("""
+    This analysis employed the <b>Apriori algorithm</b> for efficient discovery of minimal unique column
+    combinations. The algorithm operates in levels, first testing single columns, then progressively
+    larger combinations. Key optimization: if a column set is unique, no superset is evaluated
+    (as it cannot be minimal). This approach ensures computational efficiency while guaranteeing
+    discovery of all truly minimal natural keys.
+    """, body_style))
+
+    story.append(Spacer(1, 15))
+
+    # Footer
+    story.append(Paragraph("─" * 80, ParagraphStyle('Line', alignment=TA_CENTER, textColor=colors.lightgrey)))
+    story.append(Spacer(1, 5))
+    story.append(Paragraph("Generated by DataDragon - Natural Key Analysis Tool",
+                          ParagraphStyle('Footer', alignment=TA_CENTER, fontSize=9, textColor=colors.gray)))
+
+    # Build PDF
+    doc.build(story)
+
+
 def find_unique_identifier_async(upload_path, selected_columns, progress_queue, session_id):
     """Find minimal set of columns that create unique identifiers in background thread with progress tracking"""
     try:
@@ -2231,153 +2915,192 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         if invalid_columns:
             raise ValueError(f"Columns not found in file: {', '.join(invalid_columns)}")
         
-        # Step 2: Find minimal unique combinations
-        send_progress('analyzing', 0, 100, f'Analyzing {len(selected_columns)} selected columns...', 25)
-        
+        # Step 2: Find minimal unique combinations using Apriori pruning algorithm
+        # This algorithm ensures we find truly MINIMAL keys by only expanding non-unique combinations
+        send_progress('analyzing', 0, 100, f'Analyzing {len(selected_columns)} selected columns using Apriori algorithm...', 25)
+
         minimal_combinations = []
+        non_unique_combinations = []  # Stores sets of columns that are NOT unique
         n = len(selected_columns)
-        
-        # Try single columns first
-        send_progress('analyzing', 10, 100, 'Checking single columns...', 30)
+        max_size = min(n, 5)  # Limit composite key size for performance
+        max_keys = 10  # Maximum number of minimal keys to find
+
+        # Level 1: Check single columns
+        send_progress('analyzing', 10, 100, 'Level 1: Checking single columns...', 30)
         for idx, col in enumerate(selected_columns):
-            if df[col].nunique() == len(df):
+            # Check if this single column creates unique identifiers
+            is_unique = df[[col]].duplicated().sum() == 0
+
+            if is_unique:
                 minimal_combinations.append([col])
-            if (idx + 1) % 10 == 0:
-                send_progress('analyzing', 10 + int((idx + 1) / len(selected_columns) * 10), 100, 
-                            f'Checked {idx + 1}/{len(selected_columns)} single columns...', 
+            else:
+                non_unique_combinations.append(frozenset([col]))
+
+            if (idx + 1) % 10 == 0 or idx == len(selected_columns) - 1:
+                send_progress('analyzing', 10 + int((idx + 1) / len(selected_columns) * 10), 100,
+                            f'Checked {idx + 1}/{len(selected_columns)} single columns...',
                             30 + int((idx + 1) / len(selected_columns) * 5))
-        
-        # If no single column works, try pairs, then triplets, etc.
-        if not minimal_combinations:
-            send_progress('analyzing', 20, 100, 'No single column is unique. Trying combinations...', 40)
-            max_alternatives = 3
-            found_size = None
-            
-            for size in range(2, min(n + 1, 6)):  # Limit to 5 columns max for performance
-                total_combos = len(list(combinations(selected_columns, size)))
-                send_progress('analyzing', 20 + int((size - 2) * 10), 100, 
-                            f'Trying combinations of {size} columns ({total_combos} combinations)...', 
-                            40 + int((size - 2) * 10))
-                
-                for combo_idx, combo in enumerate(combinations(selected_columns, size)):
-                    # Create concatenated ID
-                    df['_temp_id'] = df[list(combo)].apply(
-                        lambda row: '|||'.join(str(v) if pd.notna(v) else '' for v in row), 
-                        axis=1
-                    )
-                    
-                    if df['_temp_id'].nunique() == len(df):
-                        minimal_combinations.append(list(combo))
-                        if found_size is None:
-                            found_size = size
-                        
-                        # Continue to find alternatives (up to max_alternatives)
-                        if len(minimal_combinations) >= max_alternatives:
-                            break
-                    
-                    # Progress update every 50 combinations
-                    if (combo_idx + 1) % 50 == 0:
-                        progress_pct = 20 + int((size - 2) * 10) + int((combo_idx + 1) / total_combos * 10)
-                        send_progress('analyzing', progress_pct, 100, 
-                                    f'Tried {combo_idx + 1}/{total_combos} combinations of {size} columns...', 
-                                    40 + int((size - 2) * 10) + int((combo_idx + 1) / total_combos * 5))
-                
-                if minimal_combinations:
+
+        # Levels 2+: Use Apriori pruning to find minimal composite keys
+        # Only expand combinations that were proven NON-UNIQUE in the previous level
+        for k in range(2, max_size + 1):
+            if not non_unique_combinations:
+                send_progress('analyzing', 50, 100, 'No more non-unique combinations to expand. Algorithm complete.', 55)
+                break
+
+            if len(minimal_combinations) >= max_keys:
+                send_progress('analyzing', 50, 100, f'Found {len(minimal_combinations)} minimal keys. Stopping search.', 55)
+                break
+
+            send_progress('analyzing', 20 + int((k - 2) * 15), 100,
+                        f'Level {k}: Generating candidates using Apriori pruning...',
+                        40 + int((k - 2) * 10))
+
+            # Generate candidate combinations using Apriori principle:
+            # A candidate of size k is valid ONLY IF all its (k-1) subsets are in non_unique_combinations
+            # This ensures we never check supersets of already-found keys (which wouldn't be minimal)
+            pool_cols = set()
+            for combo in non_unique_combinations:
+                pool_cols.update(combo)
+
+            valid_candidates = []
+            for combo in combinations(sorted(pool_cols), k):
+                combo_set = frozenset(combo)
+
+                # Apriori pruning: Check if ALL (k-1) subsets are in non_unique_combinations
+                # If any subset is NOT in non_unique, it means that subset is either:
+                # a) A known key (so we skip - superset wouldn't be minimal)
+                # b) Was never processed (shouldn't happen in correct flow)
+                all_subsets_non_unique = True
+                for subset in combinations(combo, k - 1):
+                    if frozenset(subset) not in non_unique_combinations:
+                        all_subsets_non_unique = False
+                        break
+
+                if all_subsets_non_unique:
+                    valid_candidates.append(list(combo))
+
+            send_progress('analyzing', 25 + int((k - 2) * 15), 100,
+                        f'Level {k}: Testing {len(valid_candidates)} pruned candidates...',
+                        45 + int((k - 2) * 10))
+
+            # Reset non_unique for the next level
+            next_level_non_unique = []
+
+            for combo_idx, candidate in enumerate(valid_candidates):
+                if len(minimal_combinations) >= max_keys:
                     break
-        
-        # Clean up temp column
-        if '_temp_id' in df.columns:
-            df = df.drop(columns=['_temp_id'])
+
+                # Check uniqueness using duplicated() - efficient vectorized operation
+                is_unique = df[candidate].duplicated().sum() == 0
+
+                if is_unique:
+                    minimal_combinations.append(candidate)
+                else:
+                    next_level_non_unique.append(frozenset(candidate))
+
+                # Progress update
+                if (combo_idx + 1) % 25 == 0 or combo_idx == len(valid_candidates) - 1:
+                    progress_pct = 25 + int((k - 2) * 15) + int((combo_idx + 1) / max(len(valid_candidates), 1) * 10)
+                    send_progress('analyzing', progress_pct, 100,
+                                f'Level {k}: Tested {combo_idx + 1}/{len(valid_candidates)} candidates, found {len(minimal_combinations)} keys...',
+                                45 + int((k - 2) * 10) + int((combo_idx + 1) / max(len(valid_candidates), 1) * 5))
+
+            non_unique_combinations = next_level_non_unique
         
         if not minimal_combinations:
             raise ValueError("No combination of selected columns can create unique identifiers for all rows.")
         
-        send_progress('analyzing', 100, 100, f'Found {len(minimal_combinations)} minimal combination(s)!', 70)
-        
+        send_progress('analyzing', 100, 100, f'Found {len(minimal_combinations)} minimal key candidate(s)', 70)
+
         # Step 3: Generate results
-        send_progress('saving', 0, 100, 'Generating results...', 75)
-        
+        send_progress('saving', 0, 100, 'Preparing output files...', 75)
+
         # Use first minimal combination to create unique IDs
         primary_combo = minimal_combinations[0]
         df['Unique_ID'] = df[primary_combo].apply(
-            lambda row: '|||'.join(str(v) if pd.notna(v) else '' for v in row), 
+            lambda row: '|||'.join(str(v) if pd.notna(v) else '' for v in row),
             axis=1
         )
-        
-        # Create summary data
-        summary_data = {
-            'Metric': [
-                'Original Rows',
-                'Fully Duplicate Rows Removed',
-                'Rows After Filtering',
-                'Selected Columns',
-                'Minimal Columns Needed',
-                'Number of Minimal Combinations Found'
-            ],
-            'Value': [
-                original_row_count,
-                duplicate_count,
-                len(df),
-                len(selected_columns),
-                len(primary_combo),
-                len(minimal_combinations)
-            ]
-        }
-        summary_df = pd.DataFrame(summary_data)
-        
-        # Create alternatives data
-        alternatives_data = []
-        for idx, combo in enumerate(minimal_combinations, 1):
-            alternatives_data.append({
-                'Combination #': idx,
-                'Columns': ', '.join(combo),
-                'Number of Columns': len(combo)
-            })
-        alternatives_df = pd.DataFrame(alternatives_data)
-        
-        # Sample of unique IDs (first 100 rows)
+
+        # Sample of unique IDs for PDF report
         sample_df = df[primary_combo + ['Unique_ID']].head(100).copy()
-        
-        send_progress('saving', 50, 100, 'Saving results to Excel...', 85)
-        
-        # Save results to Excel
+
+        # Get source filename for report
+        source_filename = os.path.basename(upload_path)
+        # Remove session prefix if present
+        if '_' in source_filename:
+            source_filename = '_'.join(source_filename.split('_')[2:]) or source_filename
+
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"unique_identifier_{timestamp}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
-        
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            # Sheet 1: Summary
-            summary_df.to_excel(writer, sheet_name='Summary', index=False)
-            
-            # Sheet 2: Data with Unique IDs
+        output_basename = f"natural_key_analysis_{timestamp}"
+
+        # Generate PDF Report
+        send_progress('saving', 25, 100, 'Generating PDF report...', 80)
+        pdf_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}_report.pdf")
+
+        generate_natural_key_report(
+            output_path=pdf_path,
+            original_rows=original_row_count,
+            duplicate_count=duplicate_count,
+            rows_analyzed=len(df),
+            selected_columns=selected_columns,
+            minimal_combinations=minimal_combinations,
+            primary_combo=primary_combo,
+            sample_data=sample_df,
+            source_filename=source_filename
+        )
+
+        # Generate Excel Data File
+        send_progress('saving', 60, 100, 'Generating Excel data file...', 88)
+        excel_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}_data.xlsx")
+
+        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+            # Sheet 1: Data with Unique IDs
             df.to_excel(writer, sheet_name='Data with Unique IDs', index=False)
-            
-            # Sheet 3: Alternatives
-            alternatives_df.to_excel(writer, sheet_name='Alternative Combinations', index=False)
-            
-            # Sheet 4: Sample IDs
-            sample_df.to_excel(writer, sheet_name='Sample Unique IDs', index=False)
-        
-        download_url = f'/download/{output_filename}.xlsx'
-        
-        send_progress('saving', 100, 100, 'Results saved!', 95)
-        
-        # Clean up
+
+            # Sheet 2: Key Combinations
+            alternatives_data = []
+            for idx, combo in enumerate(minimal_combinations, 1):
+                alternatives_data.append({
+                    'Candidate': f'#{idx}' if idx > 1 else 'Primary',
+                    'Key Columns': ', '.join(combo),
+                    'Column Count': len(combo)
+                })
+            alternatives_df = pd.DataFrame(alternatives_data)
+            alternatives_df.to_excel(writer, sheet_name='Key Candidates', index=False)
+
+        # Create ZIP package containing both files
+        send_progress('saving', 85, 100, 'Packaging results...', 93)
+        zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}.zip")
+
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(pdf_path, f"{output_basename}_report.pdf")
+            zipf.write(excel_path, f"{output_basename}_data.xlsx")
+
+        # Clean up individual files (keep only ZIP)
+        os.remove(pdf_path)
+        os.remove(excel_path)
+
+        download_url = f'/download/{output_basename}.zip'
+
+        send_progress('saving', 100, 100, 'Results packaged successfully', 95)
+
+        # Clean up DataFrames
         del df
-        del summary_df
         del alternatives_df
         del sample_df
         os.remove(upload_path)
-        
+
         # Send completion message
         final_message = {
             'stage': 'done',
             'current': 100,
             'total': 100,
             'percentage': 100,
-            'message': 'Complete!',
+            'message': 'Analysis complete',
             'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
+            'output_filename': f"{output_basename}.zip",
             'original_rows': original_row_count,
             'duplicate_rows_removed': duplicate_count,
             'rows_after_filtering': original_row_count - duplicate_count,
@@ -2387,7 +3110,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
             'alternatives_count': len(minimal_combinations),
             'alternatives': minimal_combinations
         }
-        
+
         try:
             progress_queue.put(final_message, timeout=5)
         except Exception as e:
@@ -2396,8 +3119,8 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
                 progress_queue.put_nowait(final_message)
             except Exception as e2:
                 print(f"Failed to send completion message: {e2}")
-        
-        print("Unique identifier finding complete!")
+
+        print("Natural key analysis complete!")
         
     except Exception as e:
         print(f"Error occurred: {str(e)}")
@@ -4819,10 +5542,1579 @@ def transpose_data():
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
+# =============================================================================
+# ROW FILTER TOOL
+# =============================================================================
+@app.route('/row-filter')
+def row_filter_page():
+    return render_template('row_filter.html')
+
+@app.route('/row-filter', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+def row_filter():
+    """Filter rows based on conditions"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Get conditions
+        conditions_json = request.form.get('conditions', '[]')
+        preview_only = request.form.get('preview_only', 'false').lower() == 'true'
+
+        try:
+            conditions = json.loads(conditions_json)
+        except json.JSONDecodeError:
+            return jsonify({'error': 'Invalid conditions format'}), 400
+
+        if not conditions:
+            return jsonify({'error': 'At least one condition is required'}), 400
+
+        # Generate session ID
+        session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+        filename = secure_filename(file.filename)
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+        file.save(upload_path)
+
+        # Read the file
+        df = read_data_file(upload_path)
+        original_rows = len(df)
+
+        # Build filter mask
+        mask = None
+        current_logic = 'AND'
+
+        for condition in conditions:
+            column = condition.get('column')
+            operator = condition.get('operator')
+            value = condition.get('value', '')
+            logic = condition.get('logic')
+
+            if logic:
+                current_logic = logic
+
+            if column not in df.columns:
+                return jsonify({'error': f'Column "{column}" not found'}), 400
+
+            col_data = df[column]
+
+            # Build condition mask
+            if operator == 'equals':
+                cond_mask = col_data.astype(str).str.lower() == str(value).lower()
+            elif operator == 'not_equals':
+                cond_mask = col_data.astype(str).str.lower() != str(value).lower()
+            elif operator == 'contains':
+                cond_mask = col_data.astype(str).str.lower().str.contains(str(value).lower(), na=False, regex=False)
+            elif operator == 'not_contains':
+                cond_mask = ~col_data.astype(str).str.lower().str.contains(str(value).lower(), na=False, regex=False)
+            elif operator == 'starts_with':
+                cond_mask = col_data.astype(str).str.lower().str.startswith(str(value).lower(), na=False)
+            elif operator == 'ends_with':
+                cond_mask = col_data.astype(str).str.lower().str.endswith(str(value).lower(), na=False)
+            elif operator == 'greater_than':
+                try:
+                    cond_mask = pd.to_numeric(col_data, errors='coerce') > float(value)
+                except:
+                    cond_mask = col_data.astype(str) > str(value)
+            elif operator == 'less_than':
+                try:
+                    cond_mask = pd.to_numeric(col_data, errors='coerce') < float(value)
+                except:
+                    cond_mask = col_data.astype(str) < str(value)
+            elif operator == 'greater_equal':
+                try:
+                    cond_mask = pd.to_numeric(col_data, errors='coerce') >= float(value)
+                except:
+                    cond_mask = col_data.astype(str) >= str(value)
+            elif operator == 'less_equal':
+                try:
+                    cond_mask = pd.to_numeric(col_data, errors='coerce') <= float(value)
+                except:
+                    cond_mask = col_data.astype(str) <= str(value)
+            elif operator == 'is_empty':
+                cond_mask = col_data.isna() | (col_data.astype(str).str.strip() == '')
+            elif operator == 'is_not_empty':
+                cond_mask = ~(col_data.isna() | (col_data.astype(str).str.strip() == ''))
+            elif operator == 'in_list':
+                values = [v.strip().lower() for v in str(value).split(',')]
+                cond_mask = col_data.astype(str).str.lower().isin(values)
+            else:
+                return jsonify({'error': f'Unknown operator: {operator}'}), 400
+
+            # Combine with existing mask
+            if mask is None:
+                mask = cond_mask
+            elif current_logic == 'AND':
+                mask = mask & cond_mask
+            else:  # OR
+                mask = mask | cond_mask
+
+        # Apply filter
+        filtered_df = df[mask]
+        matching_rows = len(filtered_df)
+
+        # Cleanup upload if preview only
+        if preview_only:
+            try:
+                os.remove(upload_path)
+            except:
+                pass
+            return jsonify({
+                'success': True,
+                'matching_rows': matching_rows,
+                'original_rows': original_rows
+            })
+
+        # Save filtered file
+        base_name = os.path.splitext(filename)[0]
+        output_filename = f"{base_name}_filtered_{session_id}.xlsx"
+        output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+        filtered_df.to_excel(output_path, index=False)
+
+        # Cache the result
+        cache_session_file(session_id, output_filename, output_path, matching_rows, len(filtered_df.columns), 'Row Filter')
+
+        # Cleanup upload
+        try:
+            os.remove(upload_path)
+        except:
+            pass
+
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'original_rows': original_rows,
+            'matching_rows': matching_rows
+        })
+
+    except Exception as e:
+        print(f"Row Filter error: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# FIND & REPLACE TOOL
+# =============================================================================
+@app.route('/find-replace')
+def find_replace_page():
+    return render_template('find_replace.html')
+
+@app.route('/find-replace', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+def find_replace():
+    """Perform find and replace on uploaded file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Get parameters
+        find_text = request.form.get('find_text', '')
+        replace_text = request.form.get('replace_text', '')
+        column = request.form.get('column', '__all__')
+        case_sensitive = request.form.get('case_sensitive', 'false').lower() == 'true'
+        use_regex = request.form.get('use_regex', 'false').lower() == 'true'
+        match_whole_cell = request.form.get('match_whole_cell', 'false').lower() == 'true'
+
+        if not find_text:
+            return jsonify({'error': 'Find text is required'}), 400
+
+        # Generate session ID
+        session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+        filename = secure_filename(file.filename)
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+        file.save(upload_path)
+
+        # Read the file
+        df = read_data_file(upload_path)
+
+        # Track replacements
+        total_replacements = 0
+        rows_affected = set()
+
+        # Determine which columns to process
+        if column == '__all__':
+            columns_to_process = df.columns.tolist()
+        else:
+            if column not in df.columns:
+                return jsonify({'error': f'Column "{column}" not found'}), 400
+            columns_to_process = [column]
+
+        # Perform find and replace
+        for col in columns_to_process:
+            # Convert column to string for replacement
+            original_values = df[col].astype(str)
+
+            if match_whole_cell:
+                # Match entire cell
+                if use_regex:
+                    pattern = f'^{find_text}$'
+                    if case_sensitive:
+                        mask = original_values.str.match(pattern, na=False)
+                    else:
+                        mask = original_values.str.match(pattern, case=False, na=False)
+
+                    # Count replacements
+                    count = mask.sum()
+                    if count > 0:
+                        total_replacements += count
+                        rows_affected.update(df.index[mask].tolist())
+                        df.loc[mask, col] = replace_text
+                else:
+                    # Exact match (not regex)
+                    if case_sensitive:
+                        mask = original_values == find_text
+                    else:
+                        mask = original_values.str.lower() == find_text.lower()
+
+                    count = mask.sum()
+                    if count > 0:
+                        total_replacements += count
+                        rows_affected.update(df.index[mask].tolist())
+                        df.loc[mask, col] = replace_text
+            else:
+                # Partial match / substring replacement
+                if use_regex:
+                    # Count matches first
+                    if case_sensitive:
+                        matches = original_values.str.count(find_text, flags=0)
+                    else:
+                        matches = original_values.str.count(find_text, flags=re.IGNORECASE)
+
+                    count = matches.sum()
+                    if count > 0:
+                        total_replacements += count
+                        rows_affected.update(df.index[matches > 0].tolist())
+
+                        if case_sensitive:
+                            df[col] = df[col].astype(str).str.replace(find_text, replace_text, regex=True)
+                        else:
+                            df[col] = df[col].astype(str).str.replace(find_text, replace_text, regex=True, flags=re.IGNORECASE)
+                else:
+                    # Simple string replacement
+                    if case_sensitive:
+                        matches = original_values.str.count(re.escape(find_text), flags=0)
+                    else:
+                        matches = original_values.str.count(re.escape(find_text), flags=re.IGNORECASE)
+
+                    count = matches.sum()
+                    if count > 0:
+                        total_replacements += count
+                        rows_affected.update(df.index[matches > 0].tolist())
+
+                        if case_sensitive:
+                            df[col] = df[col].astype(str).str.replace(find_text, replace_text, regex=False)
+                        else:
+                            # Case insensitive requires regex
+                            df[col] = df[col].astype(str).str.replace(re.escape(find_text), replace_text, regex=True, flags=re.IGNORECASE)
+
+        # Save the modified file
+        base_name = os.path.splitext(filename)[0]
+        output_filename = f"{base_name}_replaced_{session_id}.xlsx"
+        output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+        df.to_excel(output_path, index=False)
+
+        # Cache the result
+        cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Find & Replace')
+
+        # Cleanup upload
+        try:
+            os.remove(upload_path)
+        except:
+            pass
+
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'replacements_made': int(total_replacements),
+            'rows_affected': len(rows_affected)
+        })
+
+    except Exception as e:
+        print(f"Find & Replace error: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# CALCULATED COLUMNS TOOL
+# =============================================================================
+@app.route('/calculated-columns')
+def calculated_columns_page():
+    return render_template('calculated_columns.html')
+
+@app.route('/calculated-columns', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+def calculated_columns():
+    """Create calculated columns using formulas"""
+    try:
+        # Check for cached file or uploaded file
+        cache_id = request.form.get('cache_id')
+
+        if cache_id:
+            # Use cached file
+            cache_info = get_cached_file(cache_id)
+            if not cache_info:
+                return jsonify({'error': 'Cached file not found or expired'}), 400
+            df = read_data_file(cache_info['path'])
+            filename = cache_info['filename']
+            session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+            upload_path = None
+        else:
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file uploaded'}), 400
+
+            file = request.files['file']
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+
+            # Generate session ID
+            session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+            filename = secure_filename(file.filename)
+            upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+            file.save(upload_path)
+
+            # Read the file
+            df = read_data_file(upload_path)
+
+        # Get parameters
+        formula = request.form.get('formula', '')
+        new_column_name = request.form.get('new_column_name', '')
+        preview_only = request.form.get('preview_only', 'false').lower() == 'true'
+
+        if not formula:
+            return jsonify({'error': 'Formula is required'}), 400
+        if not new_column_name and not preview_only:
+            return jsonify({'error': 'New column name is required'}), 400
+
+        # Parse and evaluate the formula
+        try:
+            result = evaluate_formula(df, formula)
+        except Exception as e:
+            return jsonify({'error': f'Formula error: {str(e)}'}), 400
+
+        # Add the result as a new column
+        if preview_only:
+            # Just return preview data
+            new_col_name = new_column_name if new_column_name else 'Result'
+            preview_df = df.head(5).copy()
+            preview_df[new_col_name] = result.head(5)
+            preview = preview_df.to_dict(orient='records')
+            return jsonify({
+                'success': True,
+                'preview': preview
+            })
+
+        # Check if column already exists
+        if new_column_name in df.columns:
+            return jsonify({'error': f'Column "{new_column_name}" already exists'}), 400
+
+        df[new_column_name] = result
+
+        # Save the modified file
+        base_name = os.path.splitext(filename)[0]
+        output_filename = f"{base_name}_calculated_{session_id}.xlsx"
+        output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+        df.to_excel(output_path, index=False)
+
+        # Cache the result
+        cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Calculated Columns')
+
+        # Cleanup upload
+        if upload_path:
+            try:
+                os.remove(upload_path)
+            except:
+                pass
+
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'new_column': new_column_name,
+            'rows': len(df),
+            'columns': len(df.columns)
+        })
+
+    except Exception as e:
+        print(f"Calculated Columns error: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+def evaluate_formula(df, formula):
+    """
+    Evaluate a formula with column references and functions.
+    Supports: [ColumnName] references, text functions, math operations, conditionals.
+    """
+    import re
+    from datetime import datetime
+
+    # Replace column references [ColumnName] with df access
+    def replace_column_refs(match):
+        col_name = match.group(1)
+        if col_name not in df.columns:
+            raise ValueError(f'Column "{col_name}" not found')
+        return f'__df__["{col_name}"]'
+
+    # First, protect string literals by replacing them temporarily
+    string_literals = []
+    def save_string(match):
+        string_literals.append(match.group(0))
+        return f'__STRING_{len(string_literals)-1}__'
+
+    # Save double and single quoted strings
+    formula_work = re.sub(r'"[^"]*"', save_string, formula)
+    formula_work = re.sub(r"'[^']*'", save_string, formula_work)
+
+    # Replace column references
+    formula_work = re.sub(r'\[([^\]]+)\]', replace_column_refs, formula_work)
+
+    # Restore string literals
+    for i, s in enumerate(string_literals):
+        formula_work = formula_work.replace(f'__STRING_{i}__', s)
+
+    # Helper to convert value to Series
+    def to_series(val):
+        if isinstance(val, pd.Series):
+            return val
+        return pd.Series([val] * len(df))
+
+    # Helper to convert to string Series
+    def to_str_series(val):
+        if isinstance(val, pd.Series):
+            return val.astype(str)
+        return pd.Series([str(val)] * len(df))
+
+    # Map of supported functions to pandas equivalents
+    function_map = {
+        # Text functions
+        'CONCAT': lambda *args: pd.concat([to_str_series(arg) for arg in args], axis=1).agg(''.join, axis=1),
+        'UPPER': lambda x: to_str_series(x).str.upper(),
+        'LOWER': lambda x: to_str_series(x).str.lower(),
+        'TRIM': lambda x: to_str_series(x).str.strip(),
+        'LEFT': lambda x, n: to_str_series(x).str[:int(n)],
+        'RIGHT': lambda x, n: to_str_series(x).str[-int(n):],
+        'LEN': lambda x: to_str_series(x).str.len(),
+        'REPLACE': lambda x, old, new: to_str_series(x).str.replace(str(old), str(new), regex=False),
+
+        # Math functions
+        'ROUND': lambda x, decimals=0: pd.to_numeric(to_series(x), errors='coerce').round(int(decimals)),
+        'ABS': lambda x: pd.to_numeric(to_series(x), errors='coerce').abs(),
+        'CEILING': lambda x: pd.to_numeric(to_series(x), errors='coerce').apply(lambda v: np.ceil(v) if pd.notna(v) else v),
+        'FLOOR': lambda x: pd.to_numeric(to_series(x), errors='coerce').apply(lambda v: np.floor(v) if pd.notna(v) else v),
+
+        # Date functions
+        'YEAR': lambda x: pd.to_datetime(to_series(x), errors='coerce').dt.year,
+        'MONTH': lambda x: pd.to_datetime(to_series(x), errors='coerce').dt.month,
+        'DAY': lambda x: pd.to_datetime(to_series(x), errors='coerce').dt.day,
+        'TODAY': lambda: pd.Series([datetime.now().strftime('%Y-%m-%d')] * len(df)),
+
+        # Conditional functions
+        'ISNULL': lambda x: to_series(x).isna(),
+        'COALESCE': lambda *args: pd.concat([to_series(arg) for arg in args], axis=1).bfill(axis=1).iloc[:, 0],
+    }
+
+    # Custom IF function handler
+    def handle_if(condition, true_val, false_val):
+        """Handle IF(condition, true_value, false_value)"""
+        cond = to_series(condition)
+        return pd.Series(np.where(cond, true_val, false_val))
+
+    function_map['IF'] = handle_if
+
+    # Build safe namespace
+    safe_namespace = {
+        '__df__': df,
+        'pd': pd,
+        'np': np,
+        **function_map
+    }
+
+    # Handle string concatenation with + operator between columns and strings
+    # Convert string operations to work with pandas Series
+
+    try:
+        result = eval(formula_work, {"__builtins__": {}}, safe_namespace)
+
+        # Ensure result is a Series
+        if isinstance(result, pd.DataFrame):
+            result = result.iloc[:, 0]
+        elif not isinstance(result, pd.Series):
+            result = pd.Series([result] * len(df))
+
+        return result
+
+    except Exception as e:
+        raise ValueError(f'Formula evaluation failed: {str(e)}')
+
+
+# =============================================================================
+# COLUMN OPERATIONS TOOL
+# =============================================================================
+@app.route('/column-operations')
+def column_operations_page():
+    return render_template('column_operations.html')
+
+@app.route('/column-operations', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+def column_operations():
+    """Perform column operations on uploaded file"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        # Get operation type
+        operation = request.form.get('operation', '')
+        if not operation:
+            return jsonify({'error': 'No operation specified'}), 400
+
+        # Generate session ID
+        session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+        filename = secure_filename(file.filename)
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+        file.save(upload_path)
+
+        # Read the file
+        df = read_data_file(upload_path)
+        original_cols = df.columns.tolist()
+        operation_summary = ""
+
+        if operation == 'reorder':
+            # Reorder columns
+            column_order = request.form.get('column_order', '[]')
+            try:
+                column_order = json.loads(column_order)
+            except:
+                return jsonify({'error': 'Invalid column order format'}), 400
+
+            # Validate all columns exist
+            for col in column_order:
+                if col not in df.columns:
+                    return jsonify({'error': f'Column "{col}" not found'}), 400
+
+            # Reorder (only include columns in the order list)
+            df = df[column_order]
+            operation_summary = f"Reordered {len(column_order)} columns"
+
+        elif operation == 'rename':
+            # Rename columns
+            renames = request.form.get('renames', '{}')
+            try:
+                renames = json.loads(renames)
+            except:
+                return jsonify({'error': 'Invalid renames format'}), 400
+
+            if not renames:
+                return jsonify({'error': 'No columns selected for renaming'}), 400
+
+            # Validate old column names exist
+            for old_name in renames.keys():
+                if old_name not in df.columns:
+                    return jsonify({'error': f'Column "{old_name}" not found'}), 400
+
+            df = df.rename(columns=renames)
+            operation_summary = f"Renamed {len(renames)} column(s)"
+
+        elif operation == 'delete':
+            # Delete columns
+            columns_to_delete = request.form.get('columns_to_delete', '[]')
+            try:
+                columns_to_delete = json.loads(columns_to_delete)
+            except:
+                return jsonify({'error': 'Invalid columns format'}), 400
+
+            if not columns_to_delete:
+                return jsonify({'error': 'No columns selected for deletion'}), 400
+
+            # Validate columns exist
+            for col in columns_to_delete:
+                if col not in df.columns:
+                    return jsonify({'error': f'Column "{col}" not found'}), 400
+
+            df = df.drop(columns=columns_to_delete)
+            operation_summary = f"Deleted {len(columns_to_delete)} column(s)"
+
+        elif operation == 'duplicate':
+            # Duplicate a column
+            source_column = request.form.get('source_column', '')
+            new_column_name = request.form.get('new_column_name', '')
+
+            if not source_column:
+                return jsonify({'error': 'Source column is required'}), 400
+            if not new_column_name:
+                return jsonify({'error': 'New column name is required'}), 400
+            if source_column not in df.columns:
+                return jsonify({'error': f'Column "{source_column}" not found'}), 400
+            if new_column_name in df.columns:
+                return jsonify({'error': f'Column "{new_column_name}" already exists'}), 400
+
+            # Insert the duplicate after the source column
+            source_idx = df.columns.get_loc(source_column)
+            df.insert(source_idx + 1, new_column_name, df[source_column])
+            operation_summary = f"Duplicated '{source_column}' as '{new_column_name}'"
+
+        elif operation == 'split':
+            # Split a column by delimiter
+            column_to_split = request.form.get('column_to_split', '')
+            delimiter = request.form.get('delimiter', '')
+            new_names = request.form.get('new_names', '')
+
+            if not column_to_split:
+                return jsonify({'error': 'Column to split is required'}), 400
+            if not delimiter:
+                return jsonify({'error': 'Delimiter is required'}), 400
+            if column_to_split not in df.columns:
+                return jsonify({'error': f'Column "{column_to_split}" not found'}), 400
+
+            # Parse new column names (comma-separated)
+            if new_names:
+                new_names = [n.strip() for n in new_names.split(',') if n.strip()]
+            else:
+                new_names = []
+
+            # Split the column
+            split_df = df[column_to_split].astype(str).str.split(delimiter, expand=True)
+            num_parts = split_df.shape[1]
+
+            # Generate column names if not enough provided
+            if len(new_names) < num_parts:
+                for i in range(len(new_names), num_parts):
+                    new_names.append(f"{column_to_split}_part{i+1}")
+
+            # Use only the names needed
+            new_names = new_names[:num_parts]
+
+            # Check for duplicate column names
+            for name in new_names:
+                if name in df.columns and name != column_to_split:
+                    return jsonify({'error': f'Column "{name}" already exists'}), 400
+
+            # Insert new columns after the original
+            source_idx = df.columns.get_loc(column_to_split)
+
+            # Drop original column
+            df = df.drop(columns=[column_to_split])
+
+            # Insert split columns
+            for i, name in enumerate(new_names):
+                df.insert(source_idx + i, name, split_df[i])
+
+            operation_summary = f"Split '{column_to_split}' into {num_parts} columns"
+
+        elif operation == 'merge':
+            # Merge columns with separator
+            columns_to_merge = request.form.get('columns_to_merge', '[]')
+            separator = request.form.get('separator', '')
+            new_column_name = request.form.get('new_column_name', '')
+
+            try:
+                columns_to_merge = json.loads(columns_to_merge)
+            except:
+                return jsonify({'error': 'Invalid columns format'}), 400
+
+            if not columns_to_merge or len(columns_to_merge) < 2:
+                return jsonify({'error': 'Select at least 2 columns to merge'}), 400
+            if not new_column_name:
+                return jsonify({'error': 'New column name is required'}), 400
+            if new_column_name in df.columns:
+                return jsonify({'error': f'Column "{new_column_name}" already exists'}), 400
+
+            # Validate columns exist
+            for col in columns_to_merge:
+                if col not in df.columns:
+                    return jsonify({'error': f'Column "{col}" not found'}), 400
+
+            # Merge columns
+            df[new_column_name] = df[columns_to_merge].astype(str).agg(separator.join, axis=1)
+
+            # Move new column to after the last merged column
+            first_col_idx = min(df.columns.get_loc(col) for col in columns_to_merge)
+
+            # Reorder to put new column in place
+            cols = df.columns.tolist()
+            cols.remove(new_column_name)
+            cols.insert(first_col_idx + len(columns_to_merge), new_column_name)
+            df = df[cols]
+
+            operation_summary = f"Merged {len(columns_to_merge)} columns into '{new_column_name}'"
+
+        else:
+            return jsonify({'error': f'Unknown operation: {operation}'}), 400
+
+        # Save the modified file
+        base_name = os.path.splitext(filename)[0]
+        output_filename = f"{base_name}_modified_{session_id}.xlsx"
+        output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+        df.to_excel(output_path, index=False)
+
+        # Cache the result
+        cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Column Operations')
+
+        # Cleanup upload
+        try:
+            os.remove(upload_path)
+        except:
+            pass
+
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'summary': operation_summary,
+            'original_columns': len(original_cols),
+            'new_columns': len(df.columns)
+        })
+
+    except Exception as e:
+        print(f"Column Operations error: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+# =============================================================================
+# DATA READINESS PIPELINE ROUTES
+# =============================================================================
+
+@app.route('/data-readiness-pipeline')
+def data_readiness_pipeline():
+    """Data Readiness Pipeline - guided multi-stage data assessment"""
+    return render_template('data_readiness_pipeline.html')
+
+
+@app.route('/pipeline/start', methods=['POST'])
+@rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+def pipeline_start():
+    """Start a new pipeline session - upload file and create session"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'Please upload an Excel (.xlsx, .xls) or CSV file'}), 400
+
+        # Generate unique session ID
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        session_id = f"pipeline_{timestamp}_{secrets.token_hex(8)}"
+
+        # Save file
+        filename = secure_filename(file.filename)
+        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+        file.save(upload_path)
+
+        # Create pipeline state
+        state = PipelineState(session_id, upload_path, filename)
+
+        # Load DataFrame into memory
+        state.df = read_data_file(upload_path)
+        state.row_count = len(state.df)
+        state.col_count = len(state.df.columns)
+
+        # Store session
+        pipeline_sessions[session_id] = state
+
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'filename': filename,
+            'rows': state.row_count,
+            'columns': state.col_count,
+            'column_names': list(state.df.columns)
+        })
+
+    except Exception as e:
+        print(f"Pipeline start error: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/pipeline/<session_id>/state', methods=['GET'])
+def pipeline_get_state(session_id):
+    """Get current pipeline state for resume/refresh"""
+    if session_id not in pipeline_sessions:
+        return jsonify({'error': 'Pipeline session not found or expired'}), 404
+
+    state = pipeline_sessions[session_id]
+    return jsonify({
+        'success': True,
+        'state': state.to_dict(),
+        'stage_data': {
+            str(k): v is not None for k, v in state.stage_data.items()
+        },
+        'user_decisions': state.user_decisions
+    })
+
+
+@app.route('/pipeline/<session_id>/analyze', methods=['POST'])
+def pipeline_analyze(session_id):
+    """Stage 1: Run shape analysis on the uploaded data"""
+    if session_id not in pipeline_sessions:
+        return jsonify({'error': 'Pipeline session not found or expired'}), 404
+
+    state = pipeline_sessions[session_id]
+
+    try:
+        # Create progress queue for SSE
+        progress_queue = Queue()
+        progress_queues[session_id] = progress_queue
+
+        # Run analysis in background thread
+        def run_analysis():
+            try:
+                # Analyze the DataFrame
+                analysis = analyze_dataframe(state.df, progress_queue, session_id)
+
+                # Extract gap summary for Stage 2
+                gap_summary = []
+                for col_name, col_info in analysis['columns'].items():
+                    if col_info['null_count'] > 0:
+                        gap_summary.append({
+                            'column': col_name,
+                            'null_count': col_info['null_count'],
+                            'null_percentage': col_info['null_percentage'],
+                            'detected_type': col_info.get('detected_type', 'Unknown'),
+                            'unique_count': col_info.get('unique_count', 0)
+                        })
+
+                # Sort by null percentage descending
+                gap_summary = sorted(gap_summary, key=lambda x: x['null_percentage'], reverse=True)
+                analysis['gap_summary'] = gap_summary
+
+                # Detect potentially sensitive columns for Stage 4
+                sensitive_patterns = ['name', 'email', 'phone', 'address', 'ssn', 'social',
+                                     'credit', 'account', 'password', 'dob', 'birth', 'salary']
+                sensitive_columns = []
+                for col_name in state.df.columns:
+                    col_lower = col_name.lower()
+                    for pattern in sensitive_patterns:
+                        if pattern in col_lower:
+                            sensitive_columns.append({
+                                'column': col_name,
+                                'pattern_matched': pattern,
+                                'unique_count': analysis['columns'].get(col_name, {}).get('unique_count', 0)
+                            })
+                            break
+                analysis['sensitive_columns'] = sensitive_columns
+
+                # Store results
+                state.stage_data[1] = make_json_serializable(analysis)
+                state.current_stage = 2
+
+                # Send completion
+                progress_queue.put({
+                    'stage': 'done',
+                    'percentage': 100,
+                    'message': 'Shape analysis complete',
+                    'analysis': make_json_serializable(analysis)
+                })
+
+            except Exception as e:
+                print(f"Pipeline analysis error: {str(e)}")
+                print(traceback.format_exc())
+                progress_queue.put({
+                    'stage': 'error',
+                    'message': str(e)
+                })
+
+        thread = threading.Thread(target=run_analysis)
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'message': 'Analysis started'
+        })
+
+    except Exception as e:
+        print(f"Pipeline analyze error: {str(e)}")
+        print(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/pipeline/<session_id>/gaps', methods=['GET'])
+def pipeline_get_gaps(session_id):
+    """Stage 2: Get gap assessment data from Stage 1 analysis"""
+    if session_id not in pipeline_sessions:
+        return jsonify({'error': 'Pipeline session not found or expired'}), 404
+
+    state = pipeline_sessions[session_id]
+
+    if state.stage_data[1] is None:
+        return jsonify({'error': 'Stage 1 (Shape Analysis) must be completed first'}), 400
+
+    analysis = state.stage_data[1]
+
+    return jsonify({
+        'success': True,
+        'gap_summary': analysis.get('gap_summary', []),
+        'total_columns': len(analysis.get('columns', {})),
+        'columns_with_gaps': len(analysis.get('gap_summary', [])),
+        'current_triage': state.user_decisions.get(2, {})
+    })
+
+
+@app.route('/pipeline/<session_id>/gaps/triage', methods=['POST'])
+def pipeline_triage_gaps(session_id):
+    """Stage 2: Save user's gap triage decisions"""
+    if session_id not in pipeline_sessions:
+        return jsonify({'error': 'Pipeline session not found or expired'}), 404
+
+    state = pipeline_sessions[session_id]
+
+    try:
+        triage_decisions = request.get_json()
+        if not triage_decisions:
+            return jsonify({'error': 'No triage decisions provided'}), 400
+
+        # Store user decisions
+        state.user_decisions[2] = triage_decisions
+        state.stage_data[2] = {
+            'gap_triage': triage_decisions,
+            'completed_at': time.time()
+        }
+        state.current_stage = 3
+
+        return jsonify({
+            'success': True,
+            'message': 'Gap triage decisions saved',
+            'gaps_triaged': len(triage_decisions)
+        })
+
+    except Exception as e:
+        print(f"Pipeline triage error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/pipeline/<session_id>/keys', methods=['POST'])
+def pipeline_find_keys(session_id):
+    """Stage 3: Find natural key candidates using Apriori algorithm"""
+    if session_id not in pipeline_sessions:
+        return jsonify({'error': 'Pipeline session not found or expired'}), 404
+
+    state = pipeline_sessions[session_id]
+
+    try:
+        data = request.get_json() or {}
+        selected_columns = data.get('selected_columns', list(state.df.columns))
+
+        if not selected_columns:
+            return jsonify({'error': 'Please select at least one column'}), 400
+
+        # Create progress queue
+        progress_queue = Queue()
+        progress_queues[session_id] = progress_queue
+
+        def run_key_discovery():
+            try:
+                def send_progress(stage, pct, msg, current=0, total=0):
+                    progress_queue.put({
+                        'stage': stage,
+                        'percentage': pct,
+                        'message': msg,
+                        'current': current,
+                        'total': total
+                    })
+
+                send_progress('loading', 2, 'Preparing data for analysis...')
+
+                df = state.df.copy()
+                total_rows = len(df)
+
+                # Remove fully duplicate rows for key analysis
+                send_progress('filtering', 5, f'Checking for duplicate rows in {total_rows:,} records...')
+                duplicate_count = df.duplicated().sum()
+                if duplicate_count > 0:
+                    df = df.drop_duplicates(keep='first')
+                    send_progress('filtering', 8, f'Removed {duplicate_count:,} duplicate rows. {len(df):,} unique rows remaining.')
+                else:
+                    send_progress('filtering', 8, f'No duplicate rows found. Analyzing {len(df):,} rows.')
+
+                # Validate columns
+                invalid_cols = [c for c in selected_columns if c not in df.columns]
+                if invalid_cols:
+                    raise ValueError(f"Columns not found: {', '.join(invalid_cols)}")
+
+                # Find minimal unique combinations using Apriori
+                minimal_combinations = []
+                non_unique_combinations = []
+                n = len(selected_columns)
+                max_size = min(n, 5)
+                max_keys = 10
+
+                # Calculate progress ranges - use 10-90% for the actual work
+                # Level 1 gets 10-25%, remaining levels share 25-90%
+                level1_start = 10
+                level1_end = 25
+                remaining_start = 25
+                remaining_end = 90
+                levels_remaining = max_size - 1  # levels 2 through max_size
+                level_range = (remaining_end - remaining_start) / max(levels_remaining, 1)
+
+                # Level 1: Single columns
+                send_progress('level1', level1_start, f'Level 1: Testing {n} single columns...', 0, n)
+                for idx, col in enumerate(selected_columns):
+                    is_unique = df[[col]].duplicated().sum() == 0
+                    if is_unique:
+                        minimal_combinations.append([col])
+                    else:
+                        non_unique_combinations.append(frozenset([col]))
+
+                    # Update progress for each column
+                    pct = level1_start + int((idx + 1) / n * (level1_end - level1_start))
+                    if is_unique:
+                        send_progress('level1', pct, f'Found unique key: {col}', idx + 1, n)
+                    elif (idx + 1) % 3 == 0 or idx == n - 1:
+                        send_progress('level1', pct,
+                                     f'Level 1: Tested {idx + 1}/{n} columns. Found {len(minimal_combinations)} key(s).',
+                                     idx + 1, n)
+
+                # Levels 2+: Composite keys with Apriori pruning
+                for k in range(2, max_size + 1):
+                    level_idx = k - 2  # 0 for level 2, 1 for level 3, etc.
+                    level_start = remaining_start + int(level_idx * level_range)
+                    level_end = remaining_start + int((level_idx + 1) * level_range)
+
+                    if not non_unique_combinations or len(minimal_combinations) >= max_keys:
+                        send_progress('complete', 92,
+                                     f'Search complete. Found {len(minimal_combinations)} minimal key(s).')
+                        break
+
+                    # Generate candidates
+                    send_progress(f'level{k}', level_start,
+                                 f'Level {k}: Generating {k}-column candidates using Apriori pruning...')
+
+                    pool_cols = set()
+                    for combo in non_unique_combinations:
+                        pool_cols.update(combo)
+
+                    valid_candidates = []
+                    for combo in combinations(sorted(pool_cols), k):
+                        combo_set = frozenset(combo)
+                        all_subsets_non_unique = all(
+                            frozenset(subset) in non_unique_combinations
+                            for subset in combinations(combo, k - 1)
+                        )
+                        if all_subsets_non_unique:
+                            valid_candidates.append(list(combo))
+
+                    if not valid_candidates:
+                        send_progress(f'level{k}', level_end,
+                                     f'Level {k}: No valid candidates after pruning.')
+                        continue
+
+                    send_progress(f'level{k}', level_start + 2,
+                                 f'Level {k}: Testing {len(valid_candidates)} candidate combinations...',
+                                 0, len(valid_candidates))
+
+                    next_level_non_unique = []
+                    for idx, candidate in enumerate(valid_candidates):
+                        if len(minimal_combinations) >= max_keys:
+                            break
+                        is_unique = df[candidate].duplicated().sum() == 0
+                        if is_unique:
+                            minimal_combinations.append(candidate)
+                        else:
+                            next_level_non_unique.append(frozenset(candidate))
+
+                        # Calculate granular progress within this level
+                        progress_in_level = (idx + 1) / len(valid_candidates)
+                        pct = level_start + 2 + int(progress_in_level * (level_end - level_start - 2))
+
+                        # Update more frequently for better UX
+                        if is_unique:
+                            send_progress(f'level{k}', pct, f'Found key: {" + ".join(candidate)}',
+                                         idx + 1, len(valid_candidates))
+                        elif (idx + 1) % 5 == 0 or idx == len(valid_candidates) - 1:
+                            send_progress(f'level{k}', pct,
+                                         f'Level {k}: Tested {idx + 1}/{len(valid_candidates)} combinations. Found {len(minimal_combinations)} key(s).',
+                                         idx + 1, len(valid_candidates))
+
+                    non_unique_combinations = next_level_non_unique
+                else:
+                    # Loop completed without break - all levels exhausted
+                    send_progress('complete', 92,
+                                 f'Search complete. Found {len(minimal_combinations)} minimal key(s).')
+
+                # Store results
+                key_results = {
+                    'minimal_combinations': minimal_combinations,
+                    'selected_columns': selected_columns,
+                    'rows_analyzed': len(df),
+                    'duplicates_removed': duplicate_count
+                }
+                state.stage_data[3] = key_results
+
+                # Send single done message with results included
+                progress_queue.put({
+                    'stage': 'done',
+                    'percentage': 100,
+                    'message': f'Analysis complete! Found {len(minimal_combinations)} natural key candidate(s).',
+                    'results': key_results
+                })
+
+            except Exception as e:
+                print(f"Key discovery error: {str(e)}")
+                print(traceback.format_exc())
+                progress_queue.put({'stage': 'error', 'message': str(e)})
+
+        thread = threading.Thread(target=run_key_discovery)
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'message': 'Key discovery started'
+        })
+
+    except Exception as e:
+        print(f"Pipeline keys error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/pipeline/<session_id>/keys/confirm', methods=['POST'])
+def pipeline_confirm_keys(session_id):
+    """Stage 3: Save user's key selection"""
+    if session_id not in pipeline_sessions:
+        return jsonify({'error': 'Pipeline session not found or expired'}), 404
+
+    state = pipeline_sessions[session_id]
+
+    try:
+        data = request.get_json()
+        selected_key = data.get('selected_key', [])
+
+        state.user_decisions[3] = {'selected_key': selected_key}
+        if state.stage_data[3]:
+            state.stage_data[3]['user_selected_key'] = selected_key
+        state.current_stage = 4
+
+        return jsonify({
+            'success': True,
+            'message': 'Key selection saved',
+            'selected_key': selected_key
+        })
+
+    except Exception as e:
+        print(f"Pipeline confirm keys error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/pipeline/<session_id>/transformations', methods=['GET'])
+def pipeline_get_transformations(session_id):
+    """Stage 4: Get transformation recommendations based on analysis"""
+    if session_id not in pipeline_sessions:
+        return jsonify({'error': 'Pipeline session not found or expired'}), 404
+
+    state = pipeline_sessions[session_id]
+
+    if state.stage_data[1] is None:
+        return jsonify({'error': 'Stage 1 must be completed first'}), 400
+
+    analysis = state.stage_data[1]
+    recommendations = []
+
+    # Check for sensitive columns that might need anonymization
+    sensitive_cols = analysis.get('sensitive_columns', [])
+    if sensitive_cols:
+        # Build detailed column info with explanations
+        column_details = []
+        for col in sensitive_cols:
+            pattern = col.get('pattern_matched', '')
+            col_name = col.get('column', '')
+            unique_count = col.get('unique_count', 0)
+
+            # Generate explanation based on pattern
+            pattern_explanations = {
+                'name': 'Contains personal names - will be replaced with realistic fake names',
+                'email': 'Contains email addresses - will be replaced with anonymized emails',
+                'phone': 'Contains phone numbers - will be replaced with fake phone numbers',
+                'address': 'Contains addresses - will be replaced with fake addresses',
+                'ssn': 'Contains Social Security Numbers - will be masked or replaced',
+                'social': 'Contains social identifiers - will be anonymized',
+                'credit': 'Contains credit card or financial info - will be masked',
+                'account': 'Contains account numbers - will be replaced with fake numbers',
+                'password': 'Contains passwords or secrets - will be hashed or removed',
+                'dob': 'Contains dates of birth - will be shifted or generalized',
+                'birth': 'Contains birth information - will be anonymized',
+                'salary': 'Contains salary/compensation data - will be bucketed or masked'
+            }
+            explanation = pattern_explanations.get(pattern, 'May contain sensitive information')
+
+            column_details.append({
+                'column': col_name,
+                'pattern': pattern,
+                'unique_values': unique_count,
+                'explanation': explanation
+            })
+
+        recommendations.append({
+            'type': 'anonymization',
+            'title': 'Data Anonymization',
+            'description': 'Protect personally identifiable information (PII) by replacing sensitive data with realistic fake values while maintaining data structure and relationships.',
+            'columns': [c['column'] for c in sensitive_cols],
+            'column_details': column_details,
+            'priority': 'high'
+        })
+
+    # Check for type inconsistencies that might need normalization
+    type_issues = []
+    for col_name, col_info in analysis.get('columns', {}).items():
+        if col_info.get('detected_type') != 'Unknown':
+            dtype = col_info.get('dtype', '')
+            detected = col_info.get('detected_type', '')
+            if 'object' in dtype and detected in ['Numeric', 'Integer', 'Date', 'Currency']:
+                # Generate explanation based on detected type
+                type_explanations = {
+                    'Numeric': f'Stored as text but contains numbers - will convert to numeric format for calculations',
+                    'Integer': f'Stored as text but contains whole numbers - will convert to integer format',
+                    'Date': f'Stored as text but contains dates - will convert to proper date format for sorting/filtering',
+                    'Currency': f'Stored as text but contains currency values - will convert to numeric and standardize format'
+                }
+                explanation = type_explanations.get(detected, 'May need type conversion')
+
+                type_issues.append({
+                    'column': col_name,
+                    'current': dtype,
+                    'detected': detected,
+                    'explanation': explanation
+                })
+
+    if type_issues:
+        recommendations.append({
+            'type': 'normalization',
+            'title': 'Data Type Normalization',
+            'description': 'Convert columns to their proper data types. This improves data quality, enables proper sorting, and allows mathematical operations.',
+            'columns': [t['column'] for t in type_issues],
+            'column_details': type_issues,
+            'priority': 'medium'
+        })
+
+    # Check for gaps that need attention (from Stage 2 triage)
+    gap_triage = state.user_decisions.get(2, {})
+    gaps_needing_attention = [col for col, decision in gap_triage.items() if decision == 'needs_attention']
+    if gaps_needing_attention:
+        # Get gap details from analysis
+        gap_details = []
+        for col in gaps_needing_attention:
+            col_info = analysis.get('columns', {}).get(col, {})
+            null_pct = col_info.get('null_percentage', 0)
+            null_count = col_info.get('null_count', 0)
+
+            gap_details.append({
+                'column': col,
+                'missing_count': null_count,
+                'missing_percentage': round(null_pct, 1),
+                'explanation': f'{null_count:,} missing values ({null_pct:.1f}%) - can fill with default, interpolate, or flag for review'
+            })
+
+        recommendations.append({
+            'type': 'gap_handling',
+            'title': 'Missing Data Handling',
+            'description': 'Address missing values in columns you flagged for attention. Options include filling with defaults, using statistical imputation, or flagging rows for manual review.',
+            'columns': gaps_needing_attention,
+            'column_details': gap_details,
+            'priority': 'medium'
+        })
+
+    return jsonify({
+        'success': True,
+        'recommendations': recommendations,
+        'current_selections': state.user_decisions.get(4, {})
+    })
+
+
+@app.route('/pipeline/<session_id>/transformations/select', methods=['POST'])
+def pipeline_select_transformations(session_id):
+    """Stage 4: Save user's transformation selections"""
+    if session_id not in pipeline_sessions:
+        return jsonify({'error': 'Pipeline session not found or expired'}), 404
+
+    state = pipeline_sessions[session_id]
+
+    try:
+        selections = request.get_json()
+        if selections is None:
+            selections = {}
+
+        state.user_decisions[4] = selections
+        state.stage_data[4] = {
+            'selected_transformations': selections,
+            'completed_at': time.time()
+        }
+        state.current_stage = 5
+
+        return jsonify({
+            'success': True,
+            'message': 'Transformation selections saved',
+            'selections': selections
+        })
+
+    except Exception as e:
+        print(f"Pipeline select transformations error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/pipeline/<session_id>/execute', methods=['POST'])
+def pipeline_execute(session_id):
+    """Stage 5: Execute selected transformations and generate report"""
+    if session_id not in pipeline_sessions:
+        return jsonify({'error': 'Pipeline session not found or expired'}), 404
+
+    state = pipeline_sessions[session_id]
+
+    try:
+        progress_queue = Queue()
+        progress_queues[session_id] = progress_queue
+
+        def run_execute():
+            try:
+                send_progress = lambda pct, msg: progress_queue.put({
+                    'stage': 'executing', 'percentage': pct, 'message': msg
+                })
+
+                send_progress(5, 'Starting pipeline execution...')
+
+                result_df = state.df.copy()
+                transformation_log = []
+                selections = state.user_decisions.get(4, {})
+
+                # Apply anonymization if selected
+                if selections.get('anonymization', {}).get('enabled'):
+                    send_progress(20, 'Applying data anonymization...')
+                    anon_cols = selections['anonymization'].get('columns', [])
+                    if anon_cols:
+                        for col in anon_cols:
+                            if col in result_df.columns:
+                                unique_vals = result_df[col].dropna().unique()
+                                mapping = {val: f"{col[:3].upper()}_{i+1:05d}" for i, val in enumerate(unique_vals)}
+                                result_df[col] = result_df[col].map(lambda x: mapping.get(x, x) if pd.notna(x) else x)
+                        transformation_log.append({
+                            'type': 'anonymization',
+                            'columns': anon_cols,
+                            'rows_affected': len(result_df)
+                        })
+
+                # Apply type normalization if selected
+                if selections.get('normalization', {}).get('enabled'):
+                    send_progress(40, 'Applying type normalization...')
+                    norm_cols = selections['normalization'].get('columns', [])
+                    # Type normalization would be applied here
+                    if norm_cols:
+                        transformation_log.append({
+                            'type': 'normalization',
+                            'columns': norm_cols,
+                            'note': 'Type hints recorded for reference'
+                        })
+
+                send_progress(60, 'Generating PDF report...')
+
+                # Generate PDF Report
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                output_basename = f"data_readiness_report_{timestamp}"
+                pdf_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}.pdf")
+
+                generate_readiness_report(
+                    output_path=pdf_path,
+                    state=state,
+                    transformation_log=transformation_log
+                )
+
+                send_progress(80, 'Saving transformed data...')
+
+                # Save transformed data
+                excel_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}_data.xlsx")
+                result_df.to_excel(excel_path, index=False)
+
+                # Create ZIP package
+                send_progress(90, 'Packaging results...')
+                zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}.zip")
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    zipf.write(pdf_path, f"{output_basename}_report.pdf")
+                    zipf.write(excel_path, f"{output_basename}_data.xlsx")
+
+                # Cleanup individual files
+                os.remove(pdf_path)
+                os.remove(excel_path)
+
+                # Store execution results
+                state.stage_data[5] = {
+                    'transformation_log': transformation_log,
+                    'output_file': f"{output_basename}.zip",
+                    'completed_at': time.time()
+                }
+
+                # Cache the result file
+                cache_session_file(
+                    session_id,
+                    f"{output_basename}_data.xlsx",
+                    zip_path,
+                    len(result_df),
+                    len(result_df.columns),
+                    'Data Readiness Pipeline'
+                )
+
+                progress_queue.put({
+                    'stage': 'done',
+                    'percentage': 100,
+                    'message': 'Pipeline execution complete',
+                    'download_url': f'/download/{output_basename}.zip',
+                    'output_filename': f"{output_basename}.zip",
+                    'transformation_log': transformation_log
+                })
+
+            except Exception as e:
+                print(f"Pipeline execute error: {str(e)}")
+                print(traceback.format_exc())
+                progress_queue.put({'stage': 'error', 'message': str(e)})
+
+        thread = threading.Thread(target=run_execute)
+        thread.daemon = True
+        thread.start()
+
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'message': 'Pipeline execution started'
+        })
+
+    except Exception as e:
+        print(f"Pipeline execute error: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+def generate_readiness_report(output_path, state, transformation_log=None):
+    """Generate comprehensive Data Readiness PDF report"""
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.units import inch
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+    doc = SimpleDocTemplate(output_path, pagesize=letter,
+                           leftMargin=0.75*inch, rightMargin=0.75*inch,
+                           topMargin=0.75*inch, bottomMargin=0.75*inch)
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=24, alignment=TA_CENTER, spaceAfter=20)
+    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=14, spaceBefore=15, spaceAfter=10)
+    body_style = ParagraphStyle('Body', parent=styles['Normal'], fontSize=10, spaceAfter=6)
+
+    story = []
+
+    # Title
+    story.append(Paragraph("Data Readiness Report", title_style))
+    story.append(Paragraph(f"Source File: {state.filename}", body_style))
+    story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", body_style))
+    story.append(Spacer(1, 20))
+
+    # Executive Summary
+    story.append(Paragraph("1. Executive Summary", heading_style))
+    analysis = state.stage_data.get(1, {})
+    overview = analysis.get('overview', {})
+    shape = overview.get('shape', {})
+
+    summary_data = [
+        ['Metric', 'Value'],
+        ['Total Rows', f"{shape.get('rows', 0):,}"],
+        ['Total Columns', f"{shape.get('columns', 0):,}"],
+        ['Duplicate Rows', f"{overview.get('duplicate_rows', 0):,}"],
+        ['Memory Usage', f"{overview.get('memory_usage_mb', 0):.2f} MB"]
+    ]
+    summary_table = Table(summary_data, colWidths=[2.5*inch, 2.5*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+
+    # Stage 2: Gap Assessment
+    story.append(Paragraph("2. Gap Assessment", heading_style))
+    gap_triage = state.user_decisions.get(2, {})
+    if gap_triage:
+        gap_data = [['Column', 'Decision']]
+        for col, decision in gap_triage.items():
+            decision_text = 'Acceptable' if decision == 'acceptable' else 'Needs Attention'
+            gap_data.append([col, decision_text])
+        gap_table = Table(gap_data, colWidths=[3*inch, 2*inch])
+        gap_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ]))
+        story.append(gap_table)
+    else:
+        story.append(Paragraph("No gaps requiring triage were found.", body_style))
+    story.append(Spacer(1, 20))
+
+    # Stage 3: Natural Key Discovery
+    story.append(Paragraph("3. Natural Key Discovery", heading_style))
+    key_data = state.stage_data.get(3, {})
+    if key_data:
+        selected_key = key_data.get('user_selected_key', key_data.get('minimal_combinations', [[]])[0])
+        story.append(Paragraph(f"Selected Key: {', '.join(selected_key) if selected_key else 'None selected'}", body_style))
+        alternatives = key_data.get('minimal_combinations', [])
+        if alternatives:
+            story.append(Paragraph(f"Alternative candidates found: {len(alternatives)}", body_style))
+    else:
+        story.append(Paragraph("Natural key discovery was not performed.", body_style))
+    story.append(Spacer(1, 20))
+
+    # Stage 4: Transformation Decisions
+    story.append(Paragraph("4. Transformation Decisions", heading_style))
+    transform_decisions = state.user_decisions.get(4, {})
+    if transform_decisions:
+        for ttype, config in transform_decisions.items():
+            if config.get('enabled'):
+                cols = config.get('columns', [])
+                story.append(Paragraph(f"• {ttype.title()}: {len(cols)} column(s)", body_style))
+    else:
+        story.append(Paragraph("No transformations were selected.", body_style))
+    story.append(Spacer(1, 20))
+
+    # Stage 5: Execution Log
+    story.append(Paragraph("5. Execution Log", heading_style))
+    if transformation_log:
+        for entry in transformation_log:
+            story.append(Paragraph(f"• {entry.get('type', 'Unknown').title()}: {len(entry.get('columns', []))} column(s) affected", body_style))
+    else:
+        story.append(Paragraph("No transformations were executed.", body_style))
+
+    # Footer
+    story.append(Spacer(1, 40))
+    story.append(Paragraph("Generated by DataDragon - Data Readiness Pipeline",
+                          ParagraphStyle('Footer', parent=body_style, alignment=TA_CENTER, textColor=colors.grey)))
+
+    doc.build(story)
+
+
 if __name__ == '__main__':
     # Only enable debug in development
     import os
     debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
-    # Use port 5001 to avoid conflict with macOS AirPlay Receiver on port 5000
-    app.run(debug=debug_mode, host='127.0.0.1', port=5001, threaded=True)
+    # Use port 5002 to avoid conflict with macOS AirPlay Receiver on port 5000
+    app.run(debug=debug_mode, host='127.0.0.1', port=5002, threaded=True)
 

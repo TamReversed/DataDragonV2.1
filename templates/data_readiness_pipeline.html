@@ -1,0 +1,3180 @@
+{% extends "base.html" %}
+
+{% block title %}DataDragon - Data Readiness Pipeline{% endblock %}
+
+{% block content_class %}wide{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block styles %}
+<style>
+    /* Override main-content for full-width pipeline layout */
+    .main-content.wide {
+        max-width: 1800px;
+        padding: var(--space-4) var(--space-6);
+    }
+
+    /* ========================================= */
+    /* Pipeline Header                           */
+    /* ========================================= */
+
+    .pipeline-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--space-6);
+    }
+
+    .pipeline-header-left {
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+    }
+
+    .pipeline-title {
+        font-size: 24px;
+        font-weight: 700;
+        background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.7) 50%, var(--accent-purple) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .file-badge {
+        display: none;
+        align-items: center;
+        gap: var(--space-2);
+        background: rgba(168, 85, 247, 0.15);
+        color: var(--accent-purple);
+        padding: var(--space-2) var(--space-4);
+        border-radius: var(--radius-2xl);
+        font-size: 13px;
+        font-weight: 500;
+        border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+
+    .file-badge.visible {
+        display: flex;
+    }
+
+    /* ========================================= */
+    /* Stepper                                   */
+    /* ========================================= */
+
+    .stepper {
+        display: flex;
+        justify-content: center;
+        gap: var(--space-2);
+        padding: var(--space-4) var(--space-6);
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--border-subtle);
+        margin-bottom: var(--space-6);
+    }
+
+    .step {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: var(--space-2) var(--space-4);
+        border-radius: var(--radius-2xl);
+        cursor: pointer;
+        transition: all var(--transition-base);
+        background: transparent;
+    }
+
+    .step:hover {
+        background: var(--bg-card-hover);
+    }
+
+    .step.active {
+        background: var(--gradient-purple-blue);
+        color: white;
+    }
+
+    .step.completed {
+        background: rgba(16, 185, 129, 0.15);
+        color: var(--accent-green);
+    }
+
+    .step-number {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--bg-tertiary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 12px;
+    }
+
+    .step.active .step-number {
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+    }
+
+    .step.completed .step-number {
+        background: var(--accent-green);
+        color: white;
+    }
+
+    .step-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .step.active .step-label,
+    .step.completed .step-label {
+        color: inherit;
+    }
+
+    .step-connector {
+        width: 24px;
+        height: 2px;
+        background: var(--border-subtle);
+        align-self: center;
+    }
+
+    /* ========================================= */
+    /* Content Area - Split Layout              */
+    /* ========================================= */
+
+    .content-area {
+        display: flex;
+        gap: var(--space-6);
+        min-height: calc(100vh - 280px);
+    }
+
+    /* Left Panel - Options */
+    .options-panel {
+        width: 380px;
+        flex-shrink: 0;
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--border-subtle);
+        padding: var(--space-6);
+        max-height: calc(100vh - 280px);
+        overflow-y: auto;
+    }
+
+    /* Right Panel - Preview */
+    .preview-panel {
+        flex: 1;
+        min-width: 700px;
+        background: var(--bg-card);
+        backdrop-filter: blur(20px);
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--border-subtle);
+        padding: var(--space-6);
+        display: flex;
+        flex-direction: column;
+        max-height: calc(100vh - 280px);
+        overflow: hidden;
+    }
+
+    .panel-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: var(--space-4);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .panel-title svg {
+        width: 20px;
+        height: 20px;
+        color: var(--accent-purple);
+    }
+
+    .panel-subtitle {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: var(--space-5);
+    }
+
+    /* ========================================= */
+    /* Analysis Charts & Stats                   */
+    /* ========================================= */
+
+    .analysis-dashboard {
+        display: none;
+        flex-direction: column;
+        gap: var(--space-6);
+        overflow-y: auto;
+        flex: 1;
+        padding-right: var(--space-2);
+    }
+
+    .analysis-dashboard.visible {
+        display: flex;
+    }
+
+    /* Custom scrollbar for dashboard */
+    .analysis-dashboard::-webkit-scrollbar {
+        width: 6px;
+    }
+    .analysis-dashboard::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .analysis-dashboard::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 3px;
+    }
+    .analysis-dashboard::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.25);
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: var(--space-4);
+        flex-shrink: 0;
+    }
+
+    .stat-card {
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-lg);
+        padding: var(--space-5);
+        text-align: center;
+        border: 1px solid var(--border-subtle);
+    }
+
+    .stat-value {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-primary);
+        line-height: 1.2;
+    }
+
+    .stat-value.success { color: var(--accent-green); }
+    .stat-value.warning { color: var(--accent-yellow); }
+    .stat-value.danger { color: var(--accent-orange); }
+    .stat-value.info { color: var(--accent-purple); }
+
+    .stat-label {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: var(--space-2);
+    }
+
+    .charts-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--space-5);
+        flex-shrink: 0;
+    }
+
+    .chart-card {
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-lg);
+        padding: var(--space-5);
+        border: 1px solid var(--border-subtle);
+    }
+
+    .chart-card.full-width {
+        grid-column: 1 / -1;
+    }
+
+    .chart-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: var(--space-4);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .chart-title svg {
+        width: 18px;
+        height: 18px;
+        color: var(--accent-purple);
+    }
+
+    .chart-container {
+        position: relative;
+        height: 220px;
+    }
+
+    .chart-container.tall {
+        height: 280px;
+    }
+
+    .completeness-section {
+        flex-shrink: 0;
+    }
+
+    .completeness-bars {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--space-3) var(--space-6);
+        max-height: 280px;
+        overflow-y: auto;
+        padding-right: var(--space-2);
+    }
+
+    .completeness-bars::-webkit-scrollbar {
+        width: 4px;
+    }
+    .completeness-bars::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .completeness-bars::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 2px;
+    }
+
+    .completeness-row {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+    }
+
+    .completeness-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+        width: 140px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex-shrink: 0;
+    }
+
+    .completeness-bar-bg {
+        flex: 1;
+        height: 10px;
+        background: var(--bg-secondary);
+        border-radius: 5px;
+        overflow: hidden;
+        min-width: 100px;
+    }
+
+    .completeness-bar-fill {
+        height: 100%;
+        border-radius: 5px;
+        transition: width 0.5s ease;
+    }
+
+    .completeness-bar-fill.high { background: var(--accent-green); }
+    .completeness-bar-fill.medium { background: var(--accent-yellow); }
+    .completeness-bar-fill.low { background: var(--accent-orange); }
+
+    .completeness-value {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        width: 50px;
+        text-align: right;
+        flex-shrink: 0;
+    }
+
+    /* ========================================= */
+    /* Column Details Cards                      */
+    /* ========================================= */
+
+    .column-details-section {
+        margin-top: var(--space-6);
+        flex-shrink: 0;
+    }
+
+    .column-details-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: var(--space-4);
+    }
+
+    .column-details-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .column-details-title svg {
+        width: 18px;
+        height: 18px;
+        color: var(--accent-purple);
+    }
+
+    .column-filter-input {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-md);
+        padding: var(--space-2) var(--space-3);
+        font-size: 13px;
+        color: var(--text-primary);
+        width: 200px;
+    }
+
+    .column-filter-input::placeholder {
+        color: var(--text-muted);
+    }
+
+    .column-filter-input:focus {
+        outline: none;
+        border-color: var(--accent-purple);
+    }
+
+    .column-cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: var(--space-4);
+        max-height: 500px;
+        overflow-y: auto;
+        padding-right: var(--space-2);
+    }
+
+    .column-cards-grid::-webkit-scrollbar {
+        width: 6px;
+    }
+    .column-cards-grid::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    .column-cards-grid::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 3px;
+    }
+
+    .column-card {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        transition: all var(--transition-base);
+    }
+
+    .column-card:hover {
+        border-color: var(--accent-purple);
+        background: rgba(168, 85, 247, 0.05);
+    }
+
+    .column-card-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: var(--space-3);
+    }
+
+    .column-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+        word-break: break-word;
+    }
+
+    .column-type-badge {
+        font-size: 11px;
+        font-weight: 500;
+        padding: 3px 8px;
+        border-radius: var(--radius-sm);
+        flex-shrink: 0;
+        margin-left: var(--space-2);
+    }
+
+    .column-type-badge.type-text { background: rgba(168, 85, 247, 0.2); color: var(--accent-purple); }
+    .column-type-badge.type-number { background: rgba(59, 130, 246, 0.2); color: var(--accent-blue); }
+    .column-type-badge.type-date { background: rgba(6, 182, 212, 0.2); color: var(--accent-cyan); }
+    .column-type-badge.type-boolean { background: rgba(16, 185, 129, 0.2); color: var(--accent-green); }
+    .column-type-badge.type-currency { background: rgba(250, 204, 21, 0.2); color: var(--accent-yellow); }
+
+    .column-stats {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: var(--space-2);
+        margin-bottom: var(--space-3);
+    }
+
+    .column-stat {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .column-stat-label {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .column-stat-value {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+
+    .column-stat-value.success { color: var(--accent-green); }
+    .column-stat-value.warning { color: var(--accent-yellow); }
+    .column-stat-value.danger { color: var(--accent-orange); }
+
+    .column-completeness-bar {
+        height: 4px;
+        background: var(--bg-secondary);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-bottom: var(--space-3);
+    }
+
+    .column-completeness-fill {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.5s ease;
+    }
+
+    .column-completeness-fill.high { background: var(--accent-green); }
+    .column-completeness-fill.medium { background: var(--accent-yellow); }
+    .column-completeness-fill.low { background: var(--accent-orange); }
+
+    .column-samples {
+        background: var(--bg-secondary);
+        border-radius: var(--radius-sm);
+        padding: var(--space-2) var(--space-3);
+    }
+
+    .column-samples-label {
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: var(--space-1);
+    }
+
+    .column-samples-values {
+        font-size: 12px;
+        color: var(--text-secondary);
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        word-break: break-all;
+        line-height: 1.4;
+    }
+
+    .column-top-values {
+        margin-top: var(--space-2);
+    }
+
+    .top-value-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--space-1) 0;
+        font-size: 12px;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .top-value-row:last-child {
+        border-bottom: none;
+    }
+
+    .top-value-name {
+        color: var(--text-secondary);
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        margin-right: var(--space-2);
+    }
+
+    .top-value-count {
+        color: var(--text-muted);
+        font-size: 11px;
+        flex-shrink: 0;
+    }
+
+    /* ========================================= */
+    /* Upload Zone                               */
+    /* ========================================= */
+
+    .upload-zone {
+        border: 2px dashed var(--border-default);
+        border-radius: var(--radius-xl);
+        padding: var(--space-10);
+        text-align: center;
+        cursor: pointer;
+        transition: all var(--transition-base);
+        background: var(--bg-card);
+    }
+
+    .upload-zone:hover,
+    .upload-zone.dragover {
+        border-color: var(--accent-purple);
+        background: rgba(168, 85, 247, 0.1);
+    }
+
+    .upload-icon {
+        width: 48px;
+        height: 48px;
+        margin: 0 auto var(--space-4);
+        color: var(--text-muted);
+    }
+
+    .upload-zone:hover .upload-icon {
+        color: var(--accent-purple);
+    }
+
+    .upload-text {
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+
+    .upload-hint {
+        color: var(--text-muted);
+        font-size: 12px;
+        margin-top: var(--space-2);
+    }
+
+    /* ========================================= */
+    /* Column Selection                          */
+    /* ========================================= */
+
+    .column-list {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-2);
+    }
+
+    .column-item {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-3);
+        border-radius: var(--radius-md);
+        cursor: pointer;
+        transition: background var(--transition-fast);
+    }
+
+    .column-item:hover {
+        background: var(--bg-card-hover);
+    }
+
+    .column-item input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--accent-purple);
+    }
+
+    .column-name {
+        font-weight: 500;
+        color: var(--text-primary);
+        flex: 1;
+        font-size: 14px;
+    }
+
+    .column-type {
+        font-size: 11px;
+        color: var(--text-muted);
+        background: var(--bg-tertiary);
+        padding: 2px 8px;
+        border-radius: var(--radius-sm);
+    }
+
+    .select-actions {
+        display: flex;
+        gap: var(--space-3);
+        margin-bottom: var(--space-3);
+    }
+
+    .select-btn {
+        font-size: 12px;
+        color: var(--accent-purple);
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: var(--space-1) var(--space-2);
+        transition: all var(--transition-fast);
+    }
+
+    .select-btn:hover {
+        text-decoration: underline;
+    }
+
+    /* ========================================= */
+    /* Data Preview Table                        */
+    /* ========================================= */
+
+    .preview-table-container {
+        flex: 1;
+        overflow: auto;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+    }
+
+    .preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+    }
+
+    .preview-table th {
+        background: var(--bg-tertiary);
+        color: var(--text-secondary);
+        padding: var(--space-3) var(--space-4);
+        text-align: left;
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        white-space: nowrap;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .preview-table td {
+        padding: var(--space-2) var(--space-4);
+        border-bottom: 1px solid var(--border-subtle);
+        white-space: nowrap;
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        color: var(--text-secondary);
+    }
+
+    .preview-table tr:hover td {
+        background: var(--bg-card-hover);
+    }
+
+    .preview-info {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: var(--space-3);
+        text-align: center;
+    }
+
+    /* ========================================= */
+    /* Progress                                  */
+    /* ========================================= */
+
+    .progress-container {
+        margin: var(--space-5) 0;
+        display: none;
+    }
+
+    .progress-container.active {
+        display: block;
+    }
+
+    .progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-2);
+    }
+
+    .progress-stage {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--accent-purple);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .progress-percent {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .progress-bar {
+        height: 8px;
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-sm);
+        overflow: hidden;
+    }
+
+    .progress-fill {
+        height: 100%;
+        background: var(--gradient-purple-blue);
+        width: 0%;
+        transition: width var(--transition-slow);
+        position: relative;
+    }
+
+    .progress-fill::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+        animation: shimmer 1.5s infinite;
+    }
+
+    @keyframes shimmer {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+
+    .progress-text {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-top: var(--space-2);
+        min-height: 18px;
+    }
+
+    .progress-details {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: var(--space-1);
+    }
+
+    /* Multi-stage progress dots */
+    .progress-stages {
+        display: flex;
+        gap: var(--space-1);
+        margin-top: var(--space-3);
+    }
+
+    .progress-stage-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--bg-tertiary);
+        transition: all var(--transition-base);
+    }
+
+    .progress-stage-dot.active {
+        background: var(--accent-purple);
+        box-shadow: 0 0 8px rgba(168, 85, 247, 0.5);
+        animation: pulse 1s infinite;
+    }
+
+    .progress-stage-dot.completed {
+        background: var(--accent-green);
+    }
+
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.2); }
+    }
+
+    /* ========================================= */
+    /* Gap Triage Table                          */
+    /* ========================================= */
+
+    .triage-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .triage-table th {
+        background: var(--bg-tertiary);
+        padding: var(--space-3);
+        text-align: left;
+        font-weight: 600;
+        color: var(--text-secondary);
+        font-size: 12px;
+    }
+
+    .triage-table td {
+        padding: var(--space-3);
+        border-bottom: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+    }
+
+    .triage-radio {
+        display: flex;
+        gap: var(--space-4);
+    }
+
+    .triage-radio label {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+
+    .triage-radio input {
+        accent-color: var(--accent-purple);
+    }
+
+    /* ========================================= */
+    /* Key Cards                                 */
+    /* ========================================= */
+
+    .key-card {
+        border: 2px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        margin: var(--space-2) 0;
+        cursor: pointer;
+        transition: all var(--transition-base);
+    }
+
+    .key-card:hover {
+        border-color: var(--accent-purple);
+    }
+
+    .key-card.selected {
+        border-color: var(--accent-purple);
+        background: rgba(168, 85, 247, 0.1);
+    }
+
+    .key-card-title {
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--text-primary);
+        margin-bottom: var(--space-1);
+    }
+
+    .key-card-columns {
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+
+    /* ========================================= */
+    /* Transform Cards                           */
+    /* ========================================= */
+
+    .transform-card {
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+        padding: var(--space-4);
+        margin: var(--space-3) 0;
+        transition: all var(--transition-base);
+    }
+
+    .transform-card.enabled {
+        border-color: var(--accent-green);
+        background: rgba(16, 185, 129, 0.05);
+    }
+
+    .transform-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: var(--space-2);
+    }
+
+    .transform-title {
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--text-primary);
+    }
+
+    .transform-toggle {
+        width: 40px;
+        height: 22px;
+        background: var(--bg-tertiary);
+        border-radius: 11px;
+        cursor: pointer;
+        position: relative;
+        transition: background var(--transition-base);
+    }
+
+    .transform-toggle.active {
+        background: var(--accent-green);
+    }
+
+    .transform-toggle::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 18px;
+        height: 18px;
+        background: white;
+        border-radius: 50%;
+        transition: transform var(--transition-base);
+    }
+
+    .transform-toggle.active::after {
+        transform: translateX(18px);
+    }
+
+    .transform-desc {
+        font-size: 12px;
+        color: var(--text-secondary);
+        margin-bottom: var(--space-3);
+    }
+
+    .transform-columns {
+        margin-top: var(--space-3);
+        border-top: 1px solid var(--border-subtle);
+        padding-top: var(--space-3);
+    }
+
+    .transform-columns-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: var(--space-2);
+    }
+
+    .column-detail {
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+        padding: var(--space-3);
+        margin-bottom: var(--space-2);
+    }
+
+    .column-detail-header {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        margin-bottom: var(--space-1);
+    }
+
+    .column-detail-name {
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--text-primary);
+    }
+
+    .column-detail-badge {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: var(--radius-sm);
+        background: rgba(168, 85, 247, 0.15);
+        color: var(--accent-purple);
+    }
+
+    .column-detail-explanation {
+        font-size: 12px;
+        color: var(--text-secondary);
+        line-height: 1.4;
+    }
+
+    .priority-badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: var(--radius-sm);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        margin-left: var(--space-2);
+    }
+
+    .priority-high {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--accent-red);
+    }
+
+    .priority-medium {
+        background: rgba(234, 179, 8, 0.15);
+        color: var(--accent-yellow);
+    }
+
+    /* ========================================= */
+    /* Success State                             */
+    /* ========================================= */
+
+    .success-section {
+        text-align: center;
+        padding: var(--space-10);
+    }
+
+    .success-icon {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto var(--space-5);
+        color: var(--accent-green);
+    }
+
+    .success-title {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--accent-green);
+        margin-bottom: var(--space-2);
+    }
+
+    .success-text {
+        color: var(--text-secondary);
+        margin-bottom: var(--space-5);
+    }
+
+    /* ========================================= */
+    /* Error Messages                            */
+    /* ========================================= */
+
+    .error-message {
+        background: rgba(239, 68, 68, 0.15);
+        color: var(--accent-red);
+        padding: var(--space-3);
+        border-radius: var(--radius-md);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        margin: var(--space-4) 0;
+        font-size: 13px;
+        display: none;
+    }
+
+    .error-message.visible {
+        display: block;
+    }
+
+    /* ========================================= */
+    /* Empty State                               */
+    /* ========================================= */
+
+    .empty-state {
+        text-align: center;
+        padding: var(--space-10);
+        color: var(--text-muted);
+    }
+
+    .empty-state-icon {
+        width: 48px;
+        height: 48px;
+        margin: 0 auto var(--space-4);
+        opacity: 0.5;
+    }
+
+    /* ========================================= */
+    /* Buttons                                   */
+    /* ========================================= */
+
+    .btn-link {
+        background: none;
+        border: none;
+        color: var(--accent-purple);
+        font-size: 13px;
+        cursor: pointer;
+        padding: var(--space-2) 0;
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        transition: all var(--transition-fast);
+    }
+
+    .btn-link:hover {
+        text-decoration: underline;
+    }
+
+    .btn-link svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* ========================================= */
+    /* Substep Options                           */
+    /* ========================================= */
+
+    .substep-options {
+        margin-top: var(--space-3);
+        padding: var(--space-3);
+        background: rgba(168, 85, 247, 0.05);
+        border-radius: var(--radius-md);
+        border-left: 3px solid var(--accent-purple);
+        display: none;
+    }
+
+    .substep-options.visible {
+        display: block;
+    }
+
+    .substep-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: var(--space-3);
+    }
+
+    .substep-option {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--space-2);
+        padding: var(--space-2) 0;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .substep-option:last-child {
+        border-bottom: none;
+    }
+
+    .substep-option input[type="radio"] {
+        margin-top: 2px;
+        accent-color: var(--accent-purple);
+    }
+
+    .substep-option-content {
+        flex: 1;
+    }
+
+    .substep-option-label {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-primary);
+        cursor: pointer;
+    }
+
+    .substep-option-desc {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 2px;
+    }
+
+    /* ========================================= */
+    /* Modal                                     */
+    /* ========================================= */
+
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        backdrop-filter: blur(4px);
+        z-index: 2000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-5);
+    }
+
+    .modal-overlay.visible {
+        display: flex;
+    }
+
+    .modal {
+        background: var(--bg-secondary);
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--border-subtle);
+        max-width: 600px;
+        width: 100%;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: var(--shadow-lg);
+    }
+
+    .modal-header {
+        padding: var(--space-5) var(--space-6);
+        border-bottom: 1px solid var(--border-subtle);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .modal-title {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-muted);
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--radius-md);
+        transition: all var(--transition-fast);
+    }
+
+    .modal-close:hover {
+        background: var(--bg-card);
+        color: var(--text-primary);
+    }
+
+    .modal-close svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .modal-body {
+        padding: var(--space-6);
+    }
+
+    .modal-section {
+        margin-bottom: var(--space-6);
+    }
+
+    .modal-section:last-child {
+        margin-bottom: 0;
+    }
+
+    .modal-section-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--accent-purple);
+        margin-bottom: var(--space-3);
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+    }
+
+    .modal-section-title svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .modal-section-content {
+        font-size: 13px;
+        color: var(--text-secondary);
+        line-height: 1.6;
+    }
+
+    .modal-section-content ul {
+        margin: var(--space-3) 0 0 var(--space-5);
+        padding: 0;
+    }
+
+    .modal-section-content li {
+        margin-bottom: var(--space-2);
+    }
+
+    .modal-section-content code {
+        background: rgba(168, 85, 247, 0.1);
+        padding: 2px 6px;
+        border-radius: var(--radius-sm);
+        font-size: 12px;
+        color: var(--accent-purple);
+    }
+
+    .no-ai-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        background: var(--gradient-cyan-green);
+        color: white;
+        padding: var(--space-2) var(--space-4);
+        border-radius: var(--radius-2xl);
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: var(--space-4);
+    }
+
+    .no-ai-badge svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* ========================================= */
+    /* Summary Section                           */
+    /* ========================================= */
+
+    .summary-box {
+        background: var(--bg-tertiary);
+        padding: var(--space-4);
+        border-radius: var(--radius-lg);
+        margin-bottom: var(--space-5);
+    }
+
+    .summary-title {
+        font-weight: 600;
+        margin-bottom: var(--space-3);
+        color: var(--text-primary);
+    }
+
+    .summary-content {
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    /* ========================================= */
+    /* Responsive                                */
+    /* ========================================= */
+
+    @media (max-width: 1400px) {
+        .charts-row {
+            grid-template-columns: 1fr;
+        }
+
+        .completeness-bars {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 1024px) {
+        .content-area {
+            flex-direction: column;
+        }
+
+        .options-panel {
+            width: 100%;
+            max-height: none;
+        }
+
+        .preview-panel {
+            min-width: unset;
+            max-height: 600px;
+        }
+
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .stepper {
+            flex-wrap: wrap;
+            gap: var(--space-1);
+        }
+
+        .step-connector {
+            display: none;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block header %}
+<!-- Custom header for pipeline -->
+<div class="pipeline-header">
+    <div class="pipeline-header-left">
+        <a href="/" class="back-link">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+            </svg>
+            Back to Tools
+        </a>
+        <span class="pipeline-title">Data Readiness Pipeline</span>
+    </div>
+    <div class="file-badge" id="fileBadge">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
+        <span id="fileNameDisplay"></span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Stepper -->
+<div class="stepper" id="stepper">
+    <div class="step active" data-stage="1">
+        <div class="step-number">1</div>
+        <span class="step-label">Upload</span>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step" data-stage="2">
+        <div class="step-number">2</div>
+        <span class="step-label">Shape Analysis</span>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step" data-stage="3">
+        <div class="step-number">3</div>
+        <span class="step-label">Gap Triage</span>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step" data-stage="4">
+        <div class="step-number">4</div>
+        <span class="step-label">Natural Keys</span>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step" data-stage="5">
+        <div class="step-number">5</div>
+        <span class="step-label">Transform</span>
+    </div>
+    <div class="step-connector"></div>
+    <div class="step" data-stage="6">
+        <div class="step-number">6</div>
+        <span class="step-label">Report</span>
+    </div>
+</div>
+
+<!-- Content Area -->
+<div class="content-area">
+    <!-- Left Panel: Options -->
+    <div class="options-panel">
+        <!-- Stage 1: Upload -->
+        <div class="stage-content" id="stage1">
+            <div class="panel-title">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                </svg>
+                Upload Your Data
+            </div>
+            <div class="panel-subtitle">Drag and drop or click to select an Excel or CSV file</div>
+
+            <div class="upload-zone" id="uploadZone">
+                <svg class="upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m6.75 12l-3-3m0 0l-3 3m3-3v6m-1.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+                <div class="upload-text">Drop file here or click to browse</div>
+                <div class="upload-hint">.xlsx, .xls, .csv</div>
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display: none;">
+            </div>
+
+            <div class="error-message" id="uploadError"></div>
+        </div>
+
+        <!-- Stage 2: Shape Analysis -->
+        <div class="stage-content hidden" id="stage2">
+            <div class="panel-title">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                Shape Analysis
+            </div>
+            <div class="panel-subtitle">Select columns to include in the analysis</div>
+
+            <div class="select-actions">
+                <button class="select-btn" id="selectAllAnalysis">Select All</button>
+                <button class="select-btn" id="selectNoneAnalysis">Select None</button>
+            </div>
+
+            <div class="column-list" id="analysisColumnList"></div>
+
+            <div class="progress-container" id="analysisProgress">
+                <div class="progress-header">
+                    <span class="progress-stage" id="analysisStage">Preparing</span>
+                    <span class="progress-percent" id="analysisPercent">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="analysisFill"></div>
+                </div>
+                <div class="progress-text" id="analysisText">Analyzing...</div>
+                <div class="progress-details" id="analysisDetails"></div>
+            </div>
+
+            <div class="error-message" id="analysisError"></div>
+
+            <div class="btn-group mt-6">
+                <button class="btn btn-secondary" onclick="goToStage(1)">Back</button>
+                <button class="btn btn-primary" id="runAnalysisBtn" style="flex:1">Run Analysis</button>
+                <button class="btn btn-primary" id="continueToGapsBtn" style="flex:1; display:none;" onclick="goToStage(3); loadGapData();">Continue to Gap Assessment</button>
+            </div>
+        </div>
+
+        <!-- Stage 3: Gap Triage -->
+        <div class="stage-content hidden" id="stage3">
+            <div class="panel-title">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                </svg>
+                Gap Assessment
+            </div>
+            <div class="panel-subtitle">Decide which missing data needs attention</div>
+
+            <div id="gapContent">
+                <table class="triage-table" id="gapTable">
+                    <thead>
+                        <tr>
+                            <th>Column</th>
+                            <th>Missing</th>
+                            <th>Decision</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div class="empty-state hidden" id="noGaps">
+                <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>No missing data found!</div>
+            </div>
+
+            <div class="error-message" id="gapError"></div>
+
+            <div class="btn-group mt-6">
+                <button class="btn btn-secondary" onclick="goToStage(2)">Back</button>
+                <button class="btn btn-primary" id="saveGapsBtn" style="flex:1">Continue</button>
+            </div>
+        </div>
+
+        <!-- Stage 4: Natural Keys -->
+        <div class="stage-content hidden" id="stage4">
+            <div class="panel-title">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                </svg>
+                Natural Key Discovery
+            </div>
+            <div class="panel-subtitle">Select columns to search for unique identifiers</div>
+
+            <div class="select-actions">
+                <button class="select-btn" id="selectAllKeys">Select All</button>
+                <button class="select-btn" id="selectNoneKeys">Select None</button>
+            </div>
+
+            <div class="column-list" id="keyColumnList"></div>
+
+            <div class="progress-container" id="keyProgress">
+                <div class="progress-header">
+                    <span class="progress-stage" id="keyStage">Initializing</span>
+                    <span class="progress-percent" id="keyPercent">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="keyFill"></div>
+                </div>
+                <div class="progress-text" id="keyText">Preparing analysis...</div>
+                <div class="progress-details" id="keyDetails"></div>
+                <div class="progress-stages" id="keyStages">
+                    <div class="progress-stage-dot" data-stage="loading" title="Loading"></div>
+                    <div class="progress-stage-dot" data-stage="filtering" title="Filtering"></div>
+                    <div class="progress-stage-dot" data-stage="level1" title="Level 1"></div>
+                    <div class="progress-stage-dot" data-stage="level2" title="Level 2"></div>
+                    <div class="progress-stage-dot" data-stage="level3" title="Level 3"></div>
+                </div>
+            </div>
+
+            <div id="keyResults" class="hidden">
+                <div class="panel-title mt-6">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Key Candidates
+                </div>
+                <div id="keyCards"></div>
+            </div>
+
+            <div class="error-message" id="keyError"></div>
+
+            <div class="btn-group mt-6">
+                <button class="btn btn-secondary" onclick="goToStage(3)">Back</button>
+                <button class="btn btn-primary" id="findKeysBtn" style="flex:1">Find Keys</button>
+            </div>
+        </div>
+
+        <!-- Stage 5: Transformations -->
+        <div class="stage-content hidden" id="stage5">
+            <div class="panel-title">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Transformations
+            </div>
+            <div class="panel-subtitle">Select which transformations to apply and configure options</div>
+
+            <div id="transformContent"></div>
+
+            <div class="empty-state hidden" id="noTransforms">
+                <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6.633 10.5c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75A2.25 2.25 0 0116.5 4.5c0 1.152-.26 2.243-.723 3.218-.266.558.107 1.282.725 1.282h3.126c1.026 0 1.945.694 2.054 1.715.045.422.068.85.068 1.285a11.95 11.95 0 01-2.649 7.521c-.388.482-.987.729-1.605.729H13.48c-.483 0-.964-.078-1.423-.23l-3.114-1.04a4.501 4.501 0 00-1.423-.23H5.904M14.25 9h2.25M5.904 18.75c.083.205.173.405.27.602.197.4-.078.898-.523.898h-.908c-.889 0-1.713-.518-1.972-1.368a12 12 0 01-.521-3.507c0-1.553.295-3.036.831-4.398C3.387 10.203 4.167 9.75 5 9.75h1.053c.472 0 .745.556.5.96a8.958 8.958 0 00-1.302 4.665c0 1.194.232 2.333.654 3.375z" />
+                </svg>
+                <div>No transformations recommended</div>
+            </div>
+
+            <button class="btn-link" id="howDidWeDoThis" style="margin-top: var(--space-4);">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+                How did we identify these? (No AI used)
+            </button>
+
+            <div class="error-message" id="transformError"></div>
+
+            <div class="btn-group mt-6">
+                <button class="btn btn-secondary" onclick="goToStage(4)">Back</button>
+                <button class="btn btn-primary" id="saveTransformsBtn" style="flex:1">Continue</button>
+            </div>
+        </div>
+
+        <!-- Stage 6: Execute & Report -->
+        <div class="stage-content hidden" id="stage6">
+            <div class="panel-title">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+                </svg>
+                Generate Report
+            </div>
+            <div class="panel-subtitle">Execute transformations and create your report</div>
+
+            <div id="executeSummary">
+                <div class="summary-box">
+                    <div class="summary-title">Summary</div>
+                    <div class="summary-content" id="summaryContent"></div>
+                </div>
+            </div>
+
+            <div class="progress-container" id="executeProgress">
+                <div class="progress-header">
+                    <span class="progress-stage" id="executeStage">Ready</span>
+                    <span class="progress-percent" id="executePercent">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="executeFill"></div>
+                </div>
+                <div class="progress-text" id="executeText">Ready to execute</div>
+                <div class="progress-details" id="executeDetails"></div>
+            </div>
+
+            <div class="success-section hidden" id="successSection">
+                <svg class="success-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div class="success-title">Pipeline Complete!</div>
+                <div class="success-text">Your report and data are ready</div>
+                <a href="#" class="btn btn-primary" id="downloadBtn" style="text-decoration: none;">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Download Results
+                </a>
+            </div>
+
+            <div class="error-message" id="executeError"></div>
+
+            <div class="btn-group mt-6" id="executeButtons">
+                <button class="btn btn-secondary" onclick="goToStage(5)">Back</button>
+                <button class="btn btn-primary" id="executeBtn" style="flex:1">Execute Pipeline</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Panel: Data Preview -->
+    <div class="preview-panel">
+        <div class="panel-title">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25m-17.25 0h7.5c.621 0 1.125.504 1.125 1.125M3.375 8.25c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125m17.25-3.75h-7.5c-.621 0-1.125.504-1.125 1.125m8.625-1.125c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125M12 10.875v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 10.875c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125M13.125 12h7.5m-7.5 0c-.621 0-1.125.504-1.125 1.125M20.625 12c.621 0 1.125.504 1.125 1.125v1.5c0 .621-.504 1.125-1.125 1.125m-17.25 0h7.5M12 14.625v-1.5m0 1.5c0 .621-.504 1.125-1.125 1.125M12 14.625c0 .621.504 1.125 1.125 1.125m-2.25 0c.621 0 1.125.504 1.125 1.125m0 1.5v-1.5m0 0c0-.621.504-1.125 1.125-1.125m0 0h7.5" />
+            </svg>
+            Data Preview
+            <span id="previewCount" style="font-weight: 400; font-size: 13px; color: var(--text-muted); margin-left: auto;"></span>
+        </div>
+
+        <div class="empty-state" id="emptyPreview">
+            <svg class="empty-state-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+            </svg>
+            <div>Upload a file to see preview</div>
+        </div>
+
+        <!-- Analysis Dashboard with Charts -->
+        <div class="analysis-dashboard" id="analysisDashboard">
+            <!-- Summary Stats -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="statRows">-</div>
+                    <div class="stat-label">Rows</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value info" id="statColumns">-</div>
+                    <div class="stat-label">Columns</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="statCompleteness">-</div>
+                    <div class="stat-label">Completeness</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="statDuplicates">-</div>
+                    <div class="stat-label">Duplicates</div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="charts-row">
+                <!-- Data Types Chart -->
+                <div class="chart-card">
+                    <div class="chart-title">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" />
+                        </svg>
+                        Data Types Distribution
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="typesChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Uniqueness Chart -->
+                <div class="chart-card">
+                    <div class="chart-title">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-3 2.148 2.148A12.061 12.061 0 0116.5 7.605" />
+                        </svg>
+                        Column Uniqueness (Top 10)
+                    </div>
+                    <div class="chart-container tall">
+                        <canvas id="uniquenessChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Completeness Bars -->
+                <div class="chart-card">
+                    <div class="chart-title">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                        </svg>
+                        Data Completeness by Column
+                    </div>
+                    <div class="completeness-bars" id="completenessBars"></div>
+                </div>
+            </div>
+
+            <!-- Column Details Section -->
+            <div class="column-details-section" id="columnDetailsSection">
+                <div class="column-details-header">
+                    <div class="column-details-title">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125Z" />
+                        </svg>
+                        Column Details
+                    </div>
+                    <input type="text" class="column-filter-input" id="columnFilter" placeholder="Filter columns...">
+                </div>
+                <div class="column-cards-grid" id="columnCardsGrid"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Methodology Modal -->
+<div class="modal-overlay" id="methodologyModal">
+    <div class="modal">
+        <div class="modal-header">
+            <span class="modal-title">How We Analyze Your Data</span>
+            <button class="modal-close" id="closeModal">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <div class="modal-body">
+            <div class="no-ai-badge">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                100% Deterministic - Zero AI/ML Used
+            </div>
+
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: var(--space-5); line-height: 1.6;">
+                DataDragon uses traditional, transparent algorithms to analyze your data.
+                Every recommendation is based on clear, reproducible rules - not black-box machine learning.
+                You can trust and verify every decision.
+            </p>
+
+            <div class="modal-section">
+                <div class="modal-section-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                    Sensitive Data Detection
+                </div>
+                <div class="modal-section-content">
+                    We identify potentially sensitive columns using <strong>keyword pattern matching</strong> on column names:
+                    <ul>
+                        <li><code>name</code>, <code>email</code>, <code>phone</code> - Personal identifiers</li>
+                        <li><code>address</code>, <code>ssn</code>, <code>social</code> - Location & government IDs</li>
+                        <li><code>credit</code>, <code>account</code>, <code>salary</code> - Financial information</li>
+                        <li><code>password</code>, <code>dob</code>, <code>birth</code> - Secrets & dates</li>
+                    </ul>
+                    This is simple substring matching - if your column name contains "email", we flag it. No guessing, no inference.
+                </div>
+            </div>
+
+            <div class="modal-section">
+                <div class="modal-section-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                    </svg>
+                    Data Type Detection
+                </div>
+                <div class="modal-section-content">
+                    We detect data types by <strong>sampling and pattern analysis</strong>:
+                    <ul>
+                        <li><strong>Numeric:</strong> Can the values be parsed as numbers?</li>
+                        <li><strong>Date:</strong> Do values match common date patterns (YYYY-MM-DD, MM/DD/YYYY, etc.)?</li>
+                        <li><strong>Currency:</strong> Do values contain currency symbols ($, EUR, GBP) with numbers?</li>
+                        <li><strong>Boolean:</strong> Are values limited to true/false, yes/no, 1/0?</li>
+                    </ul>
+                    We sample up to 1,000 non-null values and use regex pattern matching to determine the most likely type.
+                </div>
+            </div>
+
+            <div class="modal-section">
+                <div class="modal-section-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                    </svg>
+                    Natural Key Discovery
+                </div>
+                <div class="modal-section-content">
+                    We find unique identifier combinations using the <strong>Apriori algorithm</strong> - a well-established
+                    data mining technique from 1994:
+                    <ul>
+                        <li><strong>Level 1:</strong> Test each column individually for uniqueness</li>
+                        <li><strong>Level 2+:</strong> Only test combinations where ALL subsets were non-unique (Apriori pruning)</li>
+                        <li><strong>Result:</strong> Minimal column combinations that uniquely identify each row</li>
+                    </ul>
+                    This is exhaustive search with smart pruning - mathematically guaranteed to find all minimal keys.
+                </div>
+            </div>
+
+            <div class="modal-section">
+                <div class="modal-section-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+                    </svg>
+                    Gap Analysis
+                </div>
+                <div class="modal-section-content">
+                    Missing data detection is straightforward <strong>null counting</strong>:
+                    <ul>
+                        <li>Count NULL, NaN, empty string, and whitespace-only values</li>
+                        <li>Calculate percentage: <code>missing_count / total_rows x 100</code></li>
+                        <li>Sort columns by missing percentage for prioritization</li>
+                    </ul>
+                    No imputation guessing - just the facts about your data completeness.
+                </div>
+            </div>
+
+            <div class="modal-section">
+                <div class="modal-section-title">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                    </svg>
+                    Why No AI?
+                </div>
+                <div class="modal-section-content">
+                    <ul>
+                        <li><strong>Transparency:</strong> You can understand exactly why each recommendation was made</li>
+                        <li><strong>Reproducibility:</strong> Same data = same results, every time</li>
+                        <li><strong>Privacy:</strong> Your data never leaves your machine or gets sent to external APIs</li>
+                        <li><strong>Trust:</strong> No hallucinations, no probabilistic guesses, no unexplainable decisions</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // State
+    let state = {
+        sessionId: null,
+        filename: null,
+        columns: [],
+        columnTypes: {},
+        previewData: [],
+        analysis: null,
+        gapTriage: {},
+        selectedKey: [],
+        transformations: {},
+        currentStage: 1
+    };
+
+    // Chart instances (for cleanup)
+    let typesChart = null;
+    let uniquenessChart = null;
+
+    // Chart color palette matching dark theme
+    const chartColors = {
+        purple: 'rgba(168, 85, 247, 0.8)',
+        blue: 'rgba(59, 130, 246, 0.8)',
+        cyan: 'rgba(6, 182, 212, 0.8)',
+        green: 'rgba(16, 185, 129, 0.8)',
+        yellow: 'rgba(250, 204, 21, 0.8)',
+        orange: 'rgba(249, 115, 22, 0.8)',
+        pink: 'rgba(236, 72, 153, 0.8)',
+        red: 'rgba(239, 68, 68, 0.8)'
+    };
+    const colorPalette = Object.values(chartColors);
+
+    // Stage Navigation
+    function goToStage(num) {
+        if (num < 1 || num > 6) return;
+
+        // Update stepper
+        document.querySelectorAll('.step').forEach((step, idx) => {
+            step.classList.remove('active');
+            if (idx + 1 < num) step.classList.add('completed');
+            else step.classList.remove('completed');
+            if (idx + 1 === num) step.classList.add('active');
+        });
+
+        // Update content
+        document.querySelectorAll('.stage-content').forEach(el => el.classList.add('hidden'));
+        document.getElementById(`stage${num}`).classList.remove('hidden');
+
+        state.currentStage = num;
+
+        // Stage-specific setup
+        if (num === 2 && state.analysis) {
+            // Re-render analysis if going back to stage 2
+            document.getElementById('runAnalysisBtn').style.display = 'none';
+            document.getElementById('continueToGapsBtn').style.display = 'block';
+            updatePreviewWithAnalysis(state.analysis);
+        } else if (num === 2) {
+            // Reset buttons for fresh analysis
+            document.getElementById('runAnalysisBtn').style.display = 'block';
+            document.getElementById('continueToGapsBtn').style.display = 'none';
+        }
+        if (num === 3) loadGapData();
+        if (num === 5) loadTransformations();
+        if (num === 6) prepareSummary();
+    }
+
+    // Stepper click
+    document.querySelectorAll('.step').forEach(step => {
+        step.addEventListener('click', () => {
+            const num = parseInt(step.dataset.stage);
+            if (step.classList.contains('completed') || num <= state.currentStage) {
+                goToStage(num);
+            }
+        });
+    });
+
+    // File Upload
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+
+    uploadZone.addEventListener('click', () => fileInput.click());
+    uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+    uploadZone.addEventListener('drop', e => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', e => {
+        if (e.target.files.length) handleFile(e.target.files[0]);
+    });
+
+    async function handleFile(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            hideError('uploadError');
+            const response = await fetch('/pipeline/start', { method: 'POST', body: formData });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+
+            state.sessionId = data.session_id;
+            state.filename = data.filename;
+            state.columns = data.column_names;
+
+            // Show file badge
+            document.getElementById('fileBadge').classList.add('visible');
+            document.getElementById('fileNameDisplay').textContent = `${data.filename} (${data.rows.toLocaleString()} rows)`;
+
+            // Load preview
+            await loadPreview();
+
+            // Setup column lists
+            setupColumnLists();
+
+            // Go to stage 2
+            goToStage(2);
+
+        } catch (error) {
+            showError('uploadError', error.message);
+        }
+    }
+
+    async function loadPreview() {
+        try {
+            const formData = new FormData();
+            // We need to get preview data - let's use the state's file
+            const response = await fetch(`/pipeline/${state.sessionId}/state`);
+            const data = await response.json();
+
+            // For now, show columns in preview header
+            const thead = document.querySelector('#previewTable thead');
+            const tbody = document.querySelector('#previewTable tbody');
+
+            thead.innerHTML = '<tr>' + state.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('') + '</tr>';
+            tbody.innerHTML = '<tr><td colspan="' + state.columns.length + '" style="text-align:center;color:var(--text-muted);padding:30px;">Preview loads after analysis</td></tr>';
+
+            document.getElementById('emptyPreview').classList.add('hidden');
+            document.getElementById('previewContainer').classList.remove('hidden');
+            document.getElementById('previewInfo').classList.remove('hidden');
+            document.getElementById('previewCount').textContent = `${state.columns.length} columns`;
+            document.getElementById('previewInfo').textContent = 'Run analysis to see data statistics';
+
+        } catch (error) {
+            console.error('Preview error:', error);
+        }
+    }
+
+    function setupColumnLists() {
+        // Analysis column list
+        const analysisList = document.getElementById('analysisColumnList');
+        analysisList.innerHTML = state.columns.map(col => `
+            <label class="column-item">
+                <input type="checkbox" checked data-column="${escapeHtml(col)}">
+                <span class="column-name">${escapeHtml(col)}</span>
+            </label>
+        `).join('');
+
+        // Key column list
+        const keyList = document.getElementById('keyColumnList');
+        keyList.innerHTML = state.columns.map(col => `
+            <label class="column-item">
+                <input type="checkbox" checked data-column="${escapeHtml(col)}">
+                <span class="column-name">${escapeHtml(col)}</span>
+            </label>
+        `).join('');
+
+        // Add change listeners to key column checkboxes for re-run capability
+        keyList.querySelectorAll('input').forEach(cb => {
+            cb.addEventListener('change', onKeyColumnSelectionChange);
+        });
+    }
+
+    // Handle key column selection changes - allow re-running analysis
+    function onKeyColumnSelectionChange() {
+        const keyResults = document.getElementById('keyResults');
+        const findKeysBtn = document.getElementById('findKeysBtn');
+
+        // If results are showing, hide them and reset button to allow re-run
+        if (!keyResults.classList.contains('hidden')) {
+            keyResults.classList.add('hidden');
+            findKeysBtn.textContent = 'Find Keys';
+            findKeysBtn.onclick = findKeys;
+            state.selectedKey = [];
+        }
+    }
+
+    // Select All/None
+    document.getElementById('selectAllAnalysis').addEventListener('click', () => {
+        document.querySelectorAll('#analysisColumnList input').forEach(cb => cb.checked = true);
+    });
+    document.getElementById('selectNoneAnalysis').addEventListener('click', () => {
+        document.querySelectorAll('#analysisColumnList input').forEach(cb => cb.checked = false);
+    });
+    document.getElementById('selectAllKeys').addEventListener('click', () => {
+        document.querySelectorAll('#keyColumnList input').forEach(cb => cb.checked = true);
+        onKeyColumnSelectionChange();
+    });
+    document.getElementById('selectNoneKeys').addEventListener('click', () => {
+        document.querySelectorAll('#keyColumnList input').forEach(cb => cb.checked = false);
+        onKeyColumnSelectionChange();
+    });
+
+    // Run Analysis
+    document.getElementById('runAnalysisBtn').addEventListener('click', runAnalysis);
+
+    async function runAnalysis() {
+        try {
+            hideError('analysisError');
+            document.getElementById('analysisProgress').classList.add('active');
+            document.getElementById('runAnalysisBtn').disabled = true;
+
+            const response = await fetch(`/pipeline/${state.sessionId}/analyze`, { method: 'POST' });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+
+            const eventSource = new EventSource(`/progress/${state.sessionId}`);
+
+            eventSource.onmessage = (event) => {
+                const progress = JSON.parse(event.data);
+
+                if (progress.stage === 'done') {
+                    eventSource.close();
+                    state.analysis = progress.analysis;
+                    // Update to 100% before transitioning
+                    document.getElementById('analysisFill').style.width = '100%';
+                    document.getElementById('analysisPercent').textContent = '100%';
+                    document.getElementById('analysisStage').textContent = 'Complete';
+                    document.getElementById('analysisText').textContent = 'Analysis complete!';
+                    setTimeout(() => {
+                        document.getElementById('analysisProgress').classList.remove('active');
+                        document.getElementById('runAnalysisBtn').style.display = 'none';
+                        document.getElementById('continueToGapsBtn').style.display = 'block';
+                        updatePreviewWithAnalysis(progress.analysis);
+                    }, 300);
+                } else if (progress.stage === 'error') {
+                    eventSource.close();
+                    showError('analysisError', progress.message);
+                    document.getElementById('analysisProgress').classList.remove('active');
+                    document.getElementById('runAnalysisBtn').disabled = false;
+                } else {
+                    const pct = progress.percentage || 0;
+                    document.getElementById('analysisFill').style.width = `${pct}%`;
+                    document.getElementById('analysisPercent').textContent = `${pct}%`;
+                    document.getElementById('analysisText').textContent = progress.message || 'Analyzing...';
+
+                    // Update stage label
+                    const stageLabels = {
+                        'loading': 'Loading',
+                        'analyzing': 'Analyzing Columns',
+                        'stats': 'Computing Statistics',
+                        'types': 'Detecting Types'
+                    };
+                    const stageName = progress.stage || 'analyzing';
+                    document.getElementById('analysisStage').textContent = stageLabels[stageName] || 'Analyzing';
+
+                    // Update details with current/total if available
+                    if (progress.current && progress.total) {
+                        document.getElementById('analysisDetails').textContent =
+                            `Column ${progress.current} of ${progress.total}`;
+                    } else {
+                        document.getElementById('analysisDetails').textContent = '';
+                    }
+                }
+            };
+
+        } catch (error) {
+            showError('analysisError', error.message);
+            document.getElementById('analysisProgress').classList.remove('active');
+            document.getElementById('runAnalysisBtn').disabled = false;
+        }
+    }
+
+    function updatePreviewWithAnalysis(analysis) {
+        const columns = analysis.columns || {};
+        const columnEntries = Object.entries(columns);
+        const totalRows = analysis.overview?.shape?.rows || analysis.shape?.rows || 0;
+
+        // Hide empty state, show dashboard
+        document.getElementById('emptyPreview').classList.add('hidden');
+        document.getElementById('analysisDashboard').classList.add('visible');
+
+        // Calculate overall completeness
+        let totalCells = 0;
+        let totalNulls = 0;
+        columnEntries.forEach(([_, info]) => {
+            totalCells += totalRows;
+            totalNulls += info.null_count || 0;
+        });
+        const completeness = totalCells > 0 ? ((totalCells - totalNulls) / totalCells * 100) : 100;
+
+        // Update stat cards
+        document.getElementById('statRows').textContent = totalRows.toLocaleString();
+        document.getElementById('statColumns').textContent = columnEntries.length;
+
+        const completenessEl = document.getElementById('statCompleteness');
+        completenessEl.textContent = completeness.toFixed(1) + '%';
+        completenessEl.className = 'stat-value ' + (completeness >= 95 ? 'success' : completeness >= 80 ? 'warning' : 'danger');
+
+        const duplicatesEl = document.getElementById('statDuplicates');
+        const dupCount = analysis.overview?.duplicate_rows || analysis.duplicate_rows || 0;
+        duplicatesEl.textContent = dupCount.toLocaleString();
+        duplicatesEl.className = 'stat-value ' + (dupCount === 0 ? 'success' : 'warning');
+
+        // Render charts after a brief delay to ensure DOM is ready
+        setTimeout(() => {
+            // Render Data Types Doughnut Chart
+            const typesCount = analysis.overview?.detected_types_count || analysis.detected_types_count || {};
+            console.log('Types count for chart:', typesCount);
+            renderTypesChart(typesCount);
+
+            // Render Uniqueness Bar Chart
+            renderUniquenessChart(columnEntries, totalRows);
+        }, 100);
+
+        // Render Completeness Bars
+        renderCompletenessBars(columnEntries);
+
+        // Render Column Detail Cards
+        renderColumnCards(columnEntries, totalRows);
+
+        // Update preview count
+        document.getElementById('previewCount').textContent = `${columnEntries.length} columns analyzed`;
+
+        // Setup filter
+        setupColumnFilter(columnEntries, totalRows);
+    }
+
+    function renderTypesChart(typesCount) {
+        const canvas = document.getElementById('typesChart');
+        if (!canvas) {
+            console.error('typesChart canvas not found');
+            return;
+        }
+        const ctx = canvas.getContext('2d');
+
+        // Destroy existing chart
+        if (typesChart) {
+            typesChart.destroy();
+        }
+
+        const labels = Object.keys(typesCount);
+        const data = Object.values(typesCount);
+
+        if (labels.length === 0) {
+            console.warn('No data types to display');
+            return;
+        }
+
+        typesChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: data,
+                    backgroundColor: colorPalette.slice(0, labels.length),
+                    borderColor: 'rgba(18, 18, 26, 1)',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                            font: { size: 11 },
+                            padding: 12,
+                            usePointStyle: true,
+                            pointStyle: 'circle'
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(18, 18, 26, 0.95)',
+                        titleColor: '#fff',
+                        bodyColor: 'rgba(255, 255, 255, 0.8)',
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        borderWidth: 1,
+                        padding: 12,
+                        callbacks: {
+                            label: function(context) {
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const pct = ((context.raw / total) * 100).toFixed(1);
+                                return `${context.label}: ${context.raw} (${pct}%)`;
+                            }
+                        }
+                    }
+                },
+                cutout: '60%'
+            }
+        });
+    }
+
+    function renderUniquenessChart(columnEntries, totalRows) {
+        const canvas = document.getElementById('uniquenessChart');
+        if (!canvas) {
+            console.error('uniquenessChart canvas not found');
+            return;
+        }
+        const ctx = canvas.getContext('2d');
+
+        // Destroy existing chart
+        if (uniquenessChart) {
+            uniquenessChart.destroy();
+        }
+
+        if (columnEntries.length === 0) {
+            console.warn('No columns to display in uniqueness chart');
+            return;
+        }
+
+        // Sort by uniqueness ratio and take top 10
+        const sorted = columnEntries
+            .map(([col, info]) => ({
+                name: col.length > 15 ? col.substring(0, 15) + '...' : col,
+                fullName: col,
+                ratio: totalRows > 0 ? (info.unique_count || 0) / totalRows * 100 : 0
+            }))
+            .sort((a, b) => b.ratio - a.ratio)
+            .slice(0, 10);
+
+        uniquenessChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: sorted.map(c => c.name),
+                datasets: [{
+                    label: 'Uniqueness %',
+                    data: sorted.map(c => c.ratio),
+                    backgroundColor: sorted.map(c =>
+                        c.ratio >= 99 ? chartColors.green :
+                        c.ratio >= 50 ? chartColors.cyan :
+                        chartColors.purple
+                    ),
+                    borderRadius: 4,
+                    borderSkipped: false
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(18, 18, 26, 0.95)',
+                        titleColor: '#fff',
+                        bodyColor: 'rgba(255, 255, 255, 0.8)',
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        borderWidth: 1,
+                        padding: 12,
+                        callbacks: {
+                            title: function(items) {
+                                return sorted[items[0].dataIndex].fullName;
+                            },
+                            label: function(context) {
+                                return `Uniqueness: ${context.raw.toFixed(1)}%`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        max: 100,
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            callback: v => v + '%'
+                        }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.7)',
+                            font: { size: 11 }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderCompletenessBars(columnEntries) {
+        const container = document.getElementById('completenessBars');
+
+        // Sort by completeness (most incomplete first for visibility)
+        const sorted = columnEntries
+            .map(([col, info]) => ({
+                name: col,
+                completeness: 100 - (info.null_percentage || 0)
+            }))
+            .sort((a, b) => a.completeness - b.completeness);
+
+        container.innerHTML = sorted.map(col => {
+            const level = col.completeness >= 95 ? 'high' : col.completeness >= 70 ? 'medium' : 'low';
+            return `
+                <div class="completeness-row">
+                    <span class="completeness-label" title="${escapeHtml(col.name)}">${escapeHtml(col.name)}</span>
+                    <div class="completeness-bar-bg">
+                        <div class="completeness-bar-fill ${level}" style="width: ${col.completeness}%"></div>
+                    </div>
+                    <span class="completeness-value">${col.completeness.toFixed(1)}%</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderColumnCards(columnEntries, totalRows) {
+        const container = document.getElementById('columnCardsGrid');
+
+        container.innerHTML = columnEntries.map(([col, info]) => {
+            const completeness = 100 - (info.null_percentage || 0);
+            const completenessLevel = completeness >= 95 ? 'high' : completeness >= 70 ? 'medium' : 'low';
+            const completenessClass = completeness >= 95 ? 'success' : completeness >= 70 ? 'warning' : 'danger';
+            const uniqueRatio = totalRows > 0 ? ((info.unique_count || 0) / totalRows * 100) : 0;
+
+            // Determine type class
+            const detectedType = (info.detected_type || 'Text').toLowerCase();
+            let typeClass = 'type-text';
+            if (detectedType.includes('number') || detectedType.includes('integer') || detectedType.includes('float')) {
+                typeClass = 'type-number';
+            } else if (detectedType.includes('date') || detectedType.includes('time')) {
+                typeClass = 'type-date';
+            } else if (detectedType.includes('bool')) {
+                typeClass = 'type-boolean';
+            } else if (detectedType.includes('currency') || detectedType.includes('money')) {
+                typeClass = 'type-currency';
+            }
+
+            // Build stats based on type
+            let statsHtml = `
+                <div class="column-stat">
+                    <span class="column-stat-label">Completeness</span>
+                    <span class="column-stat-value ${completenessClass}">${completeness.toFixed(1)}%</span>
+                </div>
+                <div class="column-stat">
+                    <span class="column-stat-label">Unique Values</span>
+                    <span class="column-stat-value">${(info.unique_count || 0).toLocaleString()}</span>
+                </div>
+            `;
+
+            // Add type-specific stats
+            if (info.statistics) {
+                const stats = info.statistics;
+                if (stats.mean !== undefined) {
+                    statsHtml += `
+                        <div class="column-stat">
+                            <span class="column-stat-label">Mean</span>
+                            <span class="column-stat-value">${formatNumber(stats.mean)}</span>
+                        </div>
+                        <div class="column-stat">
+                            <span class="column-stat-label">Range</span>
+                            <span class="column-stat-value">${formatNumber(stats.min)} - ${formatNumber(stats.max)}</span>
+                        </div>
+                    `;
+                }
+            }
+
+            if (info.date_range) {
+                statsHtml += `
+                    <div class="column-stat">
+                        <span class="column-stat-label">Date Range</span>
+                        <span class="column-stat-value">${info.date_range.min || 'N/A'}</span>
+                    </div>
+                    <div class="column-stat">
+                        <span class="column-stat-label">To</span>
+                        <span class="column-stat-value">${info.date_range.max || 'N/A'}</span>
+                    </div>
+                `;
+            }
+
+            // Sample values or top values
+            let samplesHtml = '';
+            if (info.top_values && Object.keys(info.top_values).length > 0) {
+                const topEntries = Object.entries(info.top_values).slice(0, 4);
+                samplesHtml = `
+                    <div class="column-samples">
+                        <div class="column-samples-label">Top Values</div>
+                        <div class="column-top-values">
+                            ${topEntries.map(([val, count]) => `
+                                <div class="top-value-row">
+                                    <span class="top-value-name" title="${escapeHtml(String(val))}">${escapeHtml(String(val).substring(0, 30))}${String(val).length > 30 ? '...' : ''}</span>
+                                    <span class="top-value-count">${count.toLocaleString()}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } else if (info.sample_values && info.sample_values.length > 0) {
+                const samples = info.sample_values.slice(0, 5).map(v => String(v)).join(', ');
+                samplesHtml = `
+                    <div class="column-samples">
+                        <div class="column-samples-label">Sample Values</div>
+                        <div class="column-samples-values">${escapeHtml(samples.substring(0, 100))}${samples.length > 100 ? '...' : ''}</div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="column-card" data-column="${escapeHtml(col)}">
+                    <div class="column-card-header">
+                        <span class="column-name">${escapeHtml(col)}</span>
+                        <span class="column-type-badge ${typeClass}">${escapeHtml(info.detected_type || 'Text')}</span>
+                    </div>
+                    <div class="column-completeness-bar">
+                        <div class="column-completeness-fill ${completenessLevel}" style="width: ${completeness}%"></div>
+                    </div>
+                    <div class="column-stats">${statsHtml}</div>
+                    ${samplesHtml}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function formatNumber(num) {
+        if (num === null || num === undefined) return 'N/A';
+        if (Math.abs(num) >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (Math.abs(num) >= 1000) return (num / 1000).toFixed(1) + 'K';
+        if (Number.isInteger(num)) return num.toLocaleString();
+        return num.toFixed(2);
+    }
+
+    function setupColumnFilter(columnEntries, totalRows) {
+        const filterInput = document.getElementById('columnFilter');
+
+        filterInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const cards = document.querySelectorAll('.column-card');
+
+            cards.forEach(card => {
+                const colName = card.dataset.column.toLowerCase();
+                if (colName.includes(query)) {
+                    card.style.display = '';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        });
+    }
+
+    // Gap Triage
+    async function loadGapData() {
+        try {
+            const response = await fetch(`/pipeline/${state.sessionId}/gaps`);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+
+            const gaps = data.gap_summary || [];
+            const tbody = document.querySelector('#gapTable tbody');
+
+            if (gaps.length === 0) {
+                document.getElementById('noGaps').classList.remove('hidden');
+                document.getElementById('gapContent').classList.add('hidden');
+                return;
+            }
+
+            document.getElementById('noGaps').classList.add('hidden');
+            document.getElementById('gapContent').classList.remove('hidden');
+
+            tbody.innerHTML = gaps.map(gap => `
+                <tr>
+                    <td>${escapeHtml(gap.column)}</td>
+                    <td>${gap.null_percentage.toFixed(1)}%</td>
+                    <td>
+                        <div class="triage-radio">
+                            <label><input type="radio" name="gap_${gap.column}" value="acceptable"> OK</label>
+                            <label><input type="radio" name="gap_${gap.column}" value="needs_attention"> Attention</label>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Event listeners
+            tbody.querySelectorAll('input[type="radio"]').forEach(radio => {
+                radio.addEventListener('change', e => {
+                    const col = e.target.name.replace('gap_', '');
+                    state.gapTriage[col] = e.target.value;
+                });
+            });
+
+        } catch (error) {
+            showError('gapError', error.message);
+        }
+    }
+
+    document.getElementById('saveGapsBtn').addEventListener('click', async () => {
+        try {
+            await fetch(`/pipeline/${state.sessionId}/gaps/triage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(state.gapTriage)
+            });
+            goToStage(4);
+        } catch (error) {
+            showError('gapError', error.message);
+        }
+    });
+
+    // Natural Key Discovery
+    document.getElementById('findKeysBtn').addEventListener('click', findKeys);
+
+    async function findKeys() {
+        const selectedCols = Array.from(document.querySelectorAll('#keyColumnList input:checked'))
+            .map(cb => cb.dataset.column);
+
+        if (selectedCols.length === 0) {
+            showError('keyError', 'Select at least one column');
+            return;
+        }
+
+        try {
+            hideError('keyError');
+            document.getElementById('keyProgress').classList.add('active');
+            document.getElementById('findKeysBtn').disabled = true;
+            document.getElementById('keyResults').classList.add('hidden');
+
+            const response = await fetch(`/pipeline/${state.sessionId}/keys`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ selected_columns: selectedCols })
+            });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+
+            const eventSource = new EventSource(`/progress/${state.sessionId}`);
+
+            eventSource.onmessage = (event) => {
+                const progress = JSON.parse(event.data);
+
+                if (progress.stage === 'done') {
+                    eventSource.close();
+                    // Update to 100% before hiding
+                    document.getElementById('keyFill').style.width = '100%';
+                    document.getElementById('keyPercent').textContent = '100%';
+                    document.getElementById('keyStage').textContent = 'Complete';
+                    document.getElementById('keyText').textContent = 'Analysis complete!';
+                    // Mark all stage dots as completed
+                    document.querySelectorAll('#keyStages .progress-stage-dot').forEach(dot => {
+                        dot.classList.remove('active');
+                        dot.classList.add('completed');
+                    });
+                    // Brief delay to show 100% before transitioning
+                    setTimeout(() => {
+                        displayKeyResults(progress.results);
+                        document.getElementById('keyProgress').classList.remove('active');
+                        document.getElementById('findKeysBtn').textContent = 'Confirm Selection';
+                        document.getElementById('findKeysBtn').disabled = false;
+                        document.getElementById('findKeysBtn').onclick = confirmKeys;
+                    }, 300);
+                } else if (progress.stage === 'error') {
+                    eventSource.close();
+                    showError('keyError', progress.message);
+                    document.getElementById('keyProgress').classList.remove('active');
+                    document.getElementById('findKeysBtn').disabled = false;
+                } else {
+                    // Update progress bar
+                    const pct = progress.percentage || 0;
+                    document.getElementById('keyFill').style.width = `${pct}%`;
+                    document.getElementById('keyPercent').textContent = `${pct}%`;
+                    document.getElementById('keyText').textContent = progress.message || 'Searching...';
+
+                    // Update stage name with friendly labels
+                    const stageLabels = {
+                        'loading': 'Loading Data',
+                        'filtering': 'Filtering Duplicates',
+                        'level1': 'Level 1: Single Columns',
+                        'level2': 'Level 2: Column Pairs',
+                        'level3': 'Level 3: Triple Combinations',
+                        'level4': 'Level 4: Quad Combinations',
+                        'level5': 'Level 5: Five Columns',
+                        'complete': 'Complete'
+                    };
+                    const stageName = progress.stage || 'loading';
+                    document.getElementById('keyStage').textContent = stageLabels[stageName] || stageName;
+
+                    // Update details with current/total if available
+                    if (progress.current && progress.total) {
+                        document.getElementById('keyDetails').textContent =
+                            `Processing ${progress.current} of ${progress.total}`;
+                    } else {
+                        document.getElementById('keyDetails').textContent = '';
+                    }
+
+                    // Update stage dots
+                    const stageOrder = ['loading', 'filtering', 'level1', 'level2', 'level3'];
+                    const currentStageIdx = stageOrder.indexOf(stageName.replace(/level\d+/, m => m));
+                    const normalizedStage = stageName.startsWith('level') ? stageName : stageName;
+
+                    document.querySelectorAll('#keyStages .progress-stage-dot').forEach(dot => {
+                        const dotStage = dot.dataset.stage;
+                        const dotIdx = stageOrder.indexOf(dotStage);
+
+                        dot.classList.remove('active', 'completed');
+
+                        // Handle level stages (level1, level2, etc.)
+                        if (stageName.startsWith('level')) {
+                            const currentLevel = parseInt(stageName.replace('level', ''));
+                            if (dotStage === 'loading' || dotStage === 'filtering') {
+                                dot.classList.add('completed');
+                            } else if (dotStage.startsWith('level')) {
+                                const dotLevel = parseInt(dotStage.replace('level', ''));
+                                if (dotLevel < currentLevel) {
+                                    dot.classList.add('completed');
+                                } else if (dotLevel === currentLevel) {
+                                    dot.classList.add('active');
+                                }
+                            }
+                        } else if (stageName === 'filtering') {
+                            if (dotStage === 'loading') {
+                                dot.classList.add('completed');
+                            } else if (dotStage === 'filtering') {
+                                dot.classList.add('active');
+                            }
+                        } else if (stageName === 'loading') {
+                            if (dotStage === 'loading') {
+                                dot.classList.add('active');
+                            }
+                        } else if (stageName === 'complete') {
+                            dot.classList.add('completed');
+                        }
+                    });
+                }
+            };
+
+        } catch (error) {
+            showError('keyError', error.message);
+            document.getElementById('keyProgress').classList.remove('active');
+            document.getElementById('findKeysBtn').disabled = false;
+        }
+    }
+
+    function displayKeyResults(results) {
+        document.getElementById('keyResults').classList.remove('hidden');
+        const container = document.getElementById('keyCards');
+        const keys = results.minimal_combinations || [];
+
+        if (keys.length === 0) {
+            container.innerHTML = '<div class="empty-state"><div>No unique key combinations found</div></div>';
+            return;
+        }
+
+        state.selectedKey = keys[0];
+
+        container.innerHTML = keys.map((key, idx) => `
+            <div class="key-card ${idx === 0 ? 'selected' : ''}" data-idx="${idx}">
+                <div class="key-card-title">${idx === 0 ? 'Recommended' : `Option ${idx + 1}`}</div>
+                <div class="key-card-columns">${key.join(' + ')}</div>
+            </div>
+        `).join('');
+
+        container.querySelectorAll('.key-card').forEach(card => {
+            card.addEventListener('click', () => {
+                container.querySelectorAll('.key-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                state.selectedKey = keys[parseInt(card.dataset.idx)];
+            });
+        });
+    }
+
+    async function confirmKeys() {
+        try {
+            await fetch(`/pipeline/${state.sessionId}/keys/confirm`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ selected_key: state.selectedKey })
+            });
+            goToStage(5);
+        } catch (error) {
+            showError('keyError', error.message);
+        }
+    }
+
+    // Transformations
+    async function loadTransformations() {
+        try {
+            const response = await fetch(`/pipeline/${state.sessionId}/transformations`);
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+
+            const recs = data.recommendations || [];
+            const container = document.getElementById('transformContent');
+
+            if (recs.length === 0) {
+                document.getElementById('noTransforms').classList.remove('hidden');
+                container.innerHTML = '';
+                return;
+            }
+
+            document.getElementById('noTransforms').classList.add('hidden');
+
+            container.innerHTML = recs.map(rec => {
+                // Build column details HTML
+                let columnDetailsHtml = '';
+                if (rec.column_details && rec.column_details.length > 0) {
+                    const detailsItems = rec.column_details.map(col => {
+                        let badge = '';
+                        if (col.pattern) {
+                            badge = `<span class="column-detail-badge">${escapeHtml(col.pattern)}</span>`;
+                        } else if (col.detected) {
+                            badge = `<span class="column-detail-badge">${escapeHtml(col.detected)}</span>`;
+                        } else if (col.missing_percentage) {
+                            badge = `<span class="column-detail-badge">${col.missing_percentage}% missing</span>`;
+                        }
+
+                        return `
+                            <div class="column-detail">
+                                <div class="column-detail-header">
+                                    <span class="column-detail-name">${escapeHtml(col.column)}</span>
+                                    ${badge}
+                                </div>
+                                <div class="column-detail-explanation">${escapeHtml(col.explanation)}</div>
+                            </div>
+                        `;
+                    }).join('');
+
+                    columnDetailsHtml = `
+                        <div class="transform-columns">
+                            <div class="transform-columns-title">Affected Columns (${rec.column_details.length})</div>
+                            ${detailsItems}
+                        </div>
+                    `;
+                }
+
+                // Build substep options based on transformation type
+                let substepsHtml = '';
+                if (rec.type === 'anonymization') {
+                    substepsHtml = `
+                        <div class="substep-options" data-type="${rec.type}">
+                            <div class="substep-title">How should we anonymize?</div>
+                            <div class="substep-option">
+                                <input type="radio" name="anon_method" id="anon_fake" value="fake" checked>
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="anon_fake">Replace with realistic fake data</label>
+                                    <div class="substep-option-desc">Generate fake names, emails, etc. that look real but aren't. Preserves data format and length.</div>
+                                </div>
+                            </div>
+                            <div class="substep-option">
+                                <input type="radio" name="anon_method" id="anon_mask" value="mask">
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="anon_mask">Partial masking</label>
+                                    <div class="substep-option-desc">Show first/last characters, mask the rest. e.g., "jo***@email.com" or "John D***"</div>
+                                </div>
+                            </div>
+                            <div class="substep-option">
+                                <input type="radio" name="anon_method" id="anon_hash" value="hash">
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="anon_hash">Hash values</label>
+                                    <div class="substep-option-desc">Replace with SHA-256 hash. Irreversible but consistent - same input = same hash.</div>
+                                </div>
+                            </div>
+                            <div class="substep-option">
+                                <input type="radio" name="anon_method" id="anon_redact" value="redact">
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="anon_redact">Full redaction</label>
+                                    <div class="substep-option-desc">Replace entirely with "[REDACTED]". Maximum privacy, loses all data utility.</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (rec.type === 'normalization') {
+                    substepsHtml = `
+                        <div class="substep-options" data-type="${rec.type}">
+                            <div class="substep-title">How should we normalize?</div>
+                            <div class="substep-option">
+                                <input type="radio" name="norm_method" id="norm_convert" value="convert" checked>
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="norm_convert">Convert to detected type</label>
+                                    <div class="substep-option-desc">Automatically convert text to numbers, dates, etc. Invalid values become empty.</div>
+                                </div>
+                            </div>
+                            <div class="substep-option">
+                                <input type="radio" name="norm_method" id="norm_flag" value="flag">
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="norm_flag">Flag invalid values only</label>
+                                    <div class="substep-option-desc">Add a new column marking which rows have values that don't match the expected type.</div>
+                                </div>
+                            </div>
+                            <div class="substep-option">
+                                <input type="radio" name="norm_method" id="norm_skip" value="skip">
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="norm_skip">Report only (no changes)</label>
+                                    <div class="substep-option-desc">Include in the report but don't modify the data. Good for awareness only.</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else if (rec.type === 'gap_handling') {
+                    substepsHtml = `
+                        <div class="substep-options" data-type="${rec.type}">
+                            <div class="substep-title">How should we handle missing data?</div>
+                            <div class="substep-option">
+                                <input type="radio" name="gap_method" id="gap_flag" value="flag" checked>
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="gap_flag">Add flag column</label>
+                                    <div class="substep-option-desc">Create a new column indicating which rows have missing values. Preserves original data.</div>
+                                </div>
+                            </div>
+                            <div class="substep-option">
+                                <input type="radio" name="gap_method" id="gap_default" value="default">
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="gap_default">Fill with default value</label>
+                                    <div class="substep-option-desc">Replace empty cells with "N/A", "Unknown", or 0 depending on column type.</div>
+                                </div>
+                            </div>
+                            <div class="substep-option">
+                                <input type="radio" name="gap_method" id="gap_remove" value="remove">
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="gap_remove">Remove rows with gaps</label>
+                                    <div class="substep-option-desc">Delete any row that has missing values in these columns. Use with caution.</div>
+                                </div>
+                            </div>
+                            <div class="substep-option">
+                                <input type="radio" name="gap_method" id="gap_report" value="report">
+                                <div class="substep-option-content">
+                                    <label class="substep-option-label" for="gap_report">Report only (no changes)</label>
+                                    <div class="substep-option-desc">Document the gaps in the report but don't modify any data.</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                return `
+                    <div class="transform-card" data-type="${rec.type}">
+                        <div class="transform-header">
+                            <span class="transform-title">${escapeHtml(rec.title)}
+                                <span class="priority-badge priority-${rec.priority}">${rec.priority}</span>
+                            </span>
+                            <div class="transform-toggle" data-type="${rec.type}"></div>
+                        </div>
+                        <div class="transform-desc">${escapeHtml(rec.description)}</div>
+                        ${columnDetailsHtml}
+                        ${substepsHtml}
+                    </div>
+                `;
+            }).join('');
+
+            recs.forEach(rec => {
+                // Initialize with default method based on type
+                let defaultMethod = 'report';
+                if (rec.type === 'anonymization') defaultMethod = 'fake';
+                else if (rec.type === 'normalization') defaultMethod = 'convert';
+                else if (rec.type === 'gap_handling') defaultMethod = 'flag';
+
+                state.transformations[rec.type] = {
+                    enabled: false,
+                    columns: rec.columns,
+                    method: defaultMethod
+                };
+            });
+
+            container.querySelectorAll('.transform-toggle').forEach(toggle => {
+                toggle.addEventListener('click', () => {
+                    toggle.classList.toggle('active');
+                    const card = toggle.closest('.transform-card');
+                    card.classList.toggle('enabled');
+                    const transformType = toggle.dataset.type;
+                    state.transformations[transformType].enabled = toggle.classList.contains('active');
+
+                    // Show/hide substep options
+                    const substeps = card.querySelector('.substep-options');
+                    if (substeps) {
+                        substeps.classList.toggle('visible', toggle.classList.contains('active'));
+                    }
+                });
+            });
+
+            // Track method selection changes
+            container.querySelectorAll('.substep-options input[type="radio"]').forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    const substepContainer = e.target.closest('.substep-options');
+                    const transformType = substepContainer.dataset.type;
+                    state.transformations[transformType].method = e.target.value;
+                });
+            });
+
+        } catch (error) {
+            showError('transformError', error.message);
+        }
+    }
+
+    document.getElementById('saveTransformsBtn').addEventListener('click', async () => {
+        try {
+            await fetch(`/pipeline/${state.sessionId}/transformations/select`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(state.transformations)
+            });
+            goToStage(6);
+        } catch (error) {
+            showError('transformError', error.message);
+        }
+    });
+
+    // Execute
+    function prepareSummary() {
+        const content = document.getElementById('summaryContent');
+
+        const methodLabels = {
+            'fake': 'Replace with fake data',
+            'mask': 'Partial masking',
+            'hash': 'Hash values',
+            'redact': 'Full redaction',
+            'convert': 'Convert to detected type',
+            'flag': 'Add flag column',
+            'skip': 'Report only',
+            'default': 'Fill with defaults',
+            'remove': 'Remove rows',
+            'report': 'Report only'
+        };
+
+        const transforms = Object.entries(state.transformations)
+            .filter(([_, c]) => c.enabled)
+            .map(([t, c]) => {
+                const method = methodLabels[c.method] || c.method;
+                return `<div>&#8226; ${t}: ${c.columns.length} columns (${method})</div>`;
+            });
+
+        content.innerHTML = `
+            <div>File: ${state.filename}</div>
+            <div>Key: ${state.selectedKey.join(' + ') || 'None selected'}</div>
+            <div style="margin-top:var(--space-3);">${transforms.length ? transforms.join('') : 'No transformations selected'}</div>
+        `;
+    }
+
+    document.getElementById('executeBtn').addEventListener('click', executePipeline);
+
+    async function executePipeline() {
+        try {
+            hideError('executeError');
+            document.getElementById('executeProgress').classList.add('active');
+            document.getElementById('executeButtons').classList.add('hidden');
+
+            const response = await fetch(`/pipeline/${state.sessionId}/execute`, { method: 'POST' });
+            const data = await response.json();
+            if (!data.success) throw new Error(data.error);
+
+            const eventSource = new EventSource(`/progress/${state.sessionId}`);
+
+            eventSource.onmessage = (event) => {
+                const progress = JSON.parse(event.data);
+
+                if (progress.stage === 'done') {
+                    eventSource.close();
+                    // Update to 100% before transitioning
+                    document.getElementById('executeFill').style.width = '100%';
+                    document.getElementById('executePercent').textContent = '100%';
+                    document.getElementById('executeStage').textContent = 'Complete';
+                    document.getElementById('executeText').textContent = 'Pipeline complete!';
+                    setTimeout(() => {
+                        document.getElementById('executeProgress').classList.remove('active');
+                        document.getElementById('successSection').classList.remove('hidden');
+                        document.getElementById('downloadBtn').href = progress.download_url;
+                        document.querySelectorAll('.step').forEach(s => {
+                            s.classList.remove('active');
+                            s.classList.add('completed');
+                        });
+                    }, 300);
+                } else if (progress.stage === 'error') {
+                    eventSource.close();
+                    showError('executeError', progress.message);
+                    document.getElementById('executeProgress').classList.remove('active');
+                    document.getElementById('executeButtons').classList.remove('hidden');
+                } else {
+                    const pct = progress.percentage || 0;
+                    document.getElementById('executeFill').style.width = `${pct}%`;
+                    document.getElementById('executePercent').textContent = `${pct}%`;
+                    document.getElementById('executeText').textContent = progress.message || 'Executing...';
+
+                    // Update stage label
+                    const stageLabels = {
+                        'preparing': 'Preparing',
+                        'transforming': 'Applying Transformations',
+                        'generating': 'Generating Report',
+                        'saving': 'Saving Files'
+                    };
+                    const stageName = progress.stage || 'preparing';
+                    document.getElementById('executeStage').textContent = stageLabels[stageName] || 'Processing';
+
+                    // Update details
+                    if (progress.current && progress.total) {
+                        document.getElementById('executeDetails').textContent =
+                            `Step ${progress.current} of ${progress.total}`;
+                    } else {
+                        document.getElementById('executeDetails').textContent = '';
+                    }
+                }
+            };
+
+        } catch (error) {
+            showError('executeError', error.message);
+            document.getElementById('executeProgress').classList.remove('active');
+            document.getElementById('executeButtons').classList.remove('hidden');
+        }
+    }
+
+    // Utilities
+    function showError(id, msg) {
+        const el = document.getElementById(id);
+        el.textContent = msg;
+        el.classList.add('visible');
+    }
+
+    function hideError(id) {
+        document.getElementById(id).classList.remove('visible');
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Modal handling
+    document.getElementById('howDidWeDoThis').addEventListener('click', () => {
+        document.getElementById('methodologyModal').classList.add('visible');
+    });
+
+    document.getElementById('closeModal').addEventListener('click', () => {
+        document.getElementById('methodologyModal').classList.remove('visible');
+    });
+
+    document.getElementById('methodologyModal').addEventListener('click', (e) => {
+        if (e.target.id === 'methodologyModal') {
+            document.getElementById('methodologyModal').classList.remove('visible');
+        }
+    });
+</script>
+{% endblock %}
