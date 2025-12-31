@@ -589,6 +589,52 @@
         margin-top: var(--space-2);
     }
 
+    .upload-zone.uploaded {
+        border-style: solid;
+        border-color: var(--accent-green);
+        background: rgba(16, 185, 129, 0.1);
+        pointer-events: none;
+    }
+
+    .upload-success {
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+        padding: var(--space-4);
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        border-radius: var(--radius-lg);
+        margin-top: var(--space-4);
+    }
+
+    .upload-success-icon {
+        width: 40px;
+        height: 40px;
+        flex-shrink: 0;
+    }
+
+    .upload-success-icon svg {
+        width: 100%;
+        height: 100%;
+        color: var(--accent-green);
+    }
+
+    .upload-success-text {
+        flex: 1;
+    }
+
+    .upload-success-filename {
+        font-weight: 600;
+        font-size: 14px;
+        color: var(--text-primary);
+        margin-bottom: 2px;
+    }
+
+    .upload-success-stats {
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
     /* ========================================= */
     /* Column Selection                          */
     /* ========================================= */
@@ -1467,7 +1513,25 @@
                 <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display: none;">
             </div>
 
+            <!-- Upload success info -->
+            <div class="upload-success hidden" id="uploadSuccess">
+                <div class="upload-success-icon">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div class="upload-success-text">
+                    <div class="upload-success-filename" id="uploadFilename"></div>
+                    <div class="upload-success-stats" id="uploadStats"></div>
+                </div>
+            </div>
+
             <div class="error-message" id="uploadError"></div>
+
+            <div class="btn-group mt-6 hidden" id="stage1Buttons">
+                <button class="btn btn-secondary" onclick="resetUpload()">Upload Different File</button>
+                <button class="btn btn-primary" style="flex:1" onclick="goToStage(2)">Continue to Analysis</button>
+            </div>
         </div>
 
         <!-- Stage 2: Shape Analysis -->
@@ -2013,23 +2077,78 @@
             state.sessionId = data.session_id;
             state.filename = data.filename;
             state.columns = data.column_names;
+            state.preview = data.preview || [];
+            state.rowCount = data.rows;
 
             // Show file badge
             document.getElementById('fileBadge').classList.add('visible');
             document.getElementById('fileNameDisplay').textContent = `${data.filename} (${data.rows.toLocaleString()} rows)`;
 
-            // Load preview
-            await loadPreview();
+            // Mark upload zone as complete
+            document.getElementById('uploadZone').classList.add('uploaded');
 
-            // Setup column lists
+            // Show upload success info
+            document.getElementById('uploadSuccess').classList.remove('hidden');
+            document.getElementById('uploadFilename').textContent = data.filename;
+            document.getElementById('uploadStats').textContent = `${data.rows.toLocaleString()} rows × ${data.columns} columns`;
+
+            // Show continue button
+            document.getElementById('stage1Buttons').classList.remove('hidden');
+
+            // Load preview into right panel
+            showUploadPreview(data.preview, data.column_names, data.rows);
+
+            // Setup column lists for later stages
             setupColumnLists();
-
-            // Go to stage 2
-            goToStage(2);
 
         } catch (error) {
             showError('uploadError', error.message);
         }
+    }
+
+    function showUploadPreview(previewData, columns, totalRows) {
+        const thead = document.querySelector('#previewTable thead');
+        const tbody = document.querySelector('#previewTable tbody');
+
+        thead.innerHTML = '<tr>' + columns.map(c => `<th>${escapeHtml(c)}</th>`).join('') + '</tr>';
+
+        if (previewData && previewData.length > 0) {
+            tbody.innerHTML = previewData.map(row =>
+                '<tr>' + columns.map(col => {
+                    const val = row[col];
+                    const displayVal = val === null || val === undefined ? '<span style="color:var(--text-muted)">null</span>' : escapeHtml(String(val));
+                    return `<td>${displayVal}</td>`;
+                }).join('') + '</tr>'
+            ).join('');
+        } else {
+            tbody.innerHTML = '<tr><td colspan="' + columns.length + '" style="text-align:center;color:var(--text-muted);padding:30px;">No data to preview</td></tr>';
+        }
+
+        document.getElementById('emptyPreview').classList.add('hidden');
+        document.getElementById('previewContainer').classList.remove('hidden');
+        document.getElementById('previewInfo').classList.remove('hidden');
+        document.getElementById('previewCount').textContent = `${columns.length} columns`;
+        document.getElementById('previewInfo').textContent = `Showing first ${previewData.length} of ${totalRows.toLocaleString()} rows`;
+    }
+
+    function resetUpload() {
+        // Reset state
+        state.sessionId = null;
+        state.filename = null;
+        state.columns = [];
+        state.preview = [];
+
+        // Reset UI
+        document.getElementById('uploadZone').classList.remove('uploaded');
+        document.getElementById('uploadSuccess').classList.add('hidden');
+        document.getElementById('stage1Buttons').classList.add('hidden');
+        document.getElementById('fileBadge').classList.remove('visible');
+        document.getElementById('fileInput').value = '';
+
+        // Reset preview panel
+        document.getElementById('emptyPreview').classList.remove('hidden');
+        document.getElementById('previewContainer').classList.add('hidden');
+        document.getElementById('previewInfo').classList.add('hidden');
     }
 
     async function loadPreview() {

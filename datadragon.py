@@ -6326,13 +6326,29 @@ def pipeline_start():
         # Store session
         pipeline_sessions[session_id] = state
 
+        # Get preview data (first 20 rows)
+        preview_rows = []
+        preview_df = state.df.head(20)
+        for _, row in preview_df.iterrows():
+            row_dict = {}
+            for col in preview_df.columns:
+                val = row[col]
+                if pd.isna(val):
+                    row_dict[col] = None
+                elif isinstance(val, (np.integer, np.floating)):
+                    row_dict[col] = float(val) if isinstance(val, np.floating) else int(val)
+                else:
+                    row_dict[col] = str(val)
+            preview_rows.append(row_dict)
+
         return jsonify({
             'success': True,
             'session_id': session_id,
             'filename': filename,
             'rows': state.row_count,
             'columns': state.col_count,
-            'column_names': list(state.df.columns)
+            'column_names': list(state.df.columns),
+            'preview': preview_rows
         })
 
     except Exception as e:
