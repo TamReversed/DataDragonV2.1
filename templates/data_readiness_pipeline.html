@@ -147,7 +147,6 @@
     .content-area {
         display: flex;
         gap: var(--space-6);
-        min-height: calc(100vh - 280px);
     }
 
     /* Left Panel - Options */
@@ -159,7 +158,10 @@
         border-radius: var(--radius-xl);
         border: 1px solid var(--border-subtle);
         padding: var(--space-6);
-        max-height: calc(100vh - 280px);
+        position: sticky;
+        top: var(--space-4);
+        align-self: flex-start;
+        max-height: calc(100vh - 32px);
         overflow-y: auto;
     }
 
@@ -174,8 +176,7 @@
         padding: var(--space-6);
         display: flex;
         flex-direction: column;
-        max-height: calc(100vh - 280px);
-        overflow: hidden;
+        overflow-y: auto;
     }
 
     .panel-title {
@@ -208,28 +209,10 @@
         display: none;
         flex-direction: column;
         gap: var(--space-6);
-        overflow-y: auto;
-        flex: 1;
-        padding-right: var(--space-2);
     }
 
     .analysis-dashboard.visible {
         display: flex;
-    }
-
-    /* Custom scrollbar for dashboard */
-    .analysis-dashboard::-webkit-scrollbar {
-        width: 6px;
-    }
-    .analysis-dashboard::-webkit-scrollbar-track {
-        background: transparent;
-    }
-    .analysis-dashboard::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 3px;
-    }
-    .analysis-dashboard::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.25);
     }
 
     .stats-grid {
@@ -318,20 +301,6 @@
         display: grid;
         grid-template-columns: repeat(2, 1fr);
         gap: var(--space-3) var(--space-6);
-        max-height: 280px;
-        overflow-y: auto;
-        padding-right: var(--space-2);
-    }
-
-    .completeness-bars::-webkit-scrollbar {
-        width: 4px;
-    }
-    .completeness-bars::-webkit-scrollbar-track {
-        background: transparent;
-    }
-    .completeness-bars::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 2px;
     }
 
     .completeness-row {
@@ -432,20 +401,6 @@
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
         gap: var(--space-4);
-        max-height: 500px;
-        overflow-y: auto;
-        padding-right: var(--space-2);
-    }
-
-    .column-cards-grid::-webkit-scrollbar {
-        width: 6px;
-    }
-    .column-cards-grid::-webkit-scrollbar-track {
-        background: transparent;
-    }
-    .column-cards-grid::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 3px;
     }
 
     .column-card {
