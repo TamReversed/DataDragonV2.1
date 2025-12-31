@@ -835,28 +835,33 @@
         font-size: 12px;
     }
 
+    .triage-table th:first-child {
+        text-align: center;
+    }
+
     .triage-table td {
         padding: var(--space-3);
         border-bottom: 1px solid var(--border-subtle);
         color: var(--text-primary);
     }
 
-    .triage-radio {
-        display: flex;
-        gap: var(--space-4);
+    .triage-table td:first-child {
+        text-align: center;
     }
 
-    .triage-radio label {
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
-        cursor: pointer;
-        font-size: 12px;
-        color: var(--text-secondary);
-    }
-
-    .triage-radio input {
+    .triage-table input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
         accent-color: var(--accent-purple);
+        cursor: pointer;
+    }
+
+    .triage-table tr:hover {
+        background: var(--bg-tertiary);
+    }
+
+    .triage-table tr.selected {
+        background: rgba(168, 85, 247, 0.1);
     }
 
     /* ========================================= */
@@ -1511,15 +1516,17 @@
                 </svg>
                 Gap Assessment
             </div>
-            <div class="panel-subtitle">Decide which missing data needs attention</div>
+            <div class="panel-subtitle">Review columns with missing data. Check the columns that need attention—you'll choose how to handle them in the final step.</div>
 
             <div id="gapContent">
                 <table class="triage-table" id="gapTable">
                     <thead>
                         <tr>
+                            <th style="width: 40px;">
+                                <input type="checkbox" id="gapSelectAll" title="Select all">
+                            </th>
                             <th>Column</th>
                             <th>Missing</th>
-                            <th>Decision</th>
                         </tr>
                     </thead>
                     <tbody></tbody>
@@ -2553,6 +2560,7 @@
 
             const gaps = data.gap_summary || [];
             const tbody = document.querySelector('#gapTable tbody');
+            const selectAllCheckbox = document.getElementById('gapSelectAll');
 
             if (gaps.length === 0) {
                 document.getElementById('noGaps').classList.remove('hidden');
@@ -2564,25 +2572,46 @@
             document.getElementById('gapContent').classList.remove('hidden');
 
             tbody.innerHTML = gaps.map(gap => `
-                <tr>
+                <tr data-column="${escapeHtml(gap.column)}">
+                    <td>
+                        <input type="checkbox" name="gap_${gap.column}" value="needs_attention">
+                    </td>
                     <td>${escapeHtml(gap.column)}</td>
                     <td>${gap.null_percentage.toFixed(1)}%</td>
-                    <td>
-                        <div class="triage-radio">
-                            <label><input type="radio" name="gap_${gap.column}" value="acceptable"> OK</label>
-                            <label><input type="radio" name="gap_${gap.column}" value="needs_attention"> Attention</label>
-                        </div>
-                    </td>
                 </tr>
             `).join('');
 
-            // Event listeners
-            tbody.querySelectorAll('input[type="radio"]').forEach(radio => {
-                radio.addEventListener('change', e => {
+            // Update row styling and state on checkbox change
+            tbody.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+                checkbox.addEventListener('change', e => {
                     const col = e.target.name.replace('gap_', '');
-                    state.gapTriage[col] = e.target.value;
+                    const row = e.target.closest('tr');
+                    if (e.target.checked) {
+                        state.gapTriage[col] = 'needs_attention';
+                        row.classList.add('selected');
+                    } else {
+                        state.gapTriage[col] = 'acceptable';
+                        row.classList.remove('selected');
+                    }
+                    updateSelectAllState();
                 });
             });
+
+            // Select all functionality
+            selectAllCheckbox.addEventListener('change', e => {
+                const checkboxes = tbody.querySelectorAll('input[type="checkbox"]');
+                checkboxes.forEach(cb => {
+                    cb.checked = e.target.checked;
+                    cb.dispatchEvent(new Event('change'));
+                });
+            });
+
+            function updateSelectAllState() {
+                const checkboxes = tbody.querySelectorAll('input[type="checkbox"]');
+                const checkedCount = tbody.querySelectorAll('input[type="checkbox"]:checked').length;
+                selectAllCheckbox.checked = checkedCount === checkboxes.length;
+                selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+            }
 
         } catch (error) {
             showError('gapError', error.message);
