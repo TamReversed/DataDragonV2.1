@@ -1144,6 +1144,66 @@
     }
 
     /* ========================================= */
+    /* Preview Table                             */
+    /* ========================================= */
+
+    .preview-table-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .preview-info {
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: var(--space-3);
+        padding: var(--space-2) var(--space-3);
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-md);
+    }
+
+    .table-wrapper {
+        flex: 1;
+        overflow: auto;
+        border: 1px solid var(--border-subtle);
+        border-radius: var(--radius-lg);
+    }
+
+    .preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .preview-table th {
+        background: var(--bg-tertiary);
+        padding: var(--space-3);
+        text-align: left;
+        font-weight: 600;
+        color: var(--text-secondary);
+        font-size: 12px;
+        position: sticky;
+        top: 0;
+        white-space: nowrap;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .preview-table td {
+        padding: var(--space-2) var(--space-3);
+        border-bottom: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .preview-table tr:hover {
+        background: var(--bg-tertiary);
+    }
+
+    /* ========================================= */
     /* Buttons                                   */
     /* ========================================= */
 
@@ -1768,6 +1828,17 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
             </svg>
             <div>Upload a file to see preview</div>
+        </div>
+
+        <!-- Data Preview Table (shown after upload) -->
+        <div class="preview-table-container hidden" id="previewContainer">
+            <div class="preview-info" id="previewInfo"></div>
+            <div class="table-wrapper">
+                <table class="preview-table" id="previewTable">
+                    <thead></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
         </div>
 
         <!-- Analysis Dashboard with Charts -->
