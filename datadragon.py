@@ -7068,33 +7068,77 @@ def generate_readiness_report(output_path, state, transformation_log=None):
     # Stage 2: Gap Assessment
     story.append(Paragraph("2. Gap Assessment", heading_style))
     gap_triage = state.user_decisions.get(2, {})
+    gap_summary = analysis.get('gap_summary', [])
+
+    # Create a lookup for gap percentages
+    gap_percentages = {g['column']: g['null_percentage'] for g in gap_summary}
+
     if gap_triage:
-        gap_data = [['Column', 'Decision']]
-        for col, decision in gap_triage.items():
-            decision_text = 'Acceptable' if decision == 'acceptable' else 'Needs Attention'
-            gap_data.append([col, decision_text])
-        gap_table = Table(gap_data, colWidths=[3*inch, 2*inch])
+        # Count decisions
+        needs_attention = [col for col, dec in gap_triage.items() if dec == 'needs_attention']
+        acceptable = [col for col, dec in gap_triage.items() if dec == 'acceptable']
+
+        story.append(Paragraph(f"Columns with missing data: {len(gap_triage)}", body_style))
+        story.append(Paragraph(f"Marked as needing attention: {len(needs_attention)}", body_style))
+        story.append(Paragraph(f"Marked as acceptable: {len(acceptable)}", body_style))
+        story.append(Spacer(1, 10))
+
+        gap_data = [['Column', 'Missing %', 'Decision']]
+        for col, decision in sorted(gap_triage.items(), key=lambda x: gap_percentages.get(x[0], 0), reverse=True):
+            decision_text = 'Needs Attention' if decision == 'needs_attention' else 'Acceptable'
+            pct = gap_percentages.get(col, 0)
+            gap_data.append([col, f"{pct:.1f}%", decision_text])
+
+        gap_table = Table(gap_data, colWidths=[2.5*inch, 1*inch, 1.5*inch])
         gap_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
             ('FONTSIZE', (0, 0), (-1, -1), 9),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ALIGN', (1, 0), (1, -1), 'CENTER'),
         ]))
         story.append(gap_table)
+    elif gap_summary:
+        story.append(Paragraph(f"Found {len(gap_summary)} columns with missing data, but no triage decisions were made.", body_style))
     else:
-        story.append(Paragraph("No gaps requiring triage were found.", body_style))
+        story.append(Paragraph("No columns with missing data were found.", body_style))
     story.append(Spacer(1, 20))
 
     # Stage 3: Natural Key Discovery
     story.append(Paragraph("3. Natural Key Discovery", heading_style))
     key_data = state.stage_data.get(3, {})
     if key_data:
-        selected_key = key_data.get('user_selected_key', key_data.get('minimal_combinations', [[]])[0])
-        story.append(Paragraph(f"Selected Key: {', '.join(selected_key) if selected_key else 'None selected'}", body_style))
-        alternatives = key_data.get('minimal_combinations', [])
-        if alternatives:
-            story.append(Paragraph(f"Alternative candidates found: {len(alternatives)}", body_style))
+        all_candidates = key_data.get('minimal_combinations', [])
+        selected_key = key_data.get('user_selected_key', all_candidates[0] if all_candidates else [])
+
+        if selected_key:
+            selected_key_str = ' + '.join(selected_key) if isinstance(selected_key, list) else str(selected_key)
+            story.append(Paragraph(f"<b>Selected Natural Key:</b> {selected_key_str}", body_style))
+            story.append(Spacer(1, 8))
+            story.append(Paragraph(
+                "This column combination uniquely identifies each row in your dataset and can serve as a primary key.",
+                body_style
+            ))
+        else:
+            story.append(Paragraph("No natural key was selected.", body_style))
+
+        # Show alternative options
+        if all_candidates and len(all_candidates) > 1:
+            story.append(Spacer(1, 12))
+            # Filter out the selected key from alternatives
+            other_keys = [k for k in all_candidates if k != selected_key]
+            if other_keys:
+                story.append(Paragraph("<b>Other Available Keys:</b>", body_style))
+                story.append(Spacer(1, 4))
+                for idx, alt_key in enumerate(other_keys[:5], 1):  # Show up to 5 alternatives
+                    alt_key_str = ' + '.join(alt_key) if isinstance(alt_key, list) else str(alt_key)
+                    story.append(Paragraph(f"  {idx}. {alt_key_str}", body_style))
+                if len(other_keys) > 5:
+                    story.append(Paragraph(f"  ... and {len(other_keys) - 5} more candidate(s)", body_style))
+        elif all_candidates and len(all_candidates) == 1:
+            story.append(Spacer(1, 8))
+            story.append(Paragraph("This was the only natural key candidate found.", body_style))
     else:
         story.append(Paragraph("Natural key discovery was not performed.", body_style))
     story.append(Spacer(1, 20))
