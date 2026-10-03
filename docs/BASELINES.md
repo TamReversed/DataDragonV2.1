@@ -67,3 +67,6 @@ Same machine, data and harness as above (`scripts/bench.py`, CSV inputs from `sc
 |---|---|---|---|---|
 | `compare1key` 100k | 335.23 s / 356 MB | **1.61 s / 376 MB** (about 208x faster) | T1.7 | < 15 s |
 | `compare1key` 10k | 4.60 s / 148 MB | 0.19 s / 149 MB | T1.7 | |
+| `dup_highcard` 100k | 40.03 s / 246 MB | **0.89 s / 263 MB** (45x faster) | T1.8 | < 5 s |
+| `dup_lowcard` 100k | 2.89 s / 270 MB | 0.69 s / 255 MB | T1.8 | |
+| `dup_highcard` 10k | 0.18 s / 132 MB | 0.06 s / 133 MB | T1.8 | |

@@ -20,6 +20,7 @@
   "total": 100,
   "total_duplicates": 1,
   "total_ids_to_remove": 1,
+  "treat_blank_as_value": true,
   "warning": "golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed."
  },
  "output": {

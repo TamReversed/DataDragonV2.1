@@ -90,7 +90,6 @@ def test_compare_duplicate_keys_reported(client):
     assert final["summary"]["changed"] >= 1
 
 
-@bug("A-05")
 def test_duplicates_no_separator_collision(client, tmp_path):
     path = make_xlsx(tmp_path / "d.xlsx", ["id", "a", "b"], [[1, "x|||y", "z"], [2, "x", "y|||z"]],
                      text_cols=("a", "b"))

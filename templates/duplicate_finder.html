@@ -801,12 +801,22 @@
 
         <div class="selector-group" style="margin-top: var(--space-6);">
             <label class="selector-label">Select Columns to Check for Duplicates *</label>
-            <p class="selector-description">Select one or more columns. The system will concatenate values from these columns to find duplicate rows.</p>
+            <p class="selector-description">Select one or more columns. Rows with identical values in all selected columns are treated as duplicates.</p>
             <div class="columns-grid" id="columnsGrid" style="max-height: 300px; overflow-y: auto; margin-top: var(--space-4);"></div>
         </div>
 
+        <div class="selector-group" style="margin-top: var(--space-6);">
+            <label for="treatBlankAsValue" style="display: flex; gap: 10px; align-items: flex-start; cursor: pointer;">
+                <input type="checkbox" id="treatBlankAsValue" checked style="margin-top: 4px;">
+                <span>
+                    <strong>Treat blank cells as values</strong>
+                    <span class="selector-description" style="display: block; margin-top: 4px;">Checked: rows that are blank in the same selected columns count as duplicates of each other. Unchecked: a row with a blank in any selected column is never reported as a duplicate.</span>
+                </span>
+            </label>
+        </div>
+
         <div class="info-box">
-            <strong>How it works:</strong> The system concatenates values from the selected columns in each row to create a unique signature. Rows with identical signatures (perfect duplicates in those columns) are identified, and the selected ID column is used to mark which records should be removed (keeping the first occurrence).
+            <strong>How it works:</strong> Rows whose values are identical in every selected column are duplicates. The selected ID column is used to mark which records should be removed (keeping the first occurrence in the file).
         </div>
     </div>
 
@@ -1282,6 +1292,7 @@
         formData.append('file', selectedFile);
         formData.append('id_column', idColumn.value);
         selectedDuplicateColumns.forEach(col => formData.append('duplicate_columns[]', col));
+        formData.append('treat_blank_as_value', document.getElementById('treatBlankAsValue').checked ? 'true' : 'false');
 
         findBtn.disabled = true;
         findBtn.innerHTML = `

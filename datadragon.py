@@ -17,7 +17,7 @@ from collections import defaultdict
 import re
 import uuid
 from urllib.parse import urlparse
-from itertools import combinations, count
+from itertools import combinations, count as itertools_count
 
 from datadragon_formula import FormulaError, evaluate_formula as safe_evaluate_formula
 
@@ -2568,8 +2568,11 @@ def duplicate_finder():
 def unique_identifier_finder():
     return render_template('unique_identifier_finder.html')
 
-def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_queue, session_id):
-    """Find duplicate rows (selected columns combined) in background thread with progress tracking"""
+def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_queue, session_id, treat_blank_as_value=True):
+    """Find rows that are identical in all selected columns, in a background thread with progress tracking.
+
+    treat_blank_as_value=True: rows blank in the same selected columns count as duplicates of each other.
+    False: a row with a blank in any selected column is never reported as a duplicate."""
     try:
         send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
             'stage': stage,
@@ -2605,58 +2608,39 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
         if not duplicate_columns:
             raise ValueError("Please select at least one column (other than the ID column) to check for duplicates.")
         
-        send_progress('analyzing', 0, 100, f'Creating row signatures (concatenating {len(duplicate_columns)} selected columns)...', 20)
+        send_progress('analyzing', 0, 100, f'Comparing rows on {len(duplicate_columns)} selected column(s)...', 20)
         
-        # Create a signature for each row by concatenating selected column values
-        def create_row_signature(row):
-            # Convert selected column values to strings, handling NaN
-            values = [str(row[col]) if pd.notna(row[col]) else '' for col in duplicate_columns]
-            return '|||'.join(values)  # Use a unique delimiter
-        
-        # Create signatures for all rows
-        df['_row_signature'] = df.apply(create_row_signature, axis=1)
+        # Rows are duplicates when their VALUES are equal in every selected column (no joined-string signature,
+        # so values that merely contain a separator can never be mistaken for each other).
+        candidates = df if treat_blank_as_value else df[~df[duplicate_columns].isna().any(axis=1)]
+        duplicated = candidates[candidates.duplicated(subset=duplicate_columns, keep=False)]
         
         send_progress('analyzing', 30, 100, 'Finding duplicate rows...', 40)
         
-        # Find duplicate rows by grouping on row signature
-        duplicate_groups = df.groupby('_row_signature').size()
-        duplicate_signatures = duplicate_groups[duplicate_groups > 1].index.tolist()
+        group_numbers = duplicated.groupby(duplicate_columns, dropna=False, sort=False).ngroup()
+        ids_by_group = duplicated[id_column].groupby(group_numbers, sort=False).agg(list)
+        first_rows = duplicated.groupby(group_numbers, sort=False).head(1)
         
-        send_progress('analyzing', 60, 100, f'Found {len(duplicate_signatures)} duplicate row groups...', 60)
+        send_progress('analyzing', 60, 100, f'Found {len(ids_by_group)} duplicate row groups...', 60)
         
-        # Build results
+        def shown(value):
+            return '' if pd.isna(value) else value
+        
+        # Build results (groups in order of first appearance; ids in file order)
         results = []
         all_ids_to_remove = []
-        
-        for sig_idx, signature in enumerate(duplicate_signatures):
-            # Get all rows with this signature
-            dup_rows = df[df['_row_signature'] == signature]
-            
-            # Get IDs for these rows
-            ids = dup_rows[id_column].tolist()
-            
-            # Get a sample of the row data (first row) to show what the duplicate looks like
-            sample_row = dup_rows.iloc[0]
-            # Create a readable representation using the selected duplicate columns
-            row_preview = ', '.join([f"{col}={sample_row[col]}" for col in duplicate_columns])
-            
-            # Keep first ID, remove rest
-            ids_to_remove = ids[1:] if len(ids) > 1 else []
+        sample_values = first_rows[duplicate_columns].to_numpy(dtype=object)
+        for position, ids in enumerate(ids_by_group.tolist()):
+            row_preview = ', '.join(f"{col}={shown(value)}" for col, value in zip(duplicate_columns, sample_values[position]))
+            ids_to_remove = ids[1:]
             all_ids_to_remove.extend(ids_to_remove)
-            
             results.append({
                 'row_preview': row_preview,
-                'count': len(dup_rows),
+                'count': len(ids),
                 'ids': ids,
                 'ids_to_remove': ids_to_remove,
                 'keep_id': ids[0] if ids else None
             })
-            
-            # Progress update every 100 groups
-            if (sig_idx + 1) % 100 == 0:
-                send_progress('analyzing', 60 + int((sig_idx + 1) / len(duplicate_signatures) * 10), 100, 
-                            f'Processing group {sig_idx + 1}/{len(duplicate_signatures)}...', 
-                            60 + int((sig_idx + 1) / len(duplicate_signatures) * 10))
         
         send_progress('analyzing', 100, 100, f'Analysis complete: {len(results)} duplicate groups found', 70)
         
@@ -2664,8 +2648,8 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
         results_data = []
         
         for result in results:
-            ids_str = ', '.join(str(id_val) for id_val in result['ids'])
-            ids_to_remove_str = ', '.join(str(id_val) for id_val in result['ids_to_remove'])
+            ids_str = ', '.join(str(shown(id_val)) for id_val in result['ids'])
+            ids_to_remove_str = ', '.join(str(shown(id_val)) for id_val in result['ids_to_remove'])
             
             results_data.append({
                 'Row Preview': result['row_preview'],
@@ -2713,7 +2697,8 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
             'output_filename': os.path.basename(output_path),
             'results': results_data[:100],  # Send first 100 for preview
             'total_duplicates': len(results),
-            'total_ids_to_remove': len(all_ids_to_remove)
+            'total_ids_to_remove': len(all_ids_to_remove),
+            'treat_blank_as_value': bool(treat_blank_as_value)
         }
         
         try:
@@ -2766,6 +2751,7 @@ def find_duplicates():
         
         # Get duplicate columns selection (required, can be multiple)
         duplicate_columns = request.form.getlist('duplicate_columns[]')
+        treat_blank_as_value = request.form.get('treat_blank_as_value', 'true').lower() != 'false'
         
         if not duplicate_columns:
             return jsonify({'error': 'Please select at least one column to check for duplicates'}), 400
@@ -2783,7 +2769,7 @@ def find_duplicates():
         # Start processing in background thread
         thread = threading.Thread(
             target=find_duplicates_async,
-            args=(upload_path, id_column, duplicate_columns, progress_queue, session_id)
+            args=(upload_path, id_column, duplicate_columns, progress_queue, session_id, treat_blank_as_value)
         )
         thread.daemon = True
         thread.start()
@@ -3399,7 +3385,7 @@ class _BlankKey:
     never match anything; pandas would otherwise join NaN to NaN and multiply blank-key rows.
     Outer joins sort their keys, so instances are orderable: after every real key, then by creation."""
     __slots__ = ('n',)
-    _serial = count()
+    _serial = itertools_count()
 
     def __init__(self):
         self.n = next(_BlankKey._serial)
@@ -3890,9 +3876,9 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
             sides = [f"{n} row(s) in {label}" for n, label in ((keyless_count1, 'file 1'), (keyless_count2, 'file 2')) if n]
             notes.append(f"{' and '.join(sides)} have no key value and were not compared "
                          f"(see the 'Rows Without Key' sheet).")
-        for label, count in (('File 1', repeated1), ('File 2', repeated2)):
-            if count:
-                notes.append(f"{label} has {count} row(s) whose key repeats; repeated rows are compared in order of "
+        for label, repeated_rows in (('File 1', repeated1), ('File 2', repeated2)):
+            if repeated_rows:
+                notes.append(f"{label} has {repeated_rows} row(s) whose key repeats; repeated rows are compared in order of "
                              f"appearance (1st with 1st, 2nd with 2nd, ...).")
         compare_warning = ' '.join(notes) if notes else None
         
