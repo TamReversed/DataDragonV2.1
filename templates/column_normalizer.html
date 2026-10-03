@@ -871,6 +871,32 @@
                 </div>
             </label>
         </div>
+        <div class="option-item">
+            <label for="decimalSeparator">
+                Number format
+                <div class="option-description">
+                    How numbers are written in this file. Values that do not fit are left unchanged and reported.
+                </div>
+            </label>
+            <select class="form-select" id="decimalSeparator" style="max-width: 280px;">
+                <option value=".">1,234.56 (dot is the decimal point)</option>
+                <option value=",">1.234,56 (comma is the decimal point)</option>
+            </select>
+        </div>
+        <div class="option-item">
+            <label for="dateOrder">
+                Date order
+                <div class="option-description">
+                    How dates like 03/04/2024 are read. Auto-detect only works when the column itself settles it (for example it contains 13/04/2024); otherwise choose one.
+                </div>
+            </label>
+            <select class="form-select" id="dateOrder" style="max-width: 280px;">
+                <option value="auto">Auto-detect</option>
+                <option value="MDY">Month first (MM/DD/YYYY)</option>
+                <option value="DMY">Day first (DD/MM/YYYY)</option>
+                <option value="YMD">Year first (YYYY-MM-DD)</option>
+            </select>
+        </div>
     </div>
 </div>
 
@@ -929,6 +955,7 @@
     <div class="result-section">
         <div class="result-title">File Normalized!</div>
         <p>Your normalized file is ready for download</p>
+        <div id="resultWarning" role="alert" style="display: none; margin: 12px 0 16px; padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(234, 179, 8, 0.5); background: rgba(234, 179, 8, 0.12); color: var(--accent-yellow); text-align: left;"></div>
         <button class="btn btn-primary btn-lg" id="downloadBtn">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -953,7 +980,7 @@
         <div class="help-section">
             <div class="help-section-title">What This Tool Does</div>
             <div class="help-section-content">
-                The Column Normalizer converts column data types to your specified formats. You can transform columns to text, integers, floats, currency, dates, booleans, percentages, and more. Values are trimmed and formatted appropriately.
+                The Column Normalizer converts column data types to your specified formats. You can transform columns to text, integers, floats, currency, dates, booleans, percentages, and more. Values that cannot be converted are left exactly as they were and reported.
             </div>
         </div>
 
@@ -1363,6 +1390,8 @@
         formData.append('file', selectedFile);
         formData.append('column_types', JSON.stringify(columnTypes));
         formData.append('trim_whitespace', trimWhitespace.checked);
+        formData.append('decimal_separator', document.getElementById('decimalSeparator').value);
+        formData.append('date_order', document.getElementById('dateOrder').value);
 
         generateBtn.disabled = true;
         generateBtn.innerHTML = '<span class="spinner"></span> Normalizing...';
@@ -1430,6 +1459,9 @@
                                 window.location.href = progressData.download_url;
                             };
 
+                            const warningBox = document.getElementById('resultWarning');
+                            warningBox.textContent = progressData.warning || '';
+                            warningBox.style.display = progressData.warning ? 'block' : 'none';
                             results.classList.add('show');
                             generateBtn.disabled = false;
                             generateBtn.innerHTML = `

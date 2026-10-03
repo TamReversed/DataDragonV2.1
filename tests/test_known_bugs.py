@@ -139,7 +139,6 @@ def test_scrub_relationship_never_leaks(client, tmp_path):
     assert not values & {"Alice", "Bob", "Carol", "a@x.com", "c@x.com"}
 
 
-@bug("A-08")
 def test_normalize_euro_decimal(client, tmp_path):
     path = make_csv(tmp_path / "n.csv", "v\n\"2,5\"\n\"1.234,56\"\n")
     final, _ = post_job(client, "/normalize-columns", {"file": path},
@@ -149,15 +148,17 @@ def test_normalize_euro_decimal(client, tmp_path):
     assert [r[0] for r in rows[1:]] == [2.5, 1234.56]
 
 
-@bug("A-08")
 def test_normalize_never_overwrites_with_nat(client, tmp_path):
-    path = make_csv(tmp_path / "n.csv", "d\n01/02/2024\n2024-03-05\n")
+    # With an explicit order, a value that is not a date keeps its original text (it used to become a blank NaT
+    # cell, and a mixed ISO/slash column lost its ISO rows).
+    path = make_csv(tmp_path / "n.csv", "d\n01/02/2024\n2024-03-05\nnot a date\n")
     final, _ = post_job(client, "/normalize-columns", {"file": path},
-                        {"column_types": json.dumps({"d": "date"})})
+                        {"column_types": json.dumps({"d": "date"}), "date_order": "MDY"})
     assert final["stage"] == "done", final
     values = [r[0] for r in sheets(output_path(final))["Normalized Data"][1:]]
-    # An unparseable date must keep its original text; today it becomes a blank cell that vanishes.
-    assert len(values) == 2 and None not in values
+    import datetime as dt
+    assert values == [dt.datetime(2024, 1, 2), dt.datetime(2024, 3, 5), "not a date"]
+    assert final["summary"]["total_errors"] == 1 and "not a date" in final["warning"]
 
 
 @bug("A-10")

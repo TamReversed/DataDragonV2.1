@@ -4710,7 +4710,200 @@ def validate_data():
 def column_normalizer():
     return render_template('column_normalizer.html')
 
-def normalize_columns_async(file_path, column_types, trim_whitespace, progress_queue, session_id):
+_DATE_ORDERS = ('auto', 'MDY', 'DMY', 'YMD')
+_NUMERIC_DATE = re.compile(r'(\d{1,4})[/.\-](\d{1,2})[/.\-](\d{1,4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?')
+_ISO_DATE = re.compile(r'(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?')
+_TEXT_MONTH_DATE_FORMATS = ('%d %b %Y', '%d %B %Y', '%b %d, %Y', '%B %d, %Y', '%b %d %Y', '%B %d %Y',
+                            '%d-%b-%Y', '%d-%b-%y', '%d %b %y')
+
+
+def parse_localized_number(value, decimal_separator='.'):
+    """Number (int or float) for a cell, or None if it is not a number in this notation.
+
+    Strict on purpose: with '.' as the decimal separator "1,234.5" is 1234.5 but "2,5" is NOT a number (it is
+    not valid grouping); with ',' "1.234,5" is 1234.5 and "2,5" is 2.5. Grouping must be in threes and may use the
+    locale's separator, a space, a no-break space or an apostrophe. Currency symbols and (parentheses) for
+    negatives are accepted. Native numbers pass through unchanged; booleans are not numbers.
+    """
+    if isinstance(value, (bool, np.bool_)):
+        return None
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return None if pd.isna(value) else (int(value) if isinstance(value, np.integer) else
+                                            float(value) if isinstance(value, np.floating) else value)
+    if not isinstance(value, str):
+        return None
+    text = value.replace(' ', ' ').strip()
+    negative = text.startswith('(') and text.endswith(')')
+    if negative:
+        text = text[1:-1]
+    text = text.strip(' $€£¥')
+    if not text:
+        return None
+    if decimal_separator == ',':
+        grouping, point = r"[.  ']", ','
+    else:
+        grouping, point = r"[,  ']", r'\.'
+    match = re.fullmatch(rf"([+-]?)(\d{{1,3}}(?:{grouping}\d{{3}})+|\d*)(?:{point}(\d+))?(?:[eE]([+-]?\d+))?", text)
+    if not match or not (match.group(2) or match.group(3)):
+        return None
+    sign, whole, fraction, exponent = match.groups()
+    digits = re.sub(r'\D', '', whole) or '0'
+    number = f"{sign}{digits}" + (f".{fraction}" if fraction is not None else '') + (f"e{exponent}" if exponent else '')
+    parsed = float(number) if (fraction is not None or exponent) else int(number)
+    return -parsed if negative else parsed
+
+
+def _build_date(year, month, day, hour=0, minute=0, second=0):
+    if year < 100:
+        year += 2000 if year < 69 else 1900
+    try:
+        return datetime(year, month, day, hour, minute, second)
+    except ValueError:
+        return None
+
+
+def detect_date_order(values):
+    """'MDY' or 'DMY' if the column's own values settle it, None if nothing numeric-ambiguous is present,
+    raises ValueError if the values contradict each other or are all ambiguous (every part <= 12)."""
+    day_first, month_first, ambiguous = 0, 0, []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if _ISO_DATE.fullmatch(text):
+            continue
+        m = _NUMERIC_DATE.fullmatch(text)
+        if not m or len(m.group(1)) == 4:
+            continue
+        first, second = int(m.group(1)), int(m.group(2))
+        if first > 12 >= second:
+            day_first += 1
+        elif second > 12 >= first:
+            month_first += 1
+        elif first <= 12 and second <= 12 and first != second:
+            ambiguous.append(text)
+    if day_first and month_first:
+        raise ValueError("This column mixes day-first and month-first dates (for example 13/02/2024 and 02/13/2024). "
+                         "Fix the source or normalize those rows separately.")
+    if day_first:
+        return 'DMY'
+    if month_first:
+        return 'MDY'
+    if ambiguous:
+        shown = ', '.join(dict.fromkeys(ambiguous[:3]))
+        raise ValueError(f"The date order is ambiguous (for example {shown}): it could be day-first or month-first. "
+                         f"Choose 'Month first' or 'Day first' under Date order.")
+    return None
+
+
+def parse_date(value, order):
+    """datetime for a cell, or None if it is not a date. order is 'MDY', 'DMY' or 'YMD' for numeric dates."""
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.to_pydatetime() if isinstance(value, pd.Timestamp) else value
+    if not isinstance(value, str):
+        return None
+    text = ' '.join(value.split())
+    iso = _ISO_DATE.fullmatch(text)
+    if iso:
+        return _build_date(*(int(g) for g in iso.groups() if g is not None))
+    numeric = _NUMERIC_DATE.fullmatch(text)
+    if numeric:
+        a, b, c = int(numeric.group(1)), int(numeric.group(2)), int(numeric.group(3))
+        clock = [int(g) for g in numeric.groups()[3:] if g is not None]
+        if len(numeric.group(1)) == 4 or order == 'YMD':
+            return _build_date(a, b, c, *clock)
+        if order == 'DMY':
+            return _build_date(c, b, a, *clock)
+        if order == 'MDY':
+            return _build_date(c, a, b, *clock)
+        return None
+    for fmt in _TEXT_MONTH_DATE_FORMATS:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def normalize_series(series, target_type, trim_whitespace=False, decimal_separator='.', date_order='auto'):
+    """Convert one column. Returns (new_series, converted_count, error_count, examples_of_failures).
+
+    A value that cannot be converted keeps its original value and is counted as an error; nothing is ever
+    overwritten with a blank. Blanks stay blank."""
+    values = series.to_numpy(dtype=object)
+    blank = pd.isna(series).to_numpy()
+    out = values.copy()
+    converted = errors = 0
+    examples = []
+
+    def fail(value):
+        nonlocal errors
+        errors += 1
+        if len(examples) < 3:
+            examples.append(str(value)[:30])
+
+    if target_type in ('text', 'string'):
+        for i, value in enumerate(values):
+            if not blank[i]:
+                text = value if isinstance(value, str) else str(value)
+                out[i] = text.strip() if trim_whitespace else text
+                converted += 1
+    elif target_type in ('integer', 'float', 'decimal', 'currency', 'dollar', 'percentage'):
+        for i, value in enumerate(values):
+            if blank[i]:
+                continue
+            if target_type == 'percentage' and isinstance(value, str) and value.strip().endswith('%'):
+                number = parse_localized_number(value.strip()[:-1], decimal_separator)
+                number = None if number is None else number / 100.0   # a % sign is what makes it a percentage
+            else:
+                number = parse_localized_number(value, decimal_separator)
+            if number is None:
+                fail(value)
+            elif target_type == 'integer':
+                if isinstance(number, float) and not number.is_integer():
+                    fail(value)                                       # never truncate 3.7 to 3
+                else:
+                    out[i] = int(number)
+                    converted += 1
+            else:
+                out[i] = float(number)
+                converted += 1
+    elif target_type == 'date':
+        order = date_order
+        if order == 'auto':
+            order = detect_date_order(values[~blank]) or 'MDY'        # only reached when nothing is ambiguous
+        for i, value in enumerate(values):
+            if blank[i]:
+                continue
+            parsed = parse_date(value, order)
+            if parsed is None:
+                fail(value)
+            else:
+                out[i] = parsed
+                converted += 1
+    elif target_type == 'boolean':
+        for i, value in enumerate(values):
+            if blank[i]:
+                continue
+            text = str(value).lower().strip()
+            if isinstance(value, (bool, np.bool_)):
+                out[i] = bool(value)
+            elif text in ('true', '1', 'yes', 'y', 't'):
+                out[i] = True
+            elif text in ('false', '0', 'no', 'n', 'f'):
+                out[i] = False
+            else:
+                number = parse_localized_number(value, decimal_separator)
+                if number is None:
+                    fail(value)
+                    continue
+                out[i] = number != 0
+            converted += 1
+    return pd.Series(out, index=series.index, dtype=object), converted, errors, examples
+
+
+def normalize_columns_async(file_path, column_types, trim_whitespace, progress_queue, session_id,
+                            decimal_separator='.', date_order='auto'):
     """Normalize column data types in background thread with progress tracking"""
     try:
         send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
@@ -4737,6 +4930,7 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
         
         normalized_df = df.copy()
         transformations_applied = []
+        conversion_failures = []
         
         # Process each column
         for col_idx, (col_name, target_type) in enumerate(column_types.items()):
@@ -4747,117 +4941,10 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
                         f'Normalizing column: {col_name} to {target_type}...', 
                         20 + int((col_idx / len(column_types)) * 60))
             
-            original_col = normalized_df[col_name].copy()
-            transformed_count = 0
-            error_count = 0
-            
-            if target_type == 'text' or target_type == 'string':
-                # Convert to string, optionally trim
-                if trim_whitespace:
-                    normalized_df[col_name] = normalized_df[col_name].astype(str).str.strip()
-                    transformed_count = len(normalized_df)
-                else:
-                    normalized_df[col_name] = normalized_df[col_name].astype(str)
-                    transformed_count = len(normalized_df)
-            
-            elif target_type == 'integer':
-                # Convert to integer, handling errors
-                for idx in normalized_df.index:
-                    val = normalized_df.loc[idx, col_name]
-                    if pd.notna(val):
-                        try:
-                            # Try to convert, handling strings with commas/currency symbols
-                            if isinstance(val, str):
-                                val = val.replace(',', '').replace('$', '').replace('€', '').replace('£', '').strip()
-                            normalized_df.loc[idx, col_name] = int(float(val))
-                            transformed_count += 1
-                        except (ValueError, TypeError):
-                            error_count += 1
-                            # Keep original value if conversion fails
-                            pass
-            
-            elif target_type == 'float' or target_type == 'decimal':
-                # Convert to float, handling errors
-                for idx in normalized_df.index:
-                    val = normalized_df.loc[idx, col_name]
-                    if pd.notna(val):
-                        try:
-                            if isinstance(val, str):
-                                val = val.replace(',', '').replace('$', '').replace('€', '').replace('£', '').strip()
-                            normalized_df.loc[idx, col_name] = float(val)
-                            transformed_count += 1
-                        except (ValueError, TypeError):
-                            error_count += 1
-                            pass
-            
-            elif target_type == 'currency' or target_type == 'dollar':
-                # Convert to float (currency is a float, just formatted differently)
-                for idx in normalized_df.index:
-                    val = normalized_df.loc[idx, col_name]
-                    if pd.notna(val):
-                        try:
-                            if isinstance(val, str):
-                                val = val.replace(',', '').replace('$', '').replace('€', '').replace('£', '').strip()
-                            normalized_df.loc[idx, col_name] = float(val)
-                            transformed_count += 1
-                        except (ValueError, TypeError):
-                            error_count += 1
-                            pass
-                # Note: We'll format this in Excel output
-            
-            elif target_type == 'date':
-                # Convert to datetime
-                try:
-                    normalized_df[col_name] = pd.to_datetime(normalized_df[col_name], errors='coerce')
-                    transformed_count = normalized_df[col_name].notna().sum()
-                    error_count = normalized_df[col_name].isna().sum() - original_col.isna().sum()
-                except:
-                    error_count = len(normalized_df)
-            
-            elif target_type == 'boolean':
-                # Convert to boolean
-                for idx in normalized_df.index:
-                    val = normalized_df.loc[idx, col_name]
-                    if pd.notna(val):
-                        try:
-                            val_str = str(val).lower().strip()
-                            if val_str in ('true', '1', 'yes', 'y', 't'):
-                                normalized_df.loc[idx, col_name] = True
-                            elif val_str in ('false', '0', 'no', 'n', 'f'):
-                                normalized_df.loc[idx, col_name] = False
-                            else:
-                                # Try numeric conversion
-                                if float(val) != 0:
-                                    normalized_df.loc[idx, col_name] = True
-                                else:
-                                    normalized_df.loc[idx, col_name] = False
-                            transformed_count += 1
-                        except:
-                            error_count += 1
-                            pass
-            
-            elif target_type == 'percentage':
-                # Convert percentage (remove % sign, divide by 100)
-                for idx in normalized_df.index:
-                    val = normalized_df.loc[idx, col_name]
-                    if pd.notna(val):
-                        try:
-                            if isinstance(val, str):
-                                val = val.replace('%', '').replace(',', '').strip()
-                            normalized_df.loc[idx, col_name] = float(val) / 100.0
-                            transformed_count += 1
-                        except (ValueError, TypeError):
-                            error_count += 1
-                            pass
-            
-            elif target_type == 'keep_original':
-                # Don't transform
-                transformed_count = 0
-                error_count = 0
-            else:
-                # Unknown type, keep original
-                transformed_count = 0
-                error_count = 0
+            normalized_df[col_name], transformed_count, error_count, failed_examples = normalize_series(
+                normalized_df[col_name], target_type, trim_whitespace, decimal_separator, date_order)
+            if error_count:
+                conversion_failures.append((col_name, target_type, error_count, failed_examples))
             
             transformations_applied.append({
                 'column': col_name,
@@ -4903,8 +4990,11 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
             cell.font = header_font
             cell.alignment = Alignment(horizontal='center', vertical='center')
         
-        # Apply column-specific formatting
-        for col_idx, (col_name, target_type) in enumerate(column_types.items(), 1):
+        # Apply column-specific formatting (by the column's real position in the sheet)
+        for col_name, target_type in column_types.items():
+            if col_name not in normalized_df.columns:
+                continue
+            col_idx = normalized_df.columns.get_loc(col_name) + 1
             if target_type == 'currency' or target_type == 'dollar':
                 col_letter = ws.cell(row=1, column=col_idx).column_letter
                 for row in range(2, ws.max_row + 1):
@@ -4968,6 +5058,15 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
             },
             'transformations': transformations_applied
         }
+        if conversion_failures:
+            parts = [f"{col}: {count} (e.g. {', '.join(repr(x) for x in examples)})"
+                     for col, _, count, examples in conversion_failures]
+            hint = ''
+            if decimal_separator == '.' and any(t in ('integer', 'float', 'decimal', 'currency', 'dollar', 'percentage')
+                                                for _, t, _, _ in conversion_failures):
+                hint = " If numbers use a comma as the decimal separator (1.234,56), choose the comma number format."
+            final_message['warning'] = ("Values that could not be converted were left exactly as they were - "
+                                        + '; '.join(parts) + '.' + hint)
         
         try:
             progress_queue.put(final_message, timeout=5)
@@ -5017,6 +5116,12 @@ def normalize_columns():
         # Get column types mapping
         column_types_json = request.form.get('column_types', '{}')
         trim_whitespace = request.form.get('trim_whitespace', 'false').lower() == 'true'
+        decimal_separator = request.form.get('decimal_separator', '.')
+        date_order = request.form.get('date_order', 'auto')
+        if decimal_separator not in ('.', ','):
+            return jsonify({'error': "decimal_separator must be '.' or ','"}), 400
+        if date_order not in _DATE_ORDERS:
+            return jsonify({'error': f"date_order must be one of: {', '.join(_DATE_ORDERS)}"}), 400
         
         try:
             import json
@@ -5044,7 +5149,7 @@ def normalize_columns():
         # Start processing in background thread
         thread = threading.Thread(
             target=normalize_columns_async,
-            args=(file_path, column_types, trim_whitespace, progress_queue, session_id)
+            args=(file_path, column_types, trim_whitespace, progress_queue, session_id, decimal_separator, date_order)
         )
         thread.daemon = True
         thread.start()
