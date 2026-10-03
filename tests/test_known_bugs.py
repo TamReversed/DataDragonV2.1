@@ -129,7 +129,6 @@ def test_pivot_filters_work(client, tmp_path):
     assert 10 in nums and 20 not in nums
 
 
-@bug("A-07")
 def test_scrub_relationship_never_leaks(client, tmp_path):
     path = make_xlsx(tmp_path / "s.xlsx", ["Name", "Email"],
                      [["Alice", "a@x.com"], ["Bob", None], ["Carol", "c@x.com"]], text_cols=("Name", "Email"))

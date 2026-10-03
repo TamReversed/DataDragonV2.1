@@ -1824,267 +1824,107 @@ def generate_prefix(column_name):
     
     return simplified + separator
 
+def _scrub_key(value):
+    """Identity of a cell value for pseudonym lookup. Values that read the same share a key (Excel 1, 1.0 and
+    CSV '1'), but a boolean is not the number 1. Blank -> NaN."""
+    return _comparable_text(value)
+
+
 def scrub_dataframe(df, columns_to_scrub, relationship_preserve=False, progress_queue=None, session_id=None):
     """
-    Anonymize selected columns while maintaining data shape and referential integrity.
-    
-    Args:
-        df: pandas DataFrame
-        columns_to_scrub: list of column names to anonymize
-        relationship_preserve: if True and multiple columns, preserve relationships
-        progress_queue: queue for progress updates
-        session_id: session identifier
-    
-    Returns:
-        tuple: (anonymized_df, mapping_dict)
+    Anonymize selected columns while keeping the data's shape and referential integrity.
+
+    Every non-blank cell of a selected column is replaced by a pseudonym; blanks stay blank. No code path ever
+    returns an original value.
+
+    relationship_preserve=True (with 2+ columns): each distinct COMBINATION of values across the selected
+    columns gets one pseudonym, shared by all of those columns in the row. Otherwise each column is
+    anonymized on its own (equal values share a pseudonym within the column).
+
+    Returns (anonymized_df, mapping_records). A record is
+    {"columns": [...], "original": [...], "pseudonym": "..."}: one per distinct value (independent mode) or per
+    distinct combination (relationship mode); a blank part of a combination is null.
     """
     def send_progress(stage, current, total, message, percentage=None):
-        """Send progress update to queue"""
         if progress_queue and session_id:
-            if percentage is None and total > 0:
-                percentage = int((current / total) * 100)
-            elif percentage is None:
-                percentage = 0
-            progress_queue.put({
-                'stage': stage,
-                'current': current,
-                'total': total,
-                'percentage': percentage,
-                'message': message
-            })
-    
+            if percentage is None:
+                percentage = int((current / total) * 100) if total > 0 else 0
+            progress_queue.put({'stage': stage, 'current': current, 'total': total,
+                                'percentage': percentage, 'message': message})
+
     send_progress('preparing', 0, 100, 'Preparing data for anonymization...', 5)
-    
-    # Create a copy to avoid modifying original
-    anonymized_df = df.copy()
-    mapping_dict = {}
-    
-    # Validate columns exist
-    valid_columns = [col for col in columns_to_scrub if col in df.columns]
+
+    valid_columns = [col for col in dict.fromkeys(columns_to_scrub) if col in df.columns]
     if not valid_columns:
         raise ValueError("No valid columns selected for anonymization")
-    
     send_progress('preparing', 50, 100, f'Found {len(valid_columns)} columns to anonymize...', 10)
-    
-    # Relationship preservation mode
+
+    anonymized_df = df.copy()
+    records = []
+
+    def raw_value(value):
+        return None if pd.isna(value) else (value if isinstance(value, (str, int, float, bool)) else str(value))
+
     if relationship_preserve and len(valid_columns) > 1:
         send_progress('anonymizing', 0, 100, 'Anonymizing with relationship preservation...', 15)
-        
-        # Create composite keys from selected columns (handle NaN properly)
-        def create_composite_key(row):
-            values = [row[col] for col in valid_columns]
-            # If any value is NaN, return None (we'll handle separately)
-            if any(pd.isna(v) for v in values):
-                return None
-            return tuple(values)
-        
-        composite_keys = anonymized_df.apply(create_composite_key, axis=1)
-        
-        # Find unique combinations (excluding None/NaN) - convert to list for proper handling
-        unique_combinations = [combo for combo in composite_keys.unique() if combo is not None]
-        # Convert to list of tuples to ensure hashability and proper matching
-        unique_combinations = [tuple(combo) if isinstance(combo, (list, tuple)) else combo for combo in unique_combinations]
-        total_combinations = len(unique_combinations)
-        
-        send_progress('anonymizing', 10, 100, f'Found {total_combinations} unique combinations...', 20)
-        
-        # Generate prefix from first column name
+        keys = pd.concat([df[col].map(_scrub_key).rename(i) for i, col in enumerate(valid_columns)], axis=1)
+        has_value = ~keys.isna().all(axis=1)          # a row blank in every selected column has nothing to hide
+        combination = keys[has_value].groupby(list(keys.columns), dropna=False, sort=False).ngroup()
         prefix = generate_prefix(valid_columns[0])
-        
-        # Create mapping for each unique combination
-        # Convert composite_keys to tuples for proper dictionary key matching
-        composite_keys_tuples = composite_keys.apply(lambda x: tuple(x) if x is not None and isinstance(x, (list, tuple)) else x)
-        
-        combination_mapping = {}
-        for idx, combo in enumerate(unique_combinations, 1):
-            anonymized_id = f"{prefix}{idx}"
-            # Ensure combo is a tuple for dictionary key
-            combo_tuple = tuple(combo) if not isinstance(combo, tuple) else combo
-            combination_mapping[combo_tuple] = anonymized_id
-            
-            # Store mapping for each column in the combination
-            for col_idx, col_name in enumerate(valid_columns):
-                original_value = combo[col_idx] if isinstance(combo, (list, tuple)) else combo
-                if col_name not in mapping_dict:
-                    mapping_dict[col_name] = {}
-                mapping_dict[col_name][str(original_value)] = anonymized_id  # Convert to string for JSON serialization
-            
-            # Progress update
-            if idx % 1000 == 0 or idx == total_combinations:
-                send_progress('anonymizing', idx, total_combinations, 
-                            f'Mapping combination {idx}/{total_combinations}...', 
-                            20 + int((idx / total_combinations) * 60))
-        
-        # Apply anonymization
+        pseudonym_of_combination = {number: f"{prefix}{number + 1}" for number in combination.unique()}
+        row_pseudonym = pd.Series(np.nan, index=df.index, dtype=object)
+        row_pseudonym[has_value] = combination.map(pseudonym_of_combination)
+        send_progress('anonymizing', 50, 100, f'Found {len(pseudonym_of_combination)} unique combinations...', 20)
+
+        first_rows = combination.drop_duplicates()
+        for row_label, number in first_rows.items():
+            records.append({
+                'columns': valid_columns,
+                'original': [raw_value(df.at[row_label, col]) for col in valid_columns],
+                'pseudonym': pseudonym_of_combination[number],
+            })
+
         send_progress('applying', 0, 100, 'Applying anonymization to data...', 80)
-        
-        # Convert composite_keys to tuples for proper matching
-        def get_tuple_key(key):
-            if key is None or pd.isna(key):
-                return None
-            if isinstance(key, tuple):
-                return key
-            if isinstance(key, (list, tuple)):
-                return tuple(key)
-            return key
-        
-        composite_keys_tuples = composite_keys.apply(get_tuple_key)
-        
-        # Create a mapping function that handles None/NaN properly
-        def map_composite_key(combo_key):
-            if combo_key is None or pd.isna(combo_key):
-                return None
-            combo_tuple = tuple(combo_key) if not isinstance(combo_key, tuple) else combo_key
-            return combination_mapping.get(combo_tuple, None)
-        
-        # Apply the same anonymized ID to all columns in each combination
-        anonymized_ids = composite_keys_tuples.apply(map_composite_key)
-        
-        for col_name in valid_columns:
-            # Apply anonymized IDs to this column
-            anonymized_df[col_name] = anonymized_ids.copy()
-            
-            # Handle NaN/None values in composite keys - keep original values where composite key was None/NaN
-            mask = anonymized_ids.isna() | (anonymized_ids == None)
-            if mask.any():
-                anonymized_df.loc[mask, col_name] = df.loc[mask, col_name]
-        
-        # Debug: Verify anonymization worked
-        if valid_columns:
-            sample_col = valid_columns[0]
-            original_sample = df[sample_col].dropna().iloc[0] if len(df[sample_col].dropna()) > 0 else None
-            anonymized_sample = anonymized_df[sample_col].dropna().iloc[0] if len(anonymized_df[sample_col].dropna()) > 0 else None
-            print(f"Debug - Relationship mode, Column '{sample_col}': Original = {original_sample}, Anonymized = {anonymized_sample}")
-            if original_sample == anonymized_sample and original_sample is not None and not str(anonymized_sample).startswith(prefix):
-                print(f"ERROR: Relationship preservation failed for column '{sample_col}' - values unchanged!")
-        
+        for i, col in enumerate(valid_columns):
+            # the shared pseudonym where this cell has a value; blanks stay blank
+            anonymized_df[col] = row_pseudonym.where(keys[i].notna(), np.nan)
         send_progress('applying', 100, 100, 'Relationship preservation complete...', 90)
-    
     else:
-        # Independent column anonymization
         send_progress('anonymizing', 0, len(valid_columns), f'Anonymizing {len(valid_columns)} columns...', 15)
-        
-        for col_idx, col_name in enumerate(valid_columns):
-            send_progress('anonymizing', col_idx, len(valid_columns), 
-                        f'Anonymizing column: {col_name}...', 
-                        15 + int((col_idx / len(valid_columns)) * 70))
-            
-            # Generate prefix for this column
-            prefix = generate_prefix(col_name)
-            
-            # Get the original column data BEFORE any modifications
-            original_col = df[col_name].copy()  # Use original df, not anonymized_df
-            current_col = anonymized_df[col_name].copy()
-            
-            # Get unique values (excluding NaN) - convert to list to ensure proper matching
-            unique_values = current_col.dropna().unique().tolist()
-            total_unique = len(unique_values)
-            
-            print(f"DEBUG: Column '{col_name}' has {total_unique} unique values")
-            print(f"DEBUG: First few unique values: {unique_values[:5] if len(unique_values) > 0 else 'None'}")
-            print(f"DEBUG: Sample values from column: {current_col.dropna().head(3).tolist()}")
-            
-            # Create mapping dictionary - use exact values as keys
-            value_mapping = {}
-            for idx, value in enumerate(unique_values, 1):
-                anonymized_id = f"{prefix}{idx}"
-                value_mapping[value] = anonymized_id
-            
-            # Store mapping for export (convert keys to strings for JSON)
-            mapping_dict[col_name] = {str(k): v for k, v in value_mapping.items()}
-            
-            print(f"DEBUG: Created mapping with {len(value_mapping)} entries")
-            print(f"DEBUG: Sample mapping: {list(value_mapping.items())[:3] if len(value_mapping) > 0 else 'None'}")
-            
-            # Use .replace() instead of .map() - more reliable for value matching
-            # .replace() works better with different data types and handles edge cases
-            print(f"DEBUG: Applying replacement to column '{col_name}'...")
-            print(f"DEBUG: Column dtype before: {current_col.dtype}")
-            print(f"DEBUG: Column shape: {current_col.shape}")
-            
-            # Create a new series with replaced values
-            # Use replace() which is more forgiving with type matching
-            replaced_series = current_col.replace(value_mapping)
-            
-            print(f"DEBUG: After replace - dtype: {replaced_series.dtype}")
-            print(f"DEBUG: Sample after replace: {replaced_series.dropna().head(3).tolist()}")
-            
-            # Verify replacement worked
-            replaced_count = 0
-            for orig_val, new_val in zip(current_col.head(100), replaced_series.head(100)):
-                if pd.notna(orig_val) and orig_val in value_mapping:
-                    if new_val == value_mapping[orig_val]:
-                        replaced_count += 1
-            
-            print(f"DEBUG: Verified {replaced_count} replacements in first 100 rows")
-            
-            # Check if any values were actually replaced
-            if current_col.equals(replaced_series):
-                print(f"ERROR: .replace() did not modify any values!")
-                # Fallback: use direct assignment with iteration
-                print(f"DEBUG: Trying direct assignment approach...")
-                new_series = current_col.copy()
-                for orig_val, new_id in value_mapping.items():
-                    mask = new_series == orig_val
-                    if mask.any():
-                        new_series.loc[mask] = new_id
-                        print(f"DEBUG: Replaced {mask.sum()} occurrences of '{orig_val}' with '{new_id}'")
-                replaced_series = new_series
-            else:
-                print(f"DEBUG: .replace() successfully modified values")
-            
-            # Preserve original NaN values
-            nan_mask = current_col.isna()
-            if nan_mask.any():
-                replaced_series.loc[nan_mask] = current_col.loc[nan_mask]
-            
-            # CRITICAL: Assign the replaced series back to the dataframe using .loc
-            # Use .loc to ensure we're modifying the dataframe, not creating a view
-            anonymized_df.loc[:, col_name] = replaced_series
-            
-            # Verify assignment worked
-            print(f"DEBUG: After assignment - checking if column was modified...")
-            print(f"DEBUG: anonymized_df[col_name] equals original_col: {anonymized_df[col_name].equals(original_col)}")
-            print(f"DEBUG: anonymized_df[col_name] equals replaced_series: {anonymized_df[col_name].equals(replaced_series)}")
-            
-            # Comprehensive verification
-            print(f"DEBUG: Verification for column '{col_name}':")
-            print(f"  - Original column type: {original_col.dtype}")
-            print(f"  - Replaced column type: {replaced_series.dtype}")
-            print(f"  - Original has {original_col.notna().sum()} non-null values")
-            print(f"  - Replaced has {replaced_series.notna().sum()} non-null values")
-            print(f"  - anonymized_df column has {anonymized_df[col_name].notna().sum()} non-null values")
-            
-            # Check if values actually changed
-            if original_col.notna().any():
-                original_sample = original_col.dropna().iloc[0]
-                anonymized_sample = anonymized_df[col_name].dropna().iloc[0] if anonymized_df[col_name].notna().any() else None
-                print(f"  - Original sample: {original_sample} (type: {type(original_sample)})")
-                print(f"  - Anonymized sample: {anonymized_sample} (type: {type(anonymized_sample)})")
-                
-                # Verify they're different
-                if original_sample == anonymized_sample and not str(anonymized_sample).startswith(prefix):
-                    print(f"  - ERROR: Values are the same! Anonymization may have failed!")
-                elif anonymized_sample and str(anonymized_sample).startswith(prefix):
-                    print(f"  - SUCCESS: Anonymization worked! Value changed to {anonymized_sample}")
-                else:
-                    print(f"  - WARNING: Unexpected result")
-            
-            # Final check: verify the dataframe column was actually updated
-            if anonymized_df[col_name].equals(original_col):
-                print(f"  - CRITICAL ERROR: DataFrame column was not modified!")
-                print(f"  - Trying alternative assignment method...")
-                # Force assignment by creating a new dataframe column
-                anonymized_df[col_name] = replaced_series.values
-                print(f"  - After alternative assignment, equals original: {anonymized_df[col_name].equals(original_col)}")
-            else:
-                print(f"  - SUCCESS: DataFrame column was modified")
-        
+        for position, col in enumerate(valid_columns):
+            send_progress('anonymizing', position, len(valid_columns), f'Anonymizing column: {col}...',
+                          15 + int((position / len(valid_columns)) * 70))
+            prefix = generate_prefix(col)
+            keys = df[col].map(_scrub_key)
+            first_rows = keys.dropna().drop_duplicates()            # order of first appearance
+            pseudonym_of_key = {key: f"{prefix}{number}" for number, key in enumerate(first_rows, 1)}
+            anonymized_df[col] = keys.map(pseudonym_of_key)         # NaN (blank) stays NaN
+            for row_label, key in first_rows.items():
+                records.append({'columns': [col], 'original': [raw_value(df.at[row_label, col])],
+                                'pseudonym': pseudonym_of_key[key]})
         send_progress('anonymizing', len(valid_columns), len(valid_columns), 'Anonymization complete...', 85)
-    
+
     send_progress('finalizing', 100, 100, 'Finalizing...', 95)
-    
-    return anonymized_df, mapping_dict
+    return anonymized_df, records
+
+
+def verify_anonymized(source_df, result_df, columns, records):
+    """Raise unless every non-blank value in the scrubbed columns is a pseudonym and blanks are unchanged."""
+    allowed = {col: set() for col in columns}
+    for record in records:
+        for col in record['columns']:
+            allowed[col].add(record['pseudonym'])
+    for col in columns:
+        if col not in result_df.columns:
+            raise ValueError(f"Anonymization verification failed: column '{col}' is missing. Nothing was saved.")
+        if int(result_df[col].isna().sum()) != int(source_df[col].isna().sum()):
+            raise ValueError(f"Anonymization verification failed: blank cells changed in column '{col}'. "
+                             f"Nothing was saved.")
+        not_replaced = int((~result_df[col].dropna().astype(str).isin(allowed[col])).sum())
+        if not_replaced:
+            raise ValueError(f"Anonymization verification failed: {not_replaced} value(s) in column '{col}' are not "
+                             f"anonymized. Nothing was saved.")
+
 
 def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, export_mapping, progress_queue, session_id):
     """Scrub file in background thread with progress tracking"""
@@ -2106,47 +1946,12 @@ def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, expor
         send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
         
         # Scrub the dataframe
-        anonymized_df, mapping_dict = scrub_dataframe(df, columns_to_scrub, relationship_preserve, progress_queue, session_id)
+        anonymized_df, mapping_records = scrub_dataframe(df, columns_to_scrub, relationship_preserve, progress_queue, session_id)
+        scrubbed_columns = [col for col in dict.fromkeys(columns_to_scrub) if col in df.columns]
+        print(f"Anonymization complete. Columns scrubbed: {len(scrubbed_columns)}")
         
-        print(f"Anonymization complete. Columns scrubbed: {len(columns_to_scrub)}")
-        
-        # CRITICAL VERIFICATION: Check if anonymization actually worked before saving
-        print("\n" + "="*80)
-        print("PRE-SAVE VERIFICATION")
-        print("="*80)
-        
-        anonymization_verified = True
-        for col_name in columns_to_scrub:
-            if col_name not in anonymized_df.columns or col_name not in df.columns:
-                print(f"ERROR: Column '{col_name}' missing from dataframe!")
-                anonymization_verified = False
-                continue
-                
-            # Check if the columns are actually different
-            if df[col_name].equals(anonymized_df[col_name]):
-                print(f"CRITICAL ERROR: Column '{col_name}' was NOT anonymized - values are identical!")
-                anonymization_verified = False
-            else:
-                # Check a sample
-                original_sample = df[col_name].dropna().iloc[0] if len(df[col_name].dropna()) > 0 else None
-                anonymized_sample = anonymized_df[col_name].dropna().iloc[0] if len(anonymized_df[col_name].dropna()) > 0 else None
-                
-                print(f"Column '{col_name}':")
-                print(f"  - Original sample: {original_sample}")
-                print(f"  - Anonymized sample: {anonymized_sample}")
-                
-                if original_sample == anonymized_sample and original_sample is not None:
-                    print(f"  - WARNING: Sample values are the same!")
-                    anonymization_verified = False
-                else:
-                    print(f"  - Values are different - anonymization appears to have worked")
-        
-        print("="*80)
-        
-        if not anonymization_verified:
-            raise ValueError("Anonymization verification failed! The data was not properly anonymized. Aborting save.")
-        
-        print("Verification passed - proceeding to save anonymized file\n")
+        # Nothing is saved unless every value in the scrubbed columns is a pseudonym
+        verify_anonymized(df, anonymized_df, scrubbed_columns, mapping_records)
         
         # Save anonymized file
         send_progress('saving', 0, 100, 'Saving anonymized data...', 90)
@@ -2163,38 +1968,22 @@ def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, expor
             anonymized_df.to_excel(output_path, index=False)
             download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
-        # POST-SAVE VERIFICATION: Read back the file to ensure it was saved correctly
-        print("\n" + "="*80)
-        print("POST-SAVE VERIFICATION")
-        print("="*80)
+        # Read the saved file back and check it too: what the user downloads is what must be anonymous
         try:
-            saved_df = read_data_file(output_path, nrows=10)
-            
-            print(f"Successfully read saved file: {output_path}")
-            for col_name in columns_to_scrub:
-                if col_name in saved_df.columns:
-                    saved_sample = saved_df[col_name].dropna().iloc[0] if len(saved_df[col_name].dropna()) > 0 else None
-                    original_sample = df[col_name].dropna().iloc[0] if len(df[col_name].dropna()) > 0 else None
-                    print(f"Column '{col_name}' in saved file:")
-                    print(f"  - Original: {original_sample}")
-                    print(f"  - Saved: {saved_sample}")
-                    if saved_sample == original_sample and original_sample is not None:
-                        print(f"  - ERROR: Saved file contains original values!")
-                    else:
-                        print(f"  - Saved file contains anonymized values")
-            print("="*80 + "\n")
-        except Exception as e:
-            print(f"WARNING: Could not verify saved file: {e}")
-            print("="*80 + "\n")
+            verify_anonymized(df, read_data_file(output_path), scrubbed_columns, mapping_records)
+        except Exception:
+            os.remove(output_path)
+            raise
         
         send_progress('saving', 50, 100, 'Anonymized data saved...', 95)
         
-        # Save mapping key if requested
+        # Save mapping key if requested: one record per distinct value (or combination), nothing is lost
         mapping_url = None
-        if export_mapping and mapping_dict:
+        if export_mapping and mapping_records:
             mapping_path = job_output_path(session_id, f"mapping_key_{timestamp}.json")
             with open(mapping_path, 'w') as f:
-                json.dump(mapping_dict, f, indent=2, default=str)
+                json.dump({'relationship_preserved': bool(relationship_preserve and len(scrubbed_columns) > 1),
+                           'mappings': mapping_records}, f, indent=2, default=str)
             mapping_url = job_download_url(session_id, f"mapping_key_{timestamp}.json")
             send_progress('saving', 100, 100, 'Mapping key saved...', 98)
         else:
