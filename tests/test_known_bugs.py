@@ -75,7 +75,6 @@ def test_compare_int_float_composite_keys(client, tmp_path):
     assert (s["common"], s["added"], s["removed"]) == (2, 1, 0)
 
 
-@bug("A-04")
 def test_compare_null_key_not_added_and_removed(client):
     final, _ = post_job(client, "/compare-data",
                         {"file1": fixture_path("compare_null_a.csv"), "file2": fixture_path("compare_null_b.csv")},
@@ -84,7 +83,6 @@ def test_compare_null_key_not_added_and_removed(client):
     assert s["added"] == 0 and s["removed"] == 0
 
 
-@bug("A-04")
 def test_compare_duplicate_keys_reported(client):
     final, _ = post_job(client, "/compare-data",
                         {"file1": fixture_path("compare_dup_a.csv"), "file2": fixture_path("compare_dup_b.csv")},

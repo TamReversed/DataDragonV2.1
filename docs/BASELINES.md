@@ -58,3 +58,12 @@ Notes:
 | `validate` 500k | 41 s / 3.67 GB | < 10 s / < 1.2 GB |
 | `keyworst` 20 cols | 11 s | < 10 s or reports `truncated` |
 | `write_xlsx` 100k | 6.5 s | <= 4 s |
+
+## After fixes
+
+Same machine, data and harness as above (`scripts/bench.py`, CSV inputs from `scripts/gen_synthetic.py`).
+
+| Case | Baseline (before) | After | Task | Target |
+|---|---|---|---|---|
+| `compare1key` 100k | 335.23 s / 356 MB | **1.61 s / 376 MB** (about 208x faster) | T1.7 | < 15 s |
+| `compare1key` 10k | 4.60 s / 148 MB | 0.19 s / 149 MB | T1.7 | |

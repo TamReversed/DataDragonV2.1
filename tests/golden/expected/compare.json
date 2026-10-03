@@ -4,34 +4,36 @@
   "message": "Complete!",
   "percentage": 100,
   "preview": {
-   "added": [
-    {
-     "k1": null,
-     "v": "z"
-    }
-   ],
+   "added": [],
    "changed": [],
    "removed": []
   },
   "stage": "done",
   "summary": {
-   "added": 1,
+   "added": 0,
    "changed": 0,
    "common": 2,
    "file1_rows": 2,
    "file2_rows": 3,
    "removed": 0,
+   "repeated_key_rows_file1": 0,
+   "repeated_key_rows_file2": 0,
+   "rows_without_key_file1": 0,
+   "rows_without_key_file2": 1,
    "unchanged": 2
   },
-  "total": 100
+  "total": 100,
+  "warning": "1 row(s) in file 2 have no key value and were not compared (see the 'Rows Without Key' sheet)."
  },
  "output": {
-  "Added Rows": [
+  "Rows Without Key": [
    [
+    "s:'File'",
     "s:'k1'",
     "s:'v'"
    ],
    [
+    "s:'File 2'",
     "inlineStr:None",
     "s:'z'"
    ]
@@ -55,7 +57,7 @@
    ],
    [
     "s:'Added Rows (in File 2 only)'",
-    "n:1"
+    "n:0"
    ],
    [
     "s:'Removed Rows (in File 1 only)'",
@@ -68,6 +70,14 @@
    [
     "s:'Unchanged Rows'",
     "n:2"
+   ],
+   [
+    "s:'Rows Without Key (File 1)'",
+    "n:0"
+   ],
+   [
+    "s:'Rows Without Key (File 2)'",
+    "n:1"
    ]
   ],
   "Unchanged Rows": [

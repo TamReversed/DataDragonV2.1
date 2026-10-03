@@ -3747,6 +3747,17 @@ def merge_data():
 def data_comparison():
     return render_template('data_comparison.html')
 
+def _comparable_text(value):
+    """Canonical text of a cell for equality checks across file types: blank -> NaN, 5.0 -> '5',
+    a date at midnight -> 'YYYY-MM-DD'. An Excel 5 therefore equals a CSV '5', and an Excel date its CSV text."""
+    if pd.isna(value):
+        return np.nan
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.strftime('%Y-%m-%d') if (value.hour, value.minute, value.second, value.microsecond) == (0, 0, 0, 0) \
+            else value.isoformat(sep=' ')
+    return _canonical_key_text(value)
+
+
 def compare_files_async(file1_path, file2_path, key_columns, compare_columns, progress_queue, session_id):
     """Compare two files in background thread with progress tracking"""
     try:
@@ -3805,116 +3816,109 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
         
         df1_compare = df1[cols_to_compare].copy()
         df2_compare = df2[cols_to_compare].copy()
+        compare_cols_only = [col for col in cols_to_compare if col not in key_columns]
         
         send_progress('comparing', 0, 100, 'Comparing files...', 30)
         
-        # Create composite key for matching
-        if len(key_columns) == 1:
-            df1_compare['_key'] = df1_compare[key_columns[0]]
-            df2_compare['_key'] = df2_compare[key_columns[0]]
-        else:
-            # Multiple key columns - create composite key
-            df1_compare['_key'] = df1_compare[key_columns].apply(lambda row: '|||'.join([str(val) if pd.notna(val) else '' for val in row]), axis=1)
-            df2_compare['_key'] = df2_compare[key_columns].apply(lambda row: '|||'.join([str(val) if pd.notna(val) else '' for val in row]), axis=1)
+        # Rows are matched on the real key columns plus "which occurrence of this key" (1st with 1st, 2nd with
+        # 2nd...), so repeated keys are all compared. A row whose key columns are ALL blank has no key: it cannot
+        # be paired with anything, so it is set aside and reported instead of being called added or removed.
+        def key_frame(df):
+            keys = df[key_columns].copy()
+            keys['_occ'] = keys.groupby(key_columns, dropna=False, sort=False).cumcount()
+            return keys, keys[key_columns].isna().all(axis=1).to_numpy()
         
-        # Get all keys
-        keys1 = set(df1_compare['_key'].unique())
-        keys2 = set(df2_compare['_key'].unique())
+        keys1, keyless1 = key_frame(df1_compare)
+        keys2, keyless2 = key_frame(df2_compare)
+        repeated1 = int(((keys1['_occ'] > 0) & ~keyless1).sum())
+        repeated2 = int(((keys2['_occ'] > 0) & ~keyless2).sum())
         
-        # Categorize rows
-        added_keys = keys2 - keys1  # In file 2, not in file 1
-        removed_keys = keys1 - keys2  # In file 1, not in file 2
-        common_keys = keys1 & keys2  # In both files
+        valid1, valid2 = df1_compare[~keyless1], df2_compare[~keyless2]
+        keys1, keys2 = keys1[~keyless1], keys2[~keyless2]
         
-        send_progress('comparing', 50, 100, f'Found {len(common_keys)} common rows, {len(added_keys)} added, {len(removed_keys)} removed...', 50)
+        # One group id per distinct (key, occurrence) across both files; equal ids = the same row in both
+        group_ids = pd.concat([keys1, keys2], ignore_index=True).groupby(
+            key_columns + ['_occ'], dropna=False, sort=False).ngroup().to_numpy()
+        ids1, ids2 = group_ids[:len(keys1)], group_ids[len(keys1):]
+        position_in_2 = pd.Series(np.arange(len(ids2)), index=ids2)
+        has_partner = np.isin(ids1, ids2)
+        matched1 = np.nonzero(has_partner)[0]                      # file 1 order
+        matched2 = position_in_2.loc[ids1[matched1]].to_numpy()
+        removed_idx = np.nonzero(~has_partner)[0]
+        added_idx = np.nonzero(~np.isin(ids2, ids1))[0]
         
-        # Get added rows
-        added_rows = df2_compare[df2_compare['_key'].isin(added_keys)].copy()
-        added_rows = added_rows.drop('_key', axis=1)
+        common_count, added_count, removed_count = len(matched1), len(added_idx), len(removed_idx)
+        send_progress('comparing', 50, 100, f'Found {common_count} common rows, {added_count} added, {removed_count} removed...', 50)
         
-        # Get removed rows
-        removed_rows = df1_compare[df1_compare['_key'].isin(removed_keys)].copy()
-        removed_rows = removed_rows.drop('_key', axis=1)
+        added_df = valid2.iloc[added_idx].reset_index(drop=True)
+        removed_df = valid1.iloc[removed_idx].reset_index(drop=True)
+        rows1, rows2 = valid1.iloc[matched1], valid2.iloc[matched2]
         
-        # Find changed rows
+        # Which compared cells differ (blank equals blank; values compared by canonical text)
+        different = np.zeros((common_count, len(compare_cols_only)), dtype=bool)
+        for j, col in enumerate(compare_cols_only):
+            a = rows1[col].map(_comparable_text).to_numpy(dtype=object)
+            b = rows2[col].map(_comparable_text).to_numpy(dtype=object)
+            a_blank, b_blank = pd.isna(a), pd.isna(b)
+            different[:, j] = ~((a_blank & b_blank) | (~a_blank & ~b_blank & (a == b)))
+        row_changed = different.any(axis=1) if different.shape[1] else np.zeros(common_count, dtype=bool)
+        
         changed_rows = []
-        unchanged_rows = []
+        old_values = rows1[compare_cols_only].to_numpy(dtype=object)
+        new_values = rows2[compare_cols_only].to_numpy(dtype=object)
+        key_values = rows1[key_columns].to_numpy(dtype=object)
+        for i in np.nonzero(row_changed)[0]:
+            change_row = {col: key_values[i, k] for k, col in enumerate(key_columns)}
+            for j, col in enumerate(compare_cols_only):
+                if different[i, j]:
+                    change_row[f'{col} (Old)'] = None if pd.isna(old_values[i, j]) else old_values[i, j]
+                    change_row[f'{col} (New)'] = None if pd.isna(new_values[i, j]) else new_values[i, j]
+                else:
+                    change_row[col] = old_values[i, j]
+            changed_rows.append(change_row)
+        unchanged_df = rows1[~row_changed][cols_to_compare].reset_index(drop=True)
+        changed_count, unchanged_count = len(changed_rows), len(unchanged_df)
         
-        # Follow file 1's row order (iterating the set directly would vary with the process's hash seed)
-        for key in [k for k in df1_compare['_key'].drop_duplicates() if k in common_keys]:
-            row1 = df1_compare[df1_compare['_key'] == key].iloc[0]
-            row2 = df2_compare[df2_compare['_key'] == key].iloc[0]
-            
-            # Compare all columns except key
-            compare_cols_only = [col for col in cols_to_compare if col not in key_columns]
-            is_changed = False
-            differences = {}
-            
-            for col in compare_cols_only:
-                val1 = row1[col]
-                val2 = row2[col]
-                
-                # Handle NaN comparison
-                if pd.isna(val1) and pd.isna(val2):
-                    continue
-                elif pd.isna(val1) or pd.isna(val2):
-                    is_changed = True
-                    differences[col] = {'old': val1 if not pd.isna(val1) else None, 'new': val2 if not pd.isna(val2) else None}
-                elif val1 != val2:
-                    is_changed = True
-                    differences[col] = {'old': val1, 'new': val2}
-            
-            if is_changed:
-                # Create side-by-side comparison row
-                change_row = {}
-                for col in key_columns:
-                    change_row[col] = row1[col]
-                for col in compare_cols_only:
-                    if col in differences:
-                        change_row[f'{col} (Old)'] = differences[col]['old']
-                        change_row[f'{col} (New)'] = differences[col]['new']
-                    else:
-                        change_row[col] = row1[col]
-                changed_rows.append(change_row)
-            else:
-                # Unchanged row
-                unchanged_row = {}
-                for col in cols_to_compare:
-                    unchanged_row[col] = row1[col]
-                unchanged_rows.append(unchanged_row)
-        
-        send_progress('comparing', 100, 100, f'Comparison complete: {len(changed_rows)} changed rows found', 70)
+        send_progress('comparing', 100, 100, f'Comparison complete: {changed_count} changed rows found', 70)
         
         send_progress('saving', 0, 100, 'Saving comparison results...', 75)
         
-        # Create summary DataFrame
-        summary_data = {
-            'Metric': [
-                'File 1 Total Rows',
-                'File 2 Total Rows',
-                'Common Rows',
-                'Added Rows (in File 2 only)',
-                'Removed Rows (in File 1 only)',
-                'Changed Rows',
-                'Unchanged Rows'
-            ],
-            'Value': [
-                len(df1),
-                len(df2),
-                len(common_keys),
-                len(added_keys),
-                len(removed_keys),
-                len(changed_rows),
-                len(unchanged_rows)
-            ]
-        }
-        summary_df = pd.DataFrame(summary_data)
+        # Rows without a key, and repeated keys, are reported rather than silently mis-compared
+        keyless_count1, keyless_count2 = int(keyless1.sum()), int(keyless2.sum())
+        notes = []
+        if keyless_count1 or keyless_count2:
+            sides = [f"{n} row(s) in {label}" for n, label in ((keyless_count1, 'file 1'), (keyless_count2, 'file 2')) if n]
+            notes.append(f"{' and '.join(sides)} have no key value and were not compared "
+                         f"(see the 'Rows Without Key' sheet).")
+        for label, count in (('File 1', repeated1), ('File 2', repeated2)):
+            if count:
+                notes.append(f"{label} has {count} row(s) whose key repeats; repeated rows are compared in order of "
+                             f"appearance (1st with 1st, 2nd with 2nd, ...).")
+        compare_warning = ' '.join(notes) if notes else None
         
-        # Convert to DataFrames
-        added_df = pd.DataFrame(added_rows) if len(added_rows) > 0 else pd.DataFrame(columns=cols_to_compare)
-        removed_df = pd.DataFrame(removed_rows) if len(removed_rows) > 0 else pd.DataFrame(columns=cols_to_compare)
+        metrics = [
+            ('File 1 Total Rows', len(df1)),
+            ('File 2 Total Rows', len(df2)),
+            ('Common Rows', common_count),
+            ('Added Rows (in File 2 only)', added_count),
+            ('Removed Rows (in File 1 only)', removed_count),
+            ('Changed Rows', changed_count),
+            ('Unchanged Rows', unchanged_count),
+        ]
+        if keyless_count1 or keyless_count2:
+            metrics += [('Rows Without Key (File 1)', keyless_count1), ('Rows Without Key (File 2)', keyless_count2)]
+        if repeated1 or repeated2:
+            metrics += [('Repeated-Key Rows (File 1)', repeated1), ('Repeated-Key Rows (File 2)', repeated2)]
+        summary_df = pd.DataFrame({'Metric': [m for m, _ in metrics], 'Value': [v for _, v in metrics]})
+        
         changed_df = pd.DataFrame(changed_rows) if len(changed_rows) > 0 else pd.DataFrame()
-        unchanged_df = pd.DataFrame(unchanged_rows) if len(unchanged_rows) > 0 else pd.DataFrame(columns=cols_to_compare)
+        if keyless_count1 or keyless_count2:
+            keyless_df = pd.concat([
+                df1_compare[keyless1].head(100).assign(File='File 1'),
+                df2_compare[keyless2].head(100).assign(File='File 2'),
+            ], ignore_index=True)[['File'] + cols_to_compare]
+        else:
+            keyless_df = pd.DataFrame()
         
         # Save to Excel
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -3931,6 +3935,8 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
                 changed_df.to_excel(writer, sheet_name='Changed Rows', index=False)
             if len(unchanged_df) > 0:
                 unchanged_df.to_excel(writer, sheet_name='Unchanged Rows', index=False)
+            if len(keyless_df) > 0:
+                keyless_df.to_excel(writer, sheet_name='Rows Without Key', index=False)
         
         download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
@@ -3983,14 +3989,20 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
             'summary': {
                 'file1_rows': int(file1_total),
                 'file2_rows': int(file2_total),
-                'common': int(len(common_keys)),
-                'added': int(len(added_keys)),
-                'removed': int(len(removed_keys)),
-                'changed': int(len(changed_rows)),
-                'unchanged': int(len(unchanged_rows))
+                'common': int(common_count),
+                'added': int(added_count),
+                'removed': int(removed_count),
+                'changed': int(changed_count),
+                'unchanged': int(unchanged_count),
+                'rows_without_key_file1': keyless_count1,
+                'rows_without_key_file2': keyless_count2,
+                'repeated_key_rows_file1': repeated1,
+                'repeated_key_rows_file2': repeated2
             },
             'preview': preview_data
         }
+        if compare_warning:
+            final_message['warning'] = compare_warning
         
         try:
             progress_queue.put(final_message, timeout=5)
