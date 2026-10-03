@@ -22,10 +22,9 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Tests
         run: python -m pytest -q -m "not slow"
-      # Informational until the matching plan tasks land (T4.1 makes pyflakes gating, T2.1 pip-audit).
+      # pip-audit gates since T2.1; pyflakes becomes gating in T4.1 (a known undefined name is fixed in T2.6).
       - name: Lint (pyflakes)
         continue-on-error: true
         run: python -m pyflakes datadragon.py
       - name: Dependency audit (pip-audit)
-        continue-on-error: true
         run: pip-audit -r requirements.txt
