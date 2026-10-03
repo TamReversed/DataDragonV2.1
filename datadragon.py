@@ -21,6 +21,8 @@ from urllib.parse import urlparse
 from itertools import combinations, count as itertools_count
 
 from datadragon_formula import FormulaError, evaluate_formula as safe_evaluate_formula
+import datadragon_regex
+from datadragon_regex import PatternError, PatternTooComplex
 
 # PDF Report Generation
 from reportlab.lib import colors
@@ -4528,6 +4530,8 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
         total_rows = len(df)
         validated = 0
         
+        pattern_budget = datadragon_regex.Budget()
+        
         # Validate each row
         for idx, row in df.iterrows():
             row_errors = []
@@ -4585,9 +4589,8 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
                 # Pattern validation (regex)
                 elif rule_type == 'pattern':
                     if not pd.isna(cell_value):
-                        import re
-                        pattern = rule_value
-                        if not re.match(pattern, str(cell_value)):
+                        compiled_pattern = datadragon_regex.compile_pattern(rule_value)
+                        if not datadragon_regex.fullmatch(compiled_pattern, str(cell_value), pattern_budget):
                             row_errors.append(f"{col}: Value does not match required pattern")
                             is_valid = False
                 
@@ -5972,73 +5975,47 @@ def find_replace():
                 return jsonify({'error': f'Column "{column}" not found'}), 400
             columns_to_process = [column]
 
-        # Perform find and replace
-        for col in columns_to_process:
-            # Convert column to string for replacement
-            original_values = df[col].astype(str)
-
-            if match_whole_cell:
-                # Match entire cell
-                if use_regex:
-                    pattern = f'^{find_text}$'
-                    if case_sensitive:
-                        mask = original_values.str.match(pattern, na=False)
-                    else:
-                        mask = original_values.str.match(pattern, case=False, na=False)
-
-                    # Count replacements
-                    count = mask.sum()
-                    if count > 0:
-                        total_replacements += count
-                        rows_affected.update(df.index[mask].tolist())
-                        df.loc[mask, col] = replace_text
-                else:
-                    # Exact match (not regex)
-                    if case_sensitive:
-                        mask = original_values == find_text
-                    else:
-                        mask = original_values.str.lower() == find_text.lower()
-
-                    count = mask.sum()
-                    if count > 0:
-                        total_replacements += count
-                        rows_affected.update(df.index[mask].tolist())
-                        df.loc[mask, col] = replace_text
+        # Perform find and replace. Only non-blank cells that match are changed (a blank stays blank and a number
+        # that does not match stays a number); user regexes run with time limits (datadragon_regex).
+        budget = datadragon_regex.Budget()
+        try:
+            if use_regex:
+                compiled = datadragon_regex.compile_pattern(find_text, ignore_case=not case_sensitive)
             else:
-                # Partial match / substring replacement
-                if use_regex:
-                    # Count matches first
-                    if case_sensitive:
-                        matches = original_values.str.count(find_text, flags=0)
+                compiled = datadragon_regex.compile_pattern(re.escape(find_text), ignore_case=not case_sensitive)
+        except PatternError as e:
+            return jsonify({'error': str(e)}), 400
+        # a literal search text always replaces with the literal replacement; a regex may use \1 / \g<name>
+        template = replace_text if use_regex else (lambda match: replace_text)
+        
+        try:
+            for col in columns_to_process:
+                values = df[col].to_numpy(dtype=object)
+                changed = np.zeros(len(values), dtype=bool)
+                for i, value in enumerate(values):
+                    if pd.isna(value):
+                        continue
+                    text = value if isinstance(value, str) else _comparable_text(value)
+                    if match_whole_cell:
+                        if datadragon_regex.fullmatch(compiled, text, budget):
+                            values[i], changed[i] = replace_text, True
+                            total_replacements += 1
                     else:
-                        matches = original_values.str.count(find_text, flags=re.IGNORECASE)
-
-                    count = matches.sum()
-                    if count > 0:
-                        total_replacements += count
-                        rows_affected.update(df.index[matches > 0].tolist())
-
-                        if case_sensitive:
-                            df[col] = df[col].astype(str).str.replace(find_text, replace_text, regex=True)
-                        else:
-                            df[col] = df[col].astype(str).str.replace(find_text, replace_text, regex=True, flags=re.IGNORECASE)
-                else:
-                    # Simple string replacement
-                    if case_sensitive:
-                        matches = original_values.str.count(re.escape(find_text), flags=0)
-                    else:
-                        matches = original_values.str.count(re.escape(find_text), flags=re.IGNORECASE)
-
-                    count = matches.sum()
-                    if count > 0:
-                        total_replacements += count
-                        rows_affected.update(df.index[matches > 0].tolist())
-
-                        if case_sensitive:
-                            df[col] = df[col].astype(str).str.replace(find_text, replace_text, regex=False)
-                        else:
-                            # Case insensitive requires regex
-                            df[col] = df[col].astype(str).str.replace(re.escape(find_text), replace_text, regex=True, flags=re.IGNORECASE)
+                        new_text, count = datadragon_regex.substitute(compiled, template, text, budget)
+                        if count:
+                            values[i], changed[i] = new_text, True
+                            total_replacements += count
+                if changed.any():
+                    rows_affected.update(df.index[changed].tolist())
+                    df[col] = pd.Series(values, index=df.index, dtype=object)
+        except PatternTooComplex as e:
+            try:
+                os.remove(upload_path)
+            except OSError:
+                pass
+            return jsonify({'error': str(e)}), 422
+        except PatternError as e:
+            return jsonify({'error': str(e)}), 400
 
         # Save the modified file
         base_name = os.path.splitext(filename)[0]

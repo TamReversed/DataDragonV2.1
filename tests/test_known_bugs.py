@@ -170,7 +170,6 @@ def test_validation_range_string_bounds(client, tmp_path):
     assert final["summary"]["invalid_rows"] == 1  # 5 is above the maximum of 3
 
 
-@bug("A-10")
 def test_validation_pattern_fullmatch(client, tmp_path):
     path = make_csv(tmp_path / "v.csv", "zip\n123456789\n12345\n")
     rules = [{"column": "zip", "type": "pattern", "value": r"\d{5}"}]
@@ -191,7 +190,6 @@ def test_analyze_bool_column(dd):
     dd.analyze_dataframe(pd.DataFrame({"a": [True, False, True], "b": [1, 2, 3]}))
 
 
-@bug("A-13")
 def test_findreplace_wholecell_alternation(client, tmp_path):
     path = make_csv(tmp_path / "f.csv", "v\nA\nAxx\nB\n")
     resp, payload = post_form(client, "/find-replace", {"file": path},
@@ -201,7 +199,6 @@ def test_findreplace_wholecell_alternation(client, tmp_path):
     assert [r[0] for r in sheets(sync_output(payload))["Sheet1"][1:]] == ["X", "Axx", "X"]
 
 
-@bug("A-13")
 def test_blank_not_written_as_nan(client, tmp_path):
     path = make_csv(tmp_path / "f.csv", "k,v\n1,foo\n2,\n3,foo\n")  # row 2 has a truly empty cell
     resp, payload = post_form(client, "/find-replace", {"file": path},
@@ -251,14 +248,14 @@ def test_export_formula_injection_neutralised(client):
     assert evil and all(kinds[i][notes_col] == "s" for i in evil)  # must stay text, never a live formula
 
 
-@bug("G-07")
-@pytest.mark.slow
 def test_regex_redos_bounded(client, tmp_path):
-    path = make_csv(tmp_path / "r.csv", "v\n" + "a" * 29 + "!\n")
+    # (a|aa)+$ on a long non-matching cell backtracks catastrophically; it must be stopped, not run for minutes
+    path = make_csv(tmp_path / "r.csv", "v\n" + "a" * 40 + "!\n")
     started = time.time()
-    post_form(client, "/find-replace", {"file": path},
-              {"find_text": "(a+)+$", "replace_text": "x", "column": "v", "use_regex": "true"})
+    resp, payload = post_form(client, "/find-replace", {"file": path},
+                              {"find_text": "(a|aa)+$", "replace_text": "x", "column": "v", "use_regex": "true"})
     assert time.time() - started < 3
+    assert resp.status_code == 422 and "too complex" in payload["error"]
 
 
 # ---------------------------------------------------------------- H: reliability
