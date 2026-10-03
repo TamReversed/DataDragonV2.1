@@ -240,7 +240,6 @@ def test_download_requires_owner(client):
     assert other.get(payload["download_url"]).status_code in (403, 404)
 
 
-@bug("G-06")
 def test_export_formula_injection_neutralised(client):
     resp, payload = post_form(client, "/row-filter", {"file": GOLDEN_XLSX},
                               {"conditions": json.dumps([{"column": "Notes", "operator": "is_not_empty"}])})

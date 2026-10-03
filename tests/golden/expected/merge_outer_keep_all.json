@@ -116,27 +116,27 @@
    ],
    [
     "s:'3'",
-    "inlineStr:None",
+    "n:None",
     "s:'q'"
    ],
    [
-    "inlineStr:None",
+    "n:None",
     "s:'b'",
-    "inlineStr:None"
+    "n:None"
    ],
    [
-    "inlineStr:None",
+    "n:None",
     "s:'c'",
-    "inlineStr:None"
+    "n:None"
    ],
    [
-    "inlineStr:None",
-    "inlineStr:None",
+    "n:None",
+    "n:None",
     "s:'y'"
    ],
    [
-    "inlineStr:None",
-    "inlineStr:None",
+    "n:None",
+    "n:None",
     "s:'z'"
    ]
   ]

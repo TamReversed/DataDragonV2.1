@@ -60,7 +60,7 @@ def worker(case, src):
             df = d.read_data_file(src)
             out = os.path.join(up, 'write_bench.xlsx')
             t = time.perf_counter()
-            df.to_excel(out, index=False)
+            d.write_excel(df, out)
         elif case == 'analyze':
             df = d.read_data_file(src)
             t = time.perf_counter()

@@ -70,3 +70,5 @@ Same machine, data and harness as above (`scripts/bench.py`, CSV inputs from `sc
 | `dup_highcard` 100k | 40.03 s / 246 MB | **0.89 s / 263 MB** (45x faster) | T1.8 | < 5 s |
 | `dup_lowcard` 100k | 2.89 s / 270 MB | 0.69 s / 255 MB | T1.8 | |
 | `dup_highcard` 10k | 0.18 s / 132 MB | 0.06 s / 133 MB | T1.8 | |
+| `write_xlsx` 100k | 6.54 s / 758 MB (pandas, openpyxl engine) | **3.37 s / 447 MB** (direct xlsxwriter in `write_excel`) | T2.3 | <= 4 s |
+| `split40k` 100k (xlsx in, xlsx out) | 12.62 s / 387 MB | 9.88 s / 324 MB | T2.3 | |

