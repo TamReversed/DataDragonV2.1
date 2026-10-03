@@ -44,8 +44,9 @@ RATE_LIMIT_WINDOW = 60  # Per 60 seconds
 
 # Use absolute paths for upload and output folders
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'uploads')
-app.config['OUTPUT_FOLDER'] = os.path.join(BASE_DIR, 'output')
+DATA_DIR = os.environ.get('DATADRAGON_DATA_DIR', BASE_DIR)
+app.config['UPLOAD_FOLDER'] = os.path.join(DATA_DIR, 'uploads')
+app.config['OUTPUT_FOLDER'] = os.path.join(DATA_DIR, 'output')
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB max file size
 
 # Ensure folders exist
