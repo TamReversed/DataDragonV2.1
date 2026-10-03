@@ -324,7 +324,6 @@ def test_pipeline_pdf_escapes_column_names(client):
     assert final["stage"] == "done", final
 
 
-@bug("A-09")
 def test_pipeline_key_uniqueness_on_full_data(client, tmp_path):
     path = make_csv(tmp_path / "k.csv", "id,v\n007,a\n007,a\n008,b\n")
     sid = _start_pipeline(client, path)

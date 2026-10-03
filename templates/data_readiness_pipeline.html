@@ -914,6 +914,15 @@
     /* Key Cards                                 */
     /* ========================================= */
 
+    .warning-box {
+        margin-bottom: 12px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid rgba(245, 158, 11, 0.5);
+        background: rgba(245, 158, 11, 0.12);
+        font-size: 0.9rem;
+    }
+
     .key-card {
         border: 2px solid var(--border-subtle);
         border-radius: var(--radius-lg);
@@ -2989,16 +2998,28 @@
     function displayKeyResults(results) {
         document.getElementById('keyResults').classList.remove('hidden');
         const container = document.getElementById('keyCards');
-        const keys = (results && results.minimal_combinations) || [];
+        const full = (results && results.minimal_combinations) || [];
+        const afterDedup = (results && results.minimal_combinations_after_dedup) || [];
+        const dupRows = (results && results.duplicate_rows) || 0;
+        const skipped = (results && results.excluded_null_columns) || [];
+        const keys = full.length ? full : afterDedup;
+        let note = '';
+        if (dupRows && keys.length) {
+            note += `<div class="warning-box">No column combination is unique on all rows: ${dupRows.toLocaleString()} rows are exact duplicates. `
+                  + 'These candidates are unique only after those duplicates are removed.</div>';
+        }
+        if (skipped.length) {
+            note += `<div class="warning-box">Skipped columns with blank values: ${escapeHtml(skipped.join(', '))}</div>`;
+        }
 
         if (keys.length === 0) {
-            container.innerHTML = '<div class="empty-state"><div>No unique key combinations found</div></div>';
+            container.innerHTML = note + '<div class="empty-state"><div>No unique key combinations found</div></div>';
             return;
         }
 
         state.selectedKey = keys[0];
 
-        container.innerHTML = keys.map((key, idx) => `
+        container.innerHTML = note + keys.map((key, idx) => `
             <div class="key-card ${idx === 0 ? 'selected' : ''}" data-idx="${idx}">
                 <div class="key-card-title">${idx === 0 ? 'Recommended' : `Option ${idx + 1}`}</div>
                 <div class="key-card-columns">${escapeHtml(key.join(' + '))}</div>
@@ -3083,33 +3104,12 @@
                 if (rec.type === 'anonymization') {
                     substepsHtml = `
                         <div class="substep-options" data-type="${escapeHtml(rec.type)}">
-                            <div class="substep-title">How should we anonymize?</div>
+                            <div class="substep-title">What will happen</div>
                             <div class="substep-option">
-                                <input type="radio" name="anon_method" id="anon_fake" value="fake" checked>
+                                <input type="radio" name="anon_method" id="anon_method_only" value="placeholder" checked>
                                 <div class="substep-option-content">
-                                    <label class="substep-option-label" for="anon_fake">Replace with realistic fake data</label>
-                                    <div class="substep-option-desc">Generate fake names, emails, etc. that look real but aren't. Preserves data format and length.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="anon_method" id="anon_mask" value="mask">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="anon_mask">Partial masking</label>
-                                    <div class="substep-option-desc">Show first/last characters, mask the rest. e.g., "jo***@email.com" or "John D***"</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="anon_method" id="anon_hash" value="hash">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="anon_hash">Hash values</label>
-                                    <div class="substep-option-desc">Replace with SHA-256 hash. Irreversible but consistent - same input = same hash.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="anon_method" id="anon_redact" value="redact">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="anon_redact">Full redaction</label>
-                                    <div class="substep-option-desc">Replace entirely with "[REDACTED]". Maximum privacy, loses all data utility.</div>
+                                    <label class="substep-option-label" for="anon_method_only">Replace with consistent placeholders</label>
+                                    <div class="substep-option-desc">Each distinct value becomes a placeholder such as NAM_00001. The same value always gets the same placeholder, so joins and counts still work. The original values are not kept in the output.</div>
                                 </div>
                             </div>
                         </div>
@@ -3117,26 +3117,12 @@
                 } else if (rec.type === 'normalization') {
                     substepsHtml = `
                         <div class="substep-options" data-type="${escapeHtml(rec.type)}">
-                            <div class="substep-title">How should we normalize?</div>
+                            <div class="substep-title">What will happen</div>
                             <div class="substep-option">
-                                <input type="radio" name="norm_method" id="norm_convert" value="convert" checked>
+                                <input type="radio" name="norm_method" id="norm_method_only" value="report" checked>
                                 <div class="substep-option-content">
-                                    <label class="substep-option-label" for="norm_convert">Convert to detected type</label>
-                                    <div class="substep-option-desc">Automatically convert text to numbers, dates, etc. Invalid values become empty.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="norm_method" id="norm_flag" value="flag">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="norm_flag">Flag invalid values only</label>
-                                    <div class="substep-option-desc">Add a new column marking which rows have values that don't match the expected type.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="norm_method" id="norm_skip" value="skip">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="norm_skip">Report only (no changes)</label>
-                                    <div class="substep-option-desc">Include in the report but don't modify the data. Good for awareness only.</div>
+                                    <label class="substep-option-label" for="norm_method_only">Report only (data is not changed)</label>
+                                    <div class="substep-option-desc">The columns are listed in the report as having a different type than they look. This pipeline does not convert them; use the Data Normalizer tool afterwards.</div>
                                 </div>
                             </div>
                         </div>
@@ -3144,33 +3130,12 @@
                 } else if (rec.type === 'gap_handling') {
                     substepsHtml = `
                         <div class="substep-options" data-type="${escapeHtml(rec.type)}">
-                            <div class="substep-title">How should we handle missing data?</div>
+                            <div class="substep-title">What will happen</div>
                             <div class="substep-option">
-                                <input type="radio" name="gap_method" id="gap_flag" value="flag" checked>
+                                <input type="radio" name="gap_method" id="gap_method_only" value="report" checked>
                                 <div class="substep-option-content">
-                                    <label class="substep-option-label" for="gap_flag">Add flag column</label>
-                                    <div class="substep-option-desc">Create a new column indicating which rows have missing values. Preserves original data.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="gap_method" id="gap_default" value="default">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="gap_default">Fill with default value</label>
-                                    <div class="substep-option-desc">Replace empty cells with "N/A", "Unknown", or 0 depending on column type.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="gap_method" id="gap_remove" value="remove">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="gap_remove">Remove rows with gaps</label>
-                                    <div class="substep-option-desc">Delete any row that has missing values in these columns. Use with caution.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="gap_method" id="gap_report" value="report">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="gap_report">Report only (no changes)</label>
-                                    <div class="substep-option-desc">Document the gaps in the report but don't modify any data.</div>
+                                    <label class="substep-option-label" for="gap_method_only">Report only (data is not changed)</label>
+                                    <div class="substep-option-desc">The gaps are documented in the report. This pipeline does not fill or remove them.</div>
                                 </div>
                             </div>
                         </div>
@@ -3195,9 +3160,7 @@
             recs.forEach(rec => {
                 // Initialize with default method based on type
                 let defaultMethod = 'report';
-                if (rec.type === 'anonymization') defaultMethod = 'fake';
-                else if (rec.type === 'normalization') defaultMethod = 'convert';
-                else if (rec.type === 'gap_handling') defaultMethod = 'flag';
+                if (rec.type === 'anonymization') defaultMethod = 'placeholder';
 
                 state.transformations[rec.type] = {
                     enabled: false,
@@ -3254,16 +3217,8 @@
         const content = document.getElementById('summaryContent');
 
         const methodLabels = {
-            'fake': 'Replace with fake data',
-            'mask': 'Partial masking',
-            'hash': 'Hash values',
-            'redact': 'Full redaction',
-            'convert': 'Convert to detected type',
-            'flag': 'Add flag column',
-            'skip': 'Report only',
-            'default': 'Fill with defaults',
-            'remove': 'Remove rows',
-            'report': 'Report only'
+            'placeholder': 'Replace with consistent placeholders',
+            'report': 'Report only (data unchanged)'
         };
 
         const transforms = Object.entries(state.transformations)

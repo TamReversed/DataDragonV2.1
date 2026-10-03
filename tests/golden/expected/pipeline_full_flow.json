@@ -22,14 +22,17 @@
     "columns": [
      "Name"
     ],
+    "note": "Values replaced with consistent placeholders (e.g. NAM_00001); the same value always gets the same placeholder",
     "rows_affected": 40,
+    "status": "applied",
     "type": "anonymization"
    },
    {
     "columns": [
      "EuroNum"
     ],
-    "note": "Type hints recorded for reference",
+    "note": "Type conversion was not performed on the data; use the Data Normalizer tool",
+    "status": "recorded, not applied",
     "type": "normalization"
    }
   ]
@@ -738,7 +741,7 @@
  "gaps_status": 200,
  "keys_final": {
   "current": 0,
-  "message": "Search complete. Found 3 minimal key(s).",
+  "message": "Search complete. Found 2 minimal key(s).",
   "percentage": 92,
   "stage": "complete",
   "total": 0
@@ -749,8 +752,6 @@
   "filtering",
   "level1",
   "level2",
-  "level3",
-  "level4",
   "loading"
  ],
  "select": {
@@ -822,19 +823,19 @@
     "column_details": [
      {
       "column": "Account",
-      "explanation": "Contains account numbers - will be replaced with fake numbers",
+      "explanation": "Contains account numbers - will be replaced with placeholders like ACC_00001",
       "pattern": "account",
       "unique_values": 38
      },
      {
       "column": "Name",
-      "explanation": "Contains personal names - will be replaced with realistic fake names",
+      "explanation": "Contains personal names - will be replaced with placeholders like NAM_00001",
       "pattern": "name",
       "unique_values": 4
      },
      {
       "column": "Email",
-      "explanation": "Contains email addresses - will be replaced with anonymized emails",
+      "explanation": "Contains email addresses - will be replaced with placeholders like EMA_00001",
       "pattern": "email",
       "unique_values": 38
      }
@@ -844,7 +845,7 @@
      "Name",
      "Email"
     ],
-    "description": "Protect personally identifiable information (PII) by replacing sensitive data with realistic fake values while maintaining data structure and relationships.",
+    "description": "Protect personally identifiable information (PII) by replacing each distinct value with a consistent placeholder (the same value always gets the same placeholder, so joins and counts still work).",
     "priority": "high",
     "title": "Data Anonymization",
     "type": "anonymization"
@@ -855,13 +856,13 @@
       "column": "Date",
       "current": "object",
       "detected": "Date",
-      "explanation": "Stored as text but contains dates - will convert to proper date format for sorting/filtering"
+      "explanation": "Stored as text but contains dates - flagged only: this pipeline does not convert it (use the Data Normalizer)"
      },
      {
       "column": "DateText",
       "current": "object",
       "detected": "Date",
-      "explanation": "Stored as text but contains dates - will convert to proper date format for sorting/filtering"
+      "explanation": "Stored as text but contains dates - flagged only: this pipeline does not convert it (use the Data Normalizer)"
      }
     ],
     "columns": [

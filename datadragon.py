@@ -2897,7 +2897,7 @@ def generate_natural_key_report(output_path, original_rows, duplicate_count, row
     doc.build(story)
 
 
-def find_unique_identifier_async(upload_path, selected_columns, progress_queue, session_id):
+def find_unique_identifier_async(upload_path, selected_columns, progress_queue, session_id, allow_null_keys=False):
     """Find minimal set of columns that create unique identifiers in background thread with progress tracking"""
     try:
         send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
@@ -2921,9 +2921,11 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         send_progress('filtering', 0, 100, 'Identifying fully duplicate rows...', 15)
         duplicate_count = df.duplicated().sum()
         
+        keyed = df
         if duplicate_count > 0:
-            df = df.drop_duplicates(keep='first')
-            send_progress('filtering', 100, 100, f'Removed {duplicate_count:,} fully duplicate rows. {len(df):,} rows remaining.', 20)
+            # Keys are searched on the de-duplicated rows; the export keeps every row and flags the repeats
+            keyed = df.drop_duplicates(keep='first')
+            send_progress('filtering', 100, 100, f'{duplicate_count:,} fully duplicate rows excluded from the key search. {len(keyed):,} rows analyzed.', 20)
         else:
             send_progress('filtering', 100, 100, 'No fully duplicate rows found.', 20)
         
@@ -2935,6 +2937,15 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         if invalid_columns:
             raise ValueError(f"Columns not found in file: {', '.join(invalid_columns)}")
         
+        # Columns with blanks make poor keys; skip them unless the owner allows it
+        skipped_null_columns = [] if allow_null_keys else [c for c in selected_columns if keyed[c].isna().any()]
+        selected_columns = [c for c in selected_columns if c not in skipped_null_columns]
+        if skipped_null_columns:
+            send_progress('analyzing', 0, 100, f'Skipping {len(skipped_null_columns)} column(s) with blank values', 24)
+        if not selected_columns:
+            raise ValueError("Every selected column contains blank values, so none can be used as a key. "
+                             "Select other columns or allow blank values in keys.")
+
         # Step 2: Find minimal unique combinations using Apriori pruning algorithm
         # This algorithm ensures we find truly MINIMAL keys by only expanding non-unique combinations
         send_progress('analyzing', 0, 100, f'Analyzing {len(selected_columns)} selected columns using Apriori algorithm...', 25)
@@ -2949,7 +2960,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         send_progress('analyzing', 10, 100, 'Level 1: Checking single columns...', 30)
         for idx, col in enumerate(selected_columns):
             # Check if this single column creates unique identifiers
-            is_unique = df[[col]].duplicated().sum() == 0
+            is_unique = keyed[[col]].duplicated().sum() == 0
 
             if is_unique:
                 minimal_combinations.append([col])
@@ -3012,7 +3023,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
                     break
 
                 # Check uniqueness using duplicated() - efficient vectorized operation
-                is_unique = df[candidate].duplicated().sum() == 0
+                is_unique = keyed[candidate].duplicated().sum() == 0
 
                 if is_unique:
                     minimal_combinations.append(candidate)
@@ -3042,6 +3053,8 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
             lambda row: '|||'.join(str(v) if pd.notna(v) else '' for v in row),
             axis=1
         )
+        # Every row is kept; exact repeats of an earlier row are flagged instead of silently dropped
+        df['_is_duplicate'] = df.drop(columns=['Unique_ID']).duplicated(keep='first')
 
         # Sample of unique IDs for PDF report
         sample_df = df[primary_combo + ['Unique_ID']].head(100).copy()
@@ -3063,7 +3076,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
             output_path=pdf_path,
             original_rows=original_row_count,
             duplicate_count=duplicate_count,
-            rows_analyzed=len(df),
+            rows_analyzed=len(keyed),
             selected_columns=selected_columns,
             minimal_combinations=minimal_combinations,
             primary_combo=primary_combo,
@@ -3190,7 +3203,9 @@ def find_unique_identifier():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        start_job(find_unique_identifier_async, upload_path, selected_columns, progress_queue, session_id)
+        allow_null_keys = request.form.get('allow_null_keys', '').lower() in ('1', 'true', 'on', 'yes')
+        start_job(find_unique_identifier_async, upload_path, selected_columns, progress_queue, session_id,
+                  allow_null_keys)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -6585,6 +6600,7 @@ def pipeline_find_keys(session_id):
     try:
         data = request.get_json() or {}
         selected_columns = data.get('selected_columns', list(state.df.columns))
+        allow_null_keys = bool(data.get('allow_null_keys', False))
 
         if not selected_columns:
             return jsonify({'error': 'Please select at least one column'}), 400
@@ -6607,130 +6623,116 @@ def pipeline_find_keys(session_id):
 
                 send_progress('loading', 2, 'Preparing data for analysis...')
 
-                df = state.df.copy()
-                total_rows = len(df)
+                full_df = state.df
+                total_rows = len(full_df)
 
-                # Remove fully duplicate rows for key analysis
-                send_progress('filtering', 5, f'Checking for duplicate rows in {total_rows:,} records...')
-                duplicate_count = df.duplicated().sum()
-                if duplicate_count > 0:
-                    df = df.drop_duplicates(keep='first')
-                    send_progress('filtering', 8, f'Removed {duplicate_count:,} duplicate rows. {len(df):,} unique rows remaining.')
-                else:
-                    send_progress('filtering', 8, f'No duplicate rows found. Analyzing {len(df):,} rows.')
-
-                # Validate columns
-                invalid_cols = [c for c in selected_columns if c not in df.columns]
+                invalid_cols = [c for c in selected_columns if c not in full_df.columns]
                 if invalid_cols:
                     raise ValueError(f"Columns not found: {', '.join(invalid_cols)}")
 
-                # Find minimal unique combinations using Apriori
-                minimal_combinations = []
-                non_unique_combinations = []
-                n = len(selected_columns)
-                max_size = min(n, 5)
-                max_keys = 10
+                # A key must identify every row: it is tested on the FULL data. When exact duplicate rows exist
+                # nothing can be a key, so the search is repeated once on the de-duplicated rows and reported
+                # separately ("unique after removing N exact duplicate rows").
+                send_progress('filtering', 5, f'Checking for duplicate rows in {total_rows:,} records...')
+                duplicate_count = int(full_df.duplicated().sum())
 
-                # Calculate progress ranges - use 10-90% for the actual work
-                # Level 1 gets 10-25%, remaining levels share 25-90%
-                level1_start = 10
-                level1_end = 25
-                remaining_start = 25
-                remaining_end = 90
-                levels_remaining = max_size - 1  # levels 2 through max_size
-                level_range = (remaining_end - remaining_start) / max(levels_remaining, 1)
+                # Columns with blanks make poor keys (a blank is not an identifier); skip them unless allowed
+                null_columns = [] if allow_null_keys else [c for c in selected_columns if full_df[c].isna().any()]
+                candidate_columns = [c for c in selected_columns if c not in null_columns]
+                if null_columns:
+                    send_progress('filtering', 7, f'Skipping {len(null_columns)} column(s) with blank values: '
+                                  + ', '.join(null_columns))
 
-                # Level 1: Single columns
-                send_progress('level1', level1_start, f'Level 1: Testing {n} single columns...', 0, n)
-                for idx, col in enumerate(selected_columns):
-                    is_unique = df[[col]].duplicated().sum() == 0
-                    if is_unique:
-                        minimal_combinations.append([col])
-                    else:
-                        non_unique_combinations.append(frozenset([col]))
+                def search(frame, lo, hi):
+                    """Apriori search for minimal unique column combinations; progress is scaled into lo..hi."""
+                    def report(stage, pct, msg, current=0, total=0):
+                        send_progress(stage, lo + int(pct / 100 * (hi - lo)), msg, current, total)
 
-                    # Update progress for each column
-                    pct = level1_start + int((idx + 1) / n * (level1_end - level1_start))
-                    if is_unique:
-                        send_progress('level1', pct, f'Found unique key: {col}', idx + 1, n)
-                    elif (idx + 1) % 3 == 0 or idx == n - 1:
-                        send_progress('level1', pct,
-                                     f'Level 1: Tested {idx + 1}/{n} columns. Found {len(minimal_combinations)} key(s).',
-                                     idx + 1, n)
+                    found = []
+                    non_unique = []
+                    n = len(candidate_columns)
+                    max_size = min(n, 5)
+                    max_keys = 10
 
-                # Levels 2+: Composite keys with Apriori pruning
-                for k in range(2, max_size + 1):
-                    level_idx = k - 2  # 0 for level 2, 1 for level 3, etc.
-                    level_start = remaining_start + int(level_idx * level_range)
-                    level_end = remaining_start + int((level_idx + 1) * level_range)
+                    # Level 1 gets 10-25%, remaining levels share 25-90%
+                    levels_remaining = max_size - 1
+                    level_range = 65 / max(levels_remaining, 1)
 
-                    if not non_unique_combinations or len(minimal_combinations) >= max_keys:
-                        send_progress('complete', 92,
-                                     f'Search complete. Found {len(minimal_combinations)} minimal key(s).')
-                        break
-
-                    # Generate candidates
-                    send_progress(f'level{k}', level_start,
-                                 f'Level {k}: Generating {k}-column candidates using Apriori pruning...')
-
-                    pool_cols = set()
-                    for combo in non_unique_combinations:
-                        pool_cols.update(combo)
-
-                    valid_candidates = []
-                    for combo in combinations(sorted(pool_cols), k):
-                        combo_set = frozenset(combo)
-                        all_subsets_non_unique = all(
-                            frozenset(subset) in non_unique_combinations
-                            for subset in combinations(combo, k - 1)
-                        )
-                        if all_subsets_non_unique:
-                            valid_candidates.append(list(combo))
-
-                    if not valid_candidates:
-                        send_progress(f'level{k}', level_end,
-                                     f'Level {k}: No valid candidates after pruning.')
-                        continue
-
-                    send_progress(f'level{k}', level_start + 2,
-                                 f'Level {k}: Testing {len(valid_candidates)} candidate combinations...',
-                                 0, len(valid_candidates))
-
-                    next_level_non_unique = []
-                    for idx, candidate in enumerate(valid_candidates):
-                        if len(minimal_combinations) >= max_keys:
-                            break
-                        is_unique = df[candidate].duplicated().sum() == 0
+                    report('level1', 10, f'Level 1: Testing {n} single columns...', 0, n)
+                    for idx, col in enumerate(candidate_columns):
+                        is_unique = not frame[col].duplicated().any()
                         if is_unique:
-                            minimal_combinations.append(candidate)
+                            found.append([col])
                         else:
-                            next_level_non_unique.append(frozenset(candidate))
-
-                        # Calculate granular progress within this level
-                        progress_in_level = (idx + 1) / len(valid_candidates)
-                        pct = level_start + 2 + int(progress_in_level * (level_end - level_start - 2))
-
-                        # Update more frequently for better UX
+                            non_unique.append(frozenset([col]))
+                        pct = 10 + int((idx + 1) / n * 15)
                         if is_unique:
-                            send_progress(f'level{k}', pct, f'Found key: {" + ".join(candidate)}',
-                                         idx + 1, len(valid_candidates))
-                        elif (idx + 1) % 5 == 0 or idx == len(valid_candidates) - 1:
-                            send_progress(f'level{k}', pct,
-                                         f'Level {k}: Tested {idx + 1}/{len(valid_candidates)} combinations. Found {len(minimal_combinations)} key(s).',
-                                         idx + 1, len(valid_candidates))
+                            report('level1', pct, f'Found unique key: {col}', idx + 1, n)
+                        elif (idx + 1) % 3 == 0 or idx == n - 1:
+                            report('level1', pct, f'Level 1: Tested {idx + 1}/{n} columns. Found {len(found)} key(s).',
+                                   idx + 1, n)
 
-                    non_unique_combinations = next_level_non_unique
+                    for k in range(2, max_size + 1):
+                        level_start = 25 + int((k - 2) * level_range)
+                        level_end = 25 + int((k - 1) * level_range)
+                        if not non_unique or len(found) >= max_keys:
+                            break
+
+                        report(f'level{k}', level_start,
+                               f'Level {k}: Generating {k}-column candidates using Apriori pruning...')
+                        pool_cols = set()
+                        for combo in non_unique:
+                            pool_cols.update(combo)
+
+                        valid_candidates = []
+                        for combo in combinations(sorted(pool_cols), k):
+                            if all(frozenset(subset) in non_unique for subset in combinations(combo, k - 1)):
+                                valid_candidates.append(list(combo))
+                        if not valid_candidates:
+                            report(f'level{k}', level_end, f'Level {k}: No valid candidates after pruning.')
+                            continue
+
+                        report(f'level{k}', level_start + 2,
+                               f'Level {k}: Testing {len(valid_candidates)} candidate combinations...',
+                               0, len(valid_candidates))
+                        next_level_non_unique = []
+                        for idx, candidate in enumerate(valid_candidates):
+                            if len(found) >= max_keys:
+                                break
+                            if not frame[candidate].duplicated().any():
+                                found.append(candidate)
+                            else:
+                                next_level_non_unique.append(frozenset(candidate))
+                            pct = level_start + 2 + int((idx + 1) / len(valid_candidates) * (level_end - level_start - 2))
+                            if found and found[-1] == candidate:
+                                report(f'level{k}', pct, f'Found key: {" + ".join(candidate)}',
+                                       idx + 1, len(valid_candidates))
+                            elif (idx + 1) % 5 == 0 or idx == len(valid_candidates) - 1:
+                                report(f'level{k}', pct,
+                                       f'Level {k}: Tested {idx + 1}/{len(valid_candidates)} combinations. '
+                                       f'Found {len(found)} key(s).', idx + 1, len(valid_candidates))
+                        non_unique = next_level_non_unique
+                    return found
+
+                if duplicate_count:
+                    send_progress('filtering', 8, f'{duplicate_count:,} exact duplicate rows found - no column '
+                                  'combination can be unique on the full data. Searching again without them.')
+                    minimal_combinations = search(full_df, 10, 50)          # empty by construction; kept honest
+                    after_dedup = search(full_df.drop_duplicates(keep='first'), 50, 92)
                 else:
-                    # Loop completed without break - all levels exhausted
-                    send_progress('complete', 92,
-                                 f'Search complete. Found {len(minimal_combinations)} minimal key(s).')
+                    send_progress('filtering', 8, f'No duplicate rows found. Analyzing {total_rows:,} rows.')
+                    minimal_combinations = search(full_df, 10, 92)
+                    after_dedup = []
+                send_progress('complete', 92, f'Search complete. Found {len(minimal_combinations) + len(after_dedup)} minimal key(s).')
 
                 # Store results
                 key_results = {
                     'minimal_combinations': minimal_combinations,
+                    'minimal_combinations_after_dedup': after_dedup,
                     'selected_columns': selected_columns,
-                    'rows_analyzed': len(df),
-                    'duplicates_removed': duplicate_count
+                    'excluded_null_columns': null_columns,
+                    'rows_analyzed': total_rows,
+                    'duplicate_rows': duplicate_count,
                 }
                 state.stage_data[3] = key_results
 
@@ -6738,7 +6740,10 @@ def pipeline_find_keys(session_id):
                 progress_queue.put({
                     'stage': 'done',
                     'percentage': 100,
-                    'message': f'Analysis complete! Found {len(minimal_combinations)} natural key candidate(s).',
+                    'message': (f'Analysis complete! Found {len(minimal_combinations)} natural key candidate(s).'
+                                if not duplicate_count else
+                                f'Analysis complete! No key is unique on all {total_rows:,} rows; '
+                                f'{len(after_dedup)} candidate(s) are unique after removing {duplicate_count:,} exact duplicate rows.'),
                     'results': key_results
                 })
 
@@ -6812,18 +6817,18 @@ def pipeline_get_transformations(session_id):
 
             # Generate explanation based on pattern
             pattern_explanations = {
-                'name': 'Contains personal names - will be replaced with realistic fake names',
-                'email': 'Contains email addresses - will be replaced with anonymized emails',
-                'phone': 'Contains phone numbers - will be replaced with fake phone numbers',
-                'address': 'Contains addresses - will be replaced with fake addresses',
-                'ssn': 'Contains Social Security Numbers - will be masked or replaced',
-                'social': 'Contains social identifiers - will be anonymized',
-                'credit': 'Contains credit card or financial info - will be masked',
-                'account': 'Contains account numbers - will be replaced with fake numbers',
-                'password': 'Contains passwords or secrets - will be hashed or removed',
-                'dob': 'Contains dates of birth - will be shifted or generalized',
-                'birth': 'Contains birth information - will be anonymized',
-                'salary': 'Contains salary/compensation data - will be bucketed or masked'
+                'name': 'Contains personal names - will be replaced with placeholders like NAM_00001',
+                'email': 'Contains email addresses - will be replaced with placeholders like EMA_00001',
+                'phone': 'Contains phone numbers - will be replaced with placeholders like PHO_00001',
+                'address': 'Contains addresses - will be replaced with placeholders like ADD_00001',
+                'ssn': 'Contains Social Security Numbers - will be replaced with placeholders like SSN_00001',
+                'social': 'Contains social identifiers - will be replaced with placeholders',
+                'credit': 'Contains credit card or financial info - will be replaced with placeholders',
+                'account': 'Contains account numbers - will be replaced with placeholders like ACC_00001',
+                'password': 'Contains passwords or secrets - will be replaced with placeholders',
+                'dob': 'Contains dates of birth - will be replaced with placeholders (the dates are not kept)',
+                'birth': 'Contains birth information - will be replaced with placeholders',
+                'salary': 'Contains salary/compensation data - will be replaced with placeholders (amounts are not kept)'
             }
             explanation = pattern_explanations.get(pattern, 'May contain sensitive information')
 
@@ -6837,7 +6842,7 @@ def pipeline_get_transformations(session_id):
         recommendations.append({
             'type': 'anonymization',
             'title': 'Data Anonymization',
-            'description': 'Protect personally identifiable information (PII) by replacing sensitive data with realistic fake values while maintaining data structure and relationships.',
+            'description': 'Protect personally identifiable information (PII) by replacing each distinct value with a consistent placeholder (the same value always gets the same placeholder, so joins and counts still work).',
             'columns': [c['column'] for c in sensitive_cols],
             'column_details': column_details,
             'priority': 'high'
@@ -6852,10 +6857,10 @@ def pipeline_get_transformations(session_id):
             if 'object' in dtype and detected in ['Numeric', 'Integer', 'Date', 'Currency']:
                 # Generate explanation based on detected type
                 type_explanations = {
-                    'Numeric': f'Stored as text but contains numbers - will convert to numeric format for calculations',
-                    'Integer': f'Stored as text but contains whole numbers - will convert to integer format',
-                    'Date': f'Stored as text but contains dates - will convert to proper date format for sorting/filtering',
-                    'Currency': f'Stored as text but contains currency values - will convert to numeric and standardize format'
+                    'Numeric': f'Stored as text but contains numbers - flagged only: this pipeline does not convert it (use the Data Normalizer)',
+                    'Integer': f'Stored as text but contains whole numbers - flagged only: this pipeline does not convert it (use the Data Normalizer)',
+                    'Date': f'Stored as text but contains dates - flagged only: this pipeline does not convert it (use the Data Normalizer)',
+                    'Currency': f'Stored as text but contains currency values - flagged only: this pipeline does not convert it (use the Data Normalizer)'
                 }
                 explanation = type_explanations.get(detected, 'May need type conversion')
 
@@ -6978,19 +6983,33 @@ def pipeline_execute(session_id):
                         transformation_log.append({
                             'type': 'anonymization',
                             'columns': anon_cols,
-                            'rows_affected': len(result_df)
+                            'rows_affected': len(result_df),
+                            'status': 'applied',
+                            'note': 'Values replaced with consistent placeholders (e.g. NAM_00001); the same value always gets the same placeholder',
                         })
 
                 # Apply type normalization if selected
                 if selections.get('normalization', {}).get('enabled'):
-                    send_progress(40, 'Applying type normalization...')
+                    send_progress(40, 'Recording type normalization...')
                     norm_cols = selections['normalization'].get('columns', [])
-                    # Type normalization would be applied here
+                    # Type conversion is not implemented here: use the Data Normalizer tool on the result
                     if norm_cols:
                         transformation_log.append({
                             'type': 'normalization',
                             'columns': norm_cols,
-                            'note': 'Type hints recorded for reference'
+                            'status': 'recorded, not applied',
+                            'note': 'Type conversion was not performed on the data; use the Data Normalizer tool',
+                        })
+
+                # Gap handling is only reported: nothing is filled or removed
+                if selections.get('gap_handling', {}).get('enabled'):
+                    gap_cols = selections['gap_handling'].get('columns', [])
+                    if gap_cols:
+                        transformation_log.append({
+                            'type': 'gap_handling',
+                            'columns': gap_cols,
+                            'status': 'recorded, not applied',
+                            'note': 'The gaps are documented in the report; no values were filled or rows removed',
                         })
 
                 send_progress(60, 'Generating PDF report...')
@@ -7164,17 +7183,29 @@ def generate_readiness_report(output_path, state, transformation_log=None):
     key_data = (state.stage_data.get(3) or {})
     if key_data:
         all_candidates = key_data.get('minimal_combinations', [])
+        dup_rows = key_data.get('duplicate_rows', 0)
+        if not all_candidates:
+            all_candidates = key_data.get('minimal_combinations_after_dedup', [])
         selected_key = key_data.get('user_selected_key', all_candidates[0] if all_candidates else [])
 
         if selected_key:
             selected_key_str = ' + '.join(map(str, selected_key)) if isinstance(selected_key, list) else str(selected_key)
             story.append(Paragraph(f"<b>Selected Natural Key:</b> {pdf_text(selected_key_str)}", body_style))
             story.append(Spacer(1, 8))
-            story.append(Paragraph(
-                "This column combination uniquely identifies each row in your dataset and can serve as a primary key.",
-                body_style
-            ))
-        else:
+            if dup_rows:
+                story.append(Paragraph(
+                    f"This column combination is unique only after removing {dup_rows:,} exact duplicate rows; "
+                    "on the full data it repeats.", body_style))
+            else:
+                story.append(Paragraph(
+                    "This column combination uniquely identifies each row in your dataset and can serve as a primary key.",
+                    body_style
+                ))
+        if key_data.get('excluded_null_columns'):
+            story.append(Spacer(1, 6))
+            story.append(Paragraph("Columns skipped because they contain blank values: "
+                                   + pdf_text(', '.join(map(str, key_data['excluded_null_columns']))), body_style))
+        if not selected_key:
             story.append(Paragraph("No natural key was selected.", body_style))
 
         # Show alternative options
@@ -7213,7 +7244,14 @@ def generate_readiness_report(output_path, state, transformation_log=None):
     story.append(Paragraph("5. Execution Log", heading_style))
     if transformation_log:
         for entry in transformation_log:
-            story.append(Paragraph(f"• {pdf_text(str(entry.get('type', 'Unknown')).title())}: {len(entry.get('columns', []))} column(s) affected", body_style))
+            status = entry.get('status', 'applied')
+            if status == 'applied':
+                line = f"• {str(entry.get('type', 'Unknown')).title()}: {len(entry.get('columns', []))} column(s) affected"
+            else:
+                line = f"• {str(entry.get('type', 'Unknown')).title()}: {status} ({len(entry.get('columns', []))} column(s) selected, data unchanged)"
+            story.append(Paragraph(pdf_text(line), body_style))
+            if entry.get('note'):
+                story.append(Paragraph(f"    {pdf_text(entry['note'])}", body_style))
     else:
         story.append(Paragraph("No transformations were executed.", body_style))
 
