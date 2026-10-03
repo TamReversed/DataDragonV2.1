@@ -519,7 +519,7 @@
         <div class="file-upload-text">Drop your Excel or CSV file here</div>
         <div class="file-upload-hint">or click to browse</div>
         <div class="file-upload-hint mt-2" id="fileSizeInfo"></div>
-        <input type="file" id="fileInput" class="file-upload-input" accept=".xlsx,.xls,.csv">
+        <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" aria-label="Choose a file to upload">
     </div>
 </div>
 
@@ -710,13 +710,13 @@
             if (data.files && data.files.length > 0) {
                 cachedFilesSection.classList.add('show');
                 cachedFilesList.innerHTML = data.files.map(file => `
-                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
+                    <button type="button" class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
                         <div class="cached-file-info">
                             <div class="cached-file-name">${escapeHtml(file.filename)}</div>
                             <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns</div>
                         </div>
                         <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
-                    </div>
+                    </button>
                 `).join('');
             }
         } catch (err) {

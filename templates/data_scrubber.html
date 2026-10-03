@@ -734,7 +734,7 @@
     <div class="file-upload-text">Click to upload or drag and drop</div>
     <div class="file-upload-hint">Excel or CSV files (.xlsx, .xls, .csv)</div>
     <div class="file-size-info" id="fileSizeInfo" style="display: none;"></div>
-    <input type="file" id="fileInput" class="file-upload-input" name="file" accept=".xlsx,.xls,.csv" required aria-label="Upload file for anonymization">
+    <input type="file" id="fileInput" class="visually-hidden file-upload-input" name="file" accept=".xlsx,.xls,.csv" required aria-label="Upload file for anonymization">
 </div>
 
 <!-- Data Preview Section -->
@@ -1045,13 +1045,13 @@
             if (data.files && data.files.length > 0) {
                 cachedFilesSection.style.display = 'block';
                 cachedFilesList.innerHTML = data.files.map(file => `
-                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
+                    <button type="button" class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
                         <div class="cached-file-info">
                             <div class="cached-file-name">${escapeHtml(file.filename)}</div>
                             <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns - ${file.cached_at}</div>
                         </div>
                         <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
-                    </div>
+                    </button>
                 `).join('');
             }
         } catch (err) {

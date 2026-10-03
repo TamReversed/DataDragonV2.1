@@ -132,6 +132,9 @@
         }
 
         .toggle-switch {
+            border: 0;
+            padding: 0;
+            display: block;
             position: relative;
             width: 50px;
             height: 26px;
@@ -479,8 +482,21 @@
             color: #666;
         }
 
+        :has(> input[type="file"]:focus-visible) {
+            outline: 2px solid #8b5cf6;
+            outline-offset: 3px;
+        }
+
         input[type="file"] {
-            display: none;
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            margin: -1px;
+            padding: 0;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
         }
 
         .form-group {
@@ -956,9 +972,9 @@
     <!-- UI Toggle -->
     <div class="ui-toggle">
         <span class="ui-toggle-label">Classic</span>
-        <div class="toggle-switch" id="uiToggle">
-            <div class="toggle-slider"></div>
-        </div>
+        <button type="button" class="toggle-switch" id="uiToggle" role="switch" aria-checked="false" aria-label="Future (beta) theme">
+            <span class="toggle-slider"></span>
+        </button>
         <span class="mode-text">Future (beta)</span>
     </div>
 
@@ -1017,7 +1033,7 @@
                 <div class="upload-icon"></div>
                 <div class="upload-text">Click to upload or drag and drop</div>
                 <div class="upload-subtext">Excel files only (.xlsx, .xls)</div>
-                <input type="file" id="fileInput" name="file" accept=".xlsx,.xls" required>
+                <input type="file" class="visually-hidden" id="fileInput" name="file" accept=".xlsx,.xls" required aria-label="Choose a file to upload">
             </div>
 
             <div class="file-info" id="fileInfo">
@@ -1096,10 +1112,12 @@
             if (isFutureMode) {
                 document.body.classList.add('future-mode');
                 uiToggle.classList.add('active');
+                uiToggle.setAttribute('aria-checked', 'true');
                 localStorage.setItem('uiTheme', 'future');
             } else {
                 document.body.classList.remove('future-mode');
                 uiToggle.classList.remove('active');
+                uiToggle.setAttribute('aria-checked', 'false');
                 localStorage.setItem('uiTheme', 'classic');
             }
         }

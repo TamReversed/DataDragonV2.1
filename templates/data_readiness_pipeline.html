@@ -984,6 +984,9 @@
     }
 
     .transform-toggle {
+        border: 0;
+        padding: 0;
+        display: block;
         width: 40px;
         height: 22px;
         background: var(--bg-tertiary);
@@ -1579,7 +1582,7 @@
                 </svg>
                 <div class="upload-text">Drop file here or click to browse</div>
                 <div class="upload-hint">.xlsx, .xls, .csv</div>
-                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display: none;">
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" class="visually-hidden" aria-label="Choose a file to upload">
             </div>
 
             <!-- Upload success info -->
@@ -3151,7 +3154,7 @@
                             <span class="transform-title">${escapeHtml(rec.title)}
                                 <span class="priority-badge priority-${rec.priority}">${rec.priority}</span>
                             </span>
-                            <div class="transform-toggle" data-type="${escapeHtml(rec.type)}"></div>
+                            <button type="button" class="transform-toggle" role="switch" aria-checked="false" aria-label="Apply ${escapeHtml(rec.title)}" data-type="${escapeHtml(rec.type)}"></button>
                         </div>
                         <div class="transform-desc">${escapeHtml(rec.description)}</div>
                         ${columnDetailsHtml /* safe: number, css class/colour or HTML assembled from escaped parts */}
@@ -3175,6 +3178,7 @@
             container.querySelectorAll('.transform-toggle').forEach(toggle => {
                 toggle.addEventListener('click', () => {
                     toggle.classList.toggle('active');
+                    toggle.setAttribute('aria-checked', toggle.classList.contains('active') ? 'true' : 'false');
                     const card = toggle.closest('.transform-card');
                     card.classList.toggle('enabled');
                     const transformType = toggle.dataset.type;

@@ -542,8 +542,31 @@ body {
     color: var(--text-muted);
 }
 
+.visually-hidden,
 .file-upload-input {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* The hidden file input stays focusable: show the focus on the drop zone that contains it */
+:has(> input[type="file"]:focus-visible) {
+    outline: 2px solid var(--accent-purple, #8b5cf6);
+    outline-offset: 3px;
+}
+
+/* Cached-file rows are buttons: keep the look of the row they replace */
+button.cached-file-item {
+    width: 100%;
+    font: inherit;
+    color: inherit;
+    text-align: left;
 }
 
 /* ========================================= */
