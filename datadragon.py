@@ -17,7 +17,7 @@ from collections import defaultdict
 import re
 import uuid
 from urllib.parse import urlparse
-from itertools import combinations
+from itertools import combinations, count
 
 from datadragon_formula import FormulaError, evaluate_formula as safe_evaluate_formula
 
@@ -3394,6 +3394,46 @@ def find_unique_identifier():
 def data_merge():
     return render_template('data_merge.html')
 
+class _BlankKey:
+    """Stands in for a blank join key. Every instance is unique (equality is identity), so a blank key can
+    never match anything; pandas would otherwise join NaN to NaN and multiply blank-key rows.
+    Outer joins sort their keys, so instances are orderable: after every real key, then by creation."""
+    __slots__ = ('n',)
+    _serial = count()
+
+    def __init__(self):
+        self.n = next(_BlankKey._serial)
+
+    def __lt__(self, other):
+        return isinstance(other, _BlankKey) and self.n < other.n
+
+    def __gt__(self, other):
+        return not isinstance(other, _BlankKey) or self.n > other.n
+
+    def __le__(self, other):
+        return self is other or self < other
+
+    def __ge__(self, other):
+        return self is other or self > other
+
+
+def _null_safe_keys(series):
+    """Object copy of a key column in which every blank is replaced by its own _BlankKey."""
+    values = series.to_numpy(dtype=object, copy=True)
+    blank = series.isna().to_numpy()
+    placeholders = np.empty(int(blank.sum()), dtype=object)
+    for i in range(len(placeholders)):
+        placeholders[i] = _BlankKey()
+    values[blank] = placeholders
+    return values
+
+
+def _restore_blank_keys(df, columns):
+    for column in set(columns):
+        if column in df.columns:
+            df[column] = [np.nan if isinstance(v, _BlankKey) else v for v in df[column].to_numpy(dtype=object)]
+
+
 def merge_files_async(left_file_path, right_file_path, left_key, right_key, join_type, left_columns, right_columns, duplicate_handling, progress_queue, session_id):
     """Merge two files in background thread with progress tracking"""
     try:
@@ -3450,15 +3490,17 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
                 right_columns = [right_key] + right_columns
             df_right = df_right[right_columns]
         
-        # Handle duplicate keys
+        # Handle duplicate keys. Blank keys are not keys: rows without one are never duplicates of each other.
+        left_has_key = df_left[left_key].notna()
+        right_has_key = df_right[right_key].notna()
         if duplicate_handling == 'error':
-            left_dupes = df_left[left_key].duplicated().sum()
-            right_dupes = df_right[right_key].duplicated().sum()
+            left_dupes = int((left_has_key & df_left[left_key].duplicated()).sum())
+            right_dupes = int((right_has_key & df_right[right_key].duplicated()).sum())
             if left_dupes > 0 or right_dupes > 0:
                 raise ValueError(f"Duplicate keys found: Left file has {left_dupes} duplicates, Right file has {right_dupes} duplicates. Please handle duplicates first.")
         elif duplicate_handling == 'keep_first':
-            df_left = df_left.drop_duplicates(subset=[left_key], keep='first')
-            df_right = df_right.drop_duplicates(subset=[right_key], keep='first')
+            df_left = df_left[~(left_has_key & df_left[left_key].duplicated(keep='first'))]
+            df_right = df_right[~(right_has_key & df_right[right_key].duplicated(keep='first'))]
         
         send_progress('merging', 0, 100, f'Performing {join_type} join...', 30)
         
@@ -3472,40 +3514,53 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
         }
         how = join_type_map.get(join_type, 'inner')
         
+        # Blank keys never match: they are swapped for unique placeholders for the join and restored after.
+        indicator = '__dd_merge__'
+        left_for_merge = df_left.copy()
+        right_for_merge = df_right.copy()
+        left_for_merge[left_key] = _null_safe_keys(df_left[left_key])
+        right_for_merge[right_key] = _null_safe_keys(df_right[right_key])
         merged_df = pd.merge(
-            df_left,
-            df_right,
+            left_for_merge,
+            right_for_merge,
             left_on=left_key,
             right_on=right_key,
             how=how,
-            suffixes=('_left', '_right')
+            suffixes=('_left', '_right'),
+            indicator=indicator
         )
+        _restore_blank_keys(merged_df, [left_key, right_key])
+        matched = int((merged_df[indicator] == 'both').sum())
+        merged_df = merged_df.drop(columns=[indicator])
+        del left_for_merge, right_for_merge
         
         send_progress('merging', 100, 100, f'Merged: {len(merged_df):,} rows', 60)
         
-        # Calculate join statistics
+        # Join statistics, counted on the input rows so they can never go negative
         left_total = len(df_left)
         right_total = len(df_right)
         merged_total = len(merged_df)
+        left_keys = df_left[left_key]
+        right_keys = df_right[right_key]
+        left_present = left_keys.notna()
+        right_present = right_keys.notna()
+        left_with_partner = int((left_present & left_keys.isin(right_keys[right_present])).sum())
+        right_with_partner = int((right_present & right_keys.isin(left_keys[left_present])).sum())
+        unmatched_left = left_total - left_with_partner
+        unmatched_right = right_total - right_with_partner
         
-        # Count matched/unmatched
-        if how == 'left':
-            matched = merged_df[right_key].notna().sum()
-            unmatched_left = merged_df[right_key].isna().sum()
-            unmatched_right = right_total - matched
-        elif how == 'right':
-            matched = merged_df[left_key].notna().sum()
-            unmatched_right = merged_df[left_key].isna().sum()
-            unmatched_left = left_total - matched
-        elif how == 'inner':
-            matched = merged_total
-            unmatched_left = left_total - matched
-            unmatched_right = right_total - matched
-        else:  # outer
-            # For outer join, matched means both keys are present
-            matched = (merged_df[left_key].notna() & merged_df[right_key].notna()).sum()
-            unmatched_left = (merged_df[left_key].notna() & merged_df[right_key].isna()).sum()
-            unmatched_right = (merged_df[left_key].isna() & merged_df[right_key].notna()).sum()
+        # Repeated keys multiply rows: the file being joined onto (left; right for a right join) gets more merged
+        # rows than it has rows with a partner. A many-to-one lookup (orders -> customers) does not trigger this.
+        if how == 'right':
+            base_with_partner, base_side, other_side = right_with_partner, 'right', 'left'
+        else:
+            base_with_partner, base_side, other_side = left_with_partner, 'left', 'right'
+        multiplication_factor = round(matched / base_with_partner, 2) if base_with_partner else 1.0
+        merge_warning = None
+        if matched > base_with_partner:
+            merge_warning = (f"Some keys appear more than once in the {other_side} file, so rows were multiplied: "
+                             f"{base_with_partner:,} {base_side} rows with a partner produced {matched:,} merged rows. "
+                             f"Choose 'keep first' or 'error' for duplicates to avoid this.")
         
         send_progress('saving', 0, 100, 'Saving results...', 70)
         
@@ -3583,10 +3638,13 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
                 'matched': int(matched),
                 'unmatched_left': int(unmatched_left),
                 'unmatched_right': int(unmatched_right),
+                'multiplication_factor': multiplication_factor,
                 'join_type': join_type
             },
             'preview': preview_data
         }
+        if merge_warning:
+            final_message['warning'] = merge_warning
         
         try:
             progress_queue.put(final_message, timeout=5)

@@ -12,7 +12,12 @@
    {
     "id": null,
     "left_val": "b",
-    "right_val": "y"
+    "right_val": null
+   },
+   {
+    "id": null,
+    "left_val": "c",
+    "right_val": null
    },
    {
     "id": "2",
@@ -23,12 +28,13 @@
   "stage": "done",
   "summary": {
    "join_type": "left",
-   "left_rows": 3,
+   "left_rows": 4,
    "matched": 2,
-   "merged_rows": 3,
-   "right_rows": 4,
-   "unmatched_left": 1,
-   "unmatched_right": 2
+   "merged_rows": 4,
+   "multiplication_factor": 1.0,
+   "right_rows": 5,
+   "unmatched_left": 2,
+   "unmatched_right": 3
   },
   "total": 100
  },
@@ -40,15 +46,15 @@
    ],
    [
     "s:'Left File Rows'",
-    "n:3"
-   ],
-   [
-    "s:'Right File Rows'",
     "n:4"
    ],
    [
+    "s:'Right File Rows'",
+    "n:5"
+   ],
+   [
     "s:'Merged Rows'",
-    "n:3"
+    "n:4"
    ],
    [
     "s:'Matched Rows'",
@@ -56,11 +62,11 @@
    ],
    [
     "s:'Unmatched (Left)'",
-    "n:1"
+    "n:2"
    ],
    [
     "s:'Unmatched (Right)'",
-    "n:2"
+    "n:3"
    ],
    [
     "s:'Join Type'",
@@ -81,7 +87,12 @@
    [
     "inlineStr:None",
     "s:'b'",
-    "s:'y'"
+    "inlineStr:None"
+   ],
+   [
+    "inlineStr:None",
+    "s:'c'",
+    "inlineStr:None"
    ],
    [
     "s:'2'",

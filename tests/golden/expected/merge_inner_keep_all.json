@@ -10,26 +10,6 @@
     "right_val": "x"
    },
    {
-    "id": null,
-    "left_val": "b",
-    "right_val": "y"
-   },
-   {
-    "id": null,
-    "left_val": "b",
-    "right_val": "z"
-   },
-   {
-    "id": null,
-    "left_val": "c",
-    "right_val": "y"
-   },
-   {
-    "id": null,
-    "left_val": "c",
-    "right_val": "z"
-   },
-   {
     "id": "2",
     "left_val": "d",
     "right_val": "p"
@@ -44,11 +24,12 @@
   "summary": {
    "join_type": "inner",
    "left_rows": 5,
-   "matched": 7,
-   "merged_rows": 7,
+   "matched": 3,
+   "merged_rows": 3,
+   "multiplication_factor": 1.0,
    "right_rows": 5,
-   "unmatched_left": -2,
-   "unmatched_right": -2
+   "unmatched_left": 2,
+   "unmatched_right": 3
   },
   "total": 100
  },
@@ -68,19 +49,19 @@
    ],
    [
     "s:'Merged Rows'",
-    "n:7"
+    "n:3"
    ],
    [
     "s:'Matched Rows'",
-    "n:7"
+    "n:3"
    ],
    [
     "s:'Unmatched (Left)'",
-    "n:-2"
+    "n:2"
    ],
    [
     "s:'Unmatched (Right)'",
-    "n:-2"
+    "n:3"
    ],
    [
     "s:'Join Type'",
@@ -97,26 +78,6 @@
     "s:'1'",
     "s:'a'",
     "s:'x'"
-   ],
-   [
-    "inlineStr:None",
-    "s:'b'",
-    "s:'y'"
-   ],
-   [
-    "inlineStr:None",
-    "s:'b'",
-    "s:'z'"
-   ],
-   [
-    "inlineStr:None",
-    "s:'c'",
-    "s:'y'"
-   ],
-   [
-    "inlineStr:None",
-    "s:'c'",
-    "s:'z'"
    ],
    [
     "s:'2'",

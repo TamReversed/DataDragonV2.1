@@ -56,14 +56,12 @@ def _merge(client, join="inner", dup="keep_all"):
     return final
 
 
-@bug("A-02")
 def test_merge_null_keys_do_not_match(client):
     final = _merge(client)
     merged = sheets(output_path(final))["Merged Data"]
     assert len(merged) - 1 == 3  # 1<->1 and 2<->2 (x2); blank keys must not join
 
 
-@bug("A-03")
 def test_merge_stats_non_negative(client):
     summary = _merge(client)["summary"]
     assert summary["unmatched_left"] >= 0 and summary["unmatched_right"] >= 0
