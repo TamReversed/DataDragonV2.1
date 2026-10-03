@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - name: Install
+        run: pip install -r requirements-dev.txt
+      - name: Tests
+        run: python -m pytest -q -m "not slow"
+      # Informational until the matching plan tasks land (T4.1 makes pyflakes gating, T2.1 pip-audit).
+      - name: Lint (pyflakes)
+        continue-on-error: true
+        run: python -m pyflakes datadragon.py
+      - name: Dependency audit (pip-audit)
+        continue-on-error: true
+        run: pip-audit -r requirements.txt
