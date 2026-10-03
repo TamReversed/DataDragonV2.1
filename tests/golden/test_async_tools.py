@@ -30,10 +30,8 @@ def test_split_xlsx(client, golden):
 @pytest.mark.parametrize("src", ["xlsx", "csv"])
 def test_analyze_dataframe(dd, golden, src):
     path = GOLDEN_XLSX if src == "xlsx" else GOLDEN_CSV
-    # 'Flag' (boolean) is excluded: analysis currently crashes on bool columns (A-21,
-    # covered by tests/test_known_bugs.py::test_analyze_bool_column).
     # Read like the analyzer tool does (analyze_file_async uses mode='infer'): the analysis needs real types.
-    df = dd.read_data_file(path, mode="infer").drop(columns=["Flag"])
+    df = dd.read_data_file(path, mode="infer")
     analysis = dd.analyze_dataframe(df)
     golden(f"analyze_{src}", scrub(dd.make_json_serializable(analysis)))
 

@@ -124,3 +124,28 @@ def test_no_module_or_df_names_leak(df):
     for name in ("pd", "np", "__df__", "os"):
         with pytest.raises(ValueError):
             evaluate_formula(df, name)
+
+
+# ---- nested resource attacks found in review: every step is size-checked, not just the top operands
+@pytest.mark.parametrize("formula", [
+    "((((((10**10)**10)**10)**10)**10)**10)**10",
+    "'%999999999d' % 1",
+    "\"%s\" % [Name]",
+    "(('a'*1000)*1000)*1000",
+    "([Name]*1000)*1000",
+    "CONCAT(('a'*1000)*30, ('b'*1000)*30)",
+    "(2**10)**10**10",
+    "((2**10)**10)**10 * 1000000",
+])
+def test_nested_resource_attacks_are_rejected_quickly(df, formula):
+    import time
+    started = time.time()
+    with pytest.raises(ValueError):
+        evaluate_formula(df, formula)
+    assert time.time() - started < 2
+
+
+def test_reasonable_big_numbers_still_work(df):
+    assert evaluate_formula(df, "2 ** 10 * 1000").tolist() == [1024000] * 3
+    assert evaluate_formula(df, '"ab" * 10').tolist() == ["ab" * 10] * 3
+    assert len(evaluate_formula(df, '"x" * 1000 + "y" * 1000').iloc[0]) == 2000

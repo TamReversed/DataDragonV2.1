@@ -11,6 +11,7 @@ import functools
 import operator
 import re
 import secrets
+import time
 from datetime import datetime
 
 import numpy as np
@@ -20,6 +21,9 @@ MAX_FORMULA_CHARS = 2000
 MAX_NODES = 400
 MAX_EXPONENT = 10     # largest exponent accepted when it is a plain number
 MAX_REPEAT = 1000     # largest multiplier accepted when repeating text
+MAX_TEXT_LENGTH = 32767   # longest text any step may produce (an Excel cell holds 32,767 characters)
+MAX_INT_BITS = 256        # largest whole number any step may produce
+MAX_SECONDS = 5           # wall-clock budget for one formula
 
 
 class FormulaError(ValueError):
@@ -92,15 +96,33 @@ def _is_text_like(v):
     return isinstance(v, str) or (isinstance(v, pd.Series) and v.dtype == object)
 
 
+def _check_size(value):
+    """Reject a result that is absurdly large: nested repeats/powers could otherwise exhaust memory."""
+    if isinstance(value, str):
+        if len(value) > MAX_TEXT_LENGTH:
+            raise FormulaError(f'Result is too long (maximum {MAX_TEXT_LENGTH} characters)')
+    elif isinstance(value, int) and not isinstance(value, bool):
+        if value.bit_length() > MAX_INT_BITS:
+            raise FormulaError('Result is too large')
+    elif isinstance(value, pd.Series) and value.dtype == object and len(value):
+        longest = value.map(lambda v: len(v) if isinstance(v, str) else 0).max()
+        if longest > MAX_TEXT_LENGTH:
+            raise FormulaError(f'Result is too long (maximum {MAX_TEXT_LENGTH} characters)')
+    return value
+
+
 class _Interpreter:
     def __init__(self, df, funcs, literals, columns):
         self.df, self.funcs, self.literals, self.columns = df, funcs, literals, columns
         self.nodes = 0
+        self.deadline = time.monotonic() + MAX_SECONDS
 
     def visit(self, node):
         self.nodes += 1
         if self.nodes > MAX_NODES:
             raise FormulaError('Formula is too complex')
+        if time.monotonic() > self.deadline:
+            raise FormulaError(f'Formula took longer than {MAX_SECONDS} seconds')
         handler = getattr(self, 'v_' + type(node).__name__, None)
         if handler is None:
             raise FormulaError(f'Unsupported syntax in formula ({type(node).__name__})')
@@ -135,7 +157,9 @@ class _Interpreter:
             for count, other in ((left, right), (right, left)):
                 if _is_number(count) and abs(count) > MAX_REPEAT and _is_text_like(other):
                     raise FormulaError(f'Cannot repeat text more than {MAX_REPEAT} times')
-        return op(left, right)
+        if isinstance(node.op, ast.Mod) and _is_text_like(left):
+            raise FormulaError('Text formatting with % is not supported')   # "'%999999999d' % 1" builds a huge string
+        return _check_size(op(left, right))
 
     def v_UnaryOp(self, node):
         operand = self.visit(node.operand)
@@ -171,7 +195,7 @@ class _Interpreter:
             raise FormulaError('Named or unpacked arguments are not supported')
         args = [self.visit(a) for a in node.args]
         try:
-            return self.funcs[node.func.id](*args)
+            return _check_size(self.funcs[node.func.id](*args))
         except TypeError as e:
             raise FormulaError(f'{node.func.id}(): {e}')
 

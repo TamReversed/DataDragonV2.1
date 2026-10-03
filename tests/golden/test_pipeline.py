@@ -19,17 +19,8 @@ def final_of(msgs):
     return next(m for m in msgs if m.get("stage") in ("done", "error", "complete"))
 
 
-def test_pipeline_full_flow(client, golden, tmp_path):
-    # 'Flag' (boolean) is dropped: analysis crashes on bool columns (A-21), which would leave stage 1
-    # empty. That crash and the execute-without-analysis crash are covered in tests/test_known_bugs.py.
-    src = tmp_path / "golden_noflag.csv"
-    with open(fixture_path("golden.csv"), encoding="utf-8") as fh:
-        text = fh.read().splitlines()
-    import csv
-    rows = list(csv.reader(text))
-    flag = rows[0].index("Flag")
-    with open(src, "w", newline="", encoding="utf-8") as fh:
-        csv.writer(fh, lineterminator="\n").writerows([r[:flag] + r[flag + 1:] for r in rows])
+def test_pipeline_full_flow(client, golden):
+    src = fixture_path("golden.csv")
     snap = {}
     started = start(client, str(src))
     sid = started["session_id"]

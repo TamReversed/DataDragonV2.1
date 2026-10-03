@@ -14,6 +14,7 @@ import secrets
 import time
 from functools import wraps
 from collections import defaultdict
+import math
 import re
 import uuid
 from urllib.parse import urlparse
@@ -40,6 +41,11 @@ app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('DATADRAGON_HTTPS', '') == '1'
 
 
+# Hosts (as browsers write them, e.g. app.example.com) that may post to this app even when a proxy rewrites the Host
+# header. Comma-separated; empty by default.
+ALLOWED_ORIGIN_HOSTS = {h.strip() for h in os.environ.get('DATADRAGON_ALLOWED_ORIGINS', '').split(',') if h.strip()}
+
+
 @app.before_request
 def reject_cross_origin_writes():
     """Block state-changing requests that a browser sends from another site (drive-by / CSRF).
@@ -53,7 +59,7 @@ def reject_cross_origin_writes():
     if not source:
         return None
     source_host = urlparse(source).netloc if source != 'null' else 'null'
-    if source_host != request.host:
+    if source_host != request.host and source_host not in ALLOWED_ORIGIN_HOSTS:
         return jsonify({'error': 'Cross-origin request blocked'}), 403
     return None
 
@@ -575,9 +581,6 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
         progress_queue: Queue to send progress updates
         session_id: Session identifier for tracking progress
     """
-    # Ensure the output directory exists
-    os.makedirs(output_folder, exist_ok=True)
-    
     def send_progress(stage, current, total, message):
         """Send progress update to queue"""
         if progress_queue and session_id:
@@ -596,6 +599,7 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
     df = read_data_file(input_file_path)
     total_rows = len(df)
     num_splits = (total_rows + chunk_size - 1) // chunk_size
+    os.makedirs(output_folder, exist_ok=True)  # only once the file has been read successfully
     
     send_progress('loading', 100, 100, f'Loaded {total_rows:,} records. Creating {num_splits} files...')
     
@@ -743,7 +747,7 @@ def generate_test_file():
         
         # Generate unique filename
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f'test_data_dragon_{timestamp}.xlsx'
+        filename = f'test_data_dragon_{timestamp}_{secrets.token_hex(4)}.xlsx'
         file_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
         
         # Save to Excel with formatting
@@ -942,6 +946,7 @@ def process_file_async(upload_path, output_folder, chunk_size, base_filename, ti
     except Exception as e:
         print(f"Error occurred: {str(e)}")
         print(traceback.format_exc())
+        shutil.rmtree(job_dir(session_id, create=False), ignore_errors=True)  # a failed split keeps nothing
         progress_queue.put({
             'stage': 'error',
             'message': str(e)
@@ -1007,7 +1012,7 @@ def upload_file():
         save_upload(file, upload_path, session_id)
         
         # Create output folder for this session
-        output_folder = os.path.join(job_dir(session_id), 'chunks')
+        output_folder = os.path.join(job_dir(session_id, create=False), 'chunks')  # created by the job itself
         print(f"Output folder: {output_folder}")
         
         # Create progress queue for this session
@@ -3211,6 +3216,14 @@ def _restore_blank_keys(df, columns):
             df[column] = [np.nan if isinstance(v, _BlankKey) else v for v in df[column].to_numpy(dtype=object)]
 
 
+def _free_name(wanted, taken):
+    """`wanted`, extended with underscores until it is not one of the user's column names."""
+    name = wanted
+    while name in set(map(str, taken)):
+        name += '_'
+    return name
+
+
 def merge_files_async(left_file_path, right_file_path, left_key, right_key, join_type, left_columns, right_columns, duplicate_handling, progress_queue, session_id):
     """Merge two files in background thread with progress tracking"""
     try:
@@ -3292,7 +3305,7 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
         how = join_type_map.get(join_type, 'inner')
         
         # Blank keys never match: they are swapped for unique placeholders for the join and restored after.
-        indicator = '__dd_merge__'
+        indicator = _free_name('__dd_merge__', list(df_left.columns) + list(df_right.columns))
         left_for_merge = df_left.copy()
         right_for_merge = df_right.copy()
         left_for_merge[left_key] = _null_safe_keys(df_left[left_key])
@@ -3600,22 +3613,24 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
         # Rows are matched on the real key columns plus "which occurrence of this key" (1st with 1st, 2nd with
         # 2nd...), so repeated keys are all compared. A row whose key columns are ALL blank has no key: it cannot
         # be paired with anything, so it is set aside and reported instead of being called added or removed.
+        occurrence = _free_name('_occ', cols_to_compare)
+        
         def key_frame(df):
             keys = df[key_columns].copy()
-            keys['_occ'] = keys.groupby(key_columns, dropna=False, sort=False).cumcount()
+            keys[occurrence] = keys.groupby(key_columns, dropna=False, sort=False).cumcount()
             return keys, keys[key_columns].isna().all(axis=1).to_numpy()
         
         keys1, keyless1 = key_frame(df1_compare)
         keys2, keyless2 = key_frame(df2_compare)
-        repeated1 = int(((keys1['_occ'] > 0) & ~keyless1).sum())
-        repeated2 = int(((keys2['_occ'] > 0) & ~keyless2).sum())
+        repeated1 = int(((keys1[occurrence] > 0) & ~keyless1).sum())
+        repeated2 = int(((keys2[occurrence] > 0) & ~keyless2).sum())
         
         valid1, valid2 = df1_compare[~keyless1], df2_compare[~keyless2]
         keys1, keys2 = keys1[~keyless1], keys2[~keyless2]
         
         # One group id per distinct (key, occurrence) across both files; equal ids = the same row in both
         group_ids = pd.concat([keys1, keys2], ignore_index=True).groupby(
-            key_columns + ['_occ'], dropna=False, sort=False).ngroup().to_numpy()
+            key_columns + [occurrence], dropna=False, sort=False).ngroup().to_numpy()
         ids1, ids2 = group_ids[:len(keys1)], group_ids[len(keys1):]
         position_in_2 = pd.Series(np.arange(len(ids2)), index=ids2)
         has_partner = np.isin(ids1, ids2)
@@ -3690,10 +3705,11 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
         
         changed_df = pd.DataFrame(changed_rows) if len(changed_rows) > 0 else pd.DataFrame()
         if keyless_count1 or keyless_count2:
+            source_col = _free_name('File', cols_to_compare)
             keyless_df = pd.concat([
-                df1_compare[keyless1].head(100).assign(File='File 1'),
-                df2_compare[keyless2].head(100).assign(File='File 2'),
-            ], ignore_index=True)[['File'] + cols_to_compare]
+                df1_compare[keyless1].head(100).assign(**{source_col: 'File 1'}),
+                df2_compare[keyless2].head(100).assign(**{source_col: 'File 2'}),
+            ], ignore_index=True)[[source_col] + cols_to_compare]
         else:
             keyless_df = pd.DataFrame()
         
@@ -3907,8 +3923,8 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
             for filter_col, filter_value in filters.items():
                 if filter_value:
                     # Compare as canonical text so a number filter ("2023") matches 2023, 2023.0 and '2023'
-                    cell_text = df[filter_col].map(_comparable_text)
-                    df = df[cell_text.str.strip() == str(filter_value).strip()]
+                    wanted = str(filter_value).strip()
+                    df = df[df[filter_col].map(lambda v: (lambda t: isinstance(t, str) and t.strip() == wanted)(_comparable_text(v)))]
         
         send_progress('preparing', 50, 100, 'Creating pivot table...', 30)
         
@@ -3960,9 +3976,11 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         # dropna=False keeps every row in the totals (the default drops rows with a blank in ANY pivot column).
         fill_value = 0 if aggfunc in ('sum', 'count', 'nunique') else None
         margins_added = True
+        used_labels = {str(v) for col in dimension_cols for v in pivot_input[col].unique()}
+        margins_name = next(name for name in ('Total', 'Grand Total', 'Grand Total (all rows)') if name not in used_labels)
         try:
             pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False,
-                                      margins=True, margins_name='Total')
+                                      margins=True, margins_name=margins_name)
         except Exception as e:
             # If margins fail, try without
             margins_added = False
@@ -4752,6 +4770,8 @@ def parse_localized_number(value, decimal_separator='.'):
     digits = re.sub(r'\D', '', whole) or '0'
     number = f"{sign}{digits}" + (f".{fraction}" if fraction is not None else '') + (f"e{exponent}" if exponent else '')
     parsed = float(number) if (fraction is not None or exponent) else int(number)
+    if isinstance(parsed, float) and not math.isfinite(parsed):
+        return None        # '1e999' overflows to infinity, which is not a value anyone typed
     return -parsed if negative else parsed
 
 

