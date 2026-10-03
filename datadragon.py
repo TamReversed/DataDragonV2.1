@@ -624,6 +624,7 @@ def excel_writer(path):
 
 EXCEL_MAX_ROWS = 1048576
 EXCEL_MAX_COLUMNS = 16384
+PIVOT_SOURCE_SHEET_LIMIT = 100000   # the pivot workbook repeats the source rows; skip that copy for big files
 
 
 def write_excel(df, path, sheet_name='Sheet1', **kwargs):
@@ -672,6 +673,52 @@ def sanitize_csv(df):
                 return value
             out[col] = out[col].map(neutralise)
     return out
+
+
+def note_warning(job_id, text):
+    """Add a warning to the job's notes; it reaches the final progress message (and the sync routes' JSON)."""
+    while len(job_notes) >= MAX_JOB_NOTES and job_id not in job_notes:
+        job_notes.pop(next(iter(job_notes)))
+    note = job_notes.setdefault(job_id, {'sheet_names': [], 'warning': ''})
+    note['warning'] = (note['warning'] + ' ' + text).strip()
+
+
+def sheet_too_big(df):
+    return len(df) + 1 > EXCEL_MAX_ROWS or len(df.columns) > EXCEL_MAX_COLUMNS
+
+
+def save_table(df, path, job_id=None):
+    """Write one table as .xlsx, or as .csv when it is too big for an Excel sheet. Returns the path written; the
+    fallback is announced in the job's warning."""
+    if not sheet_too_big(df):
+        write_excel(df, path)
+        return path
+    csv_path = os.path.splitext(path)[0] + '.csv'
+    sanitize_csv(df).to_csv(csv_path, index=False)
+    if job_id:
+        note_warning(job_id, f"The result has {len(df):,} rows x {len(df.columns):,} columns, more than an Excel sheet "
+                             f"can hold ({EXCEL_MAX_ROWS - 1:,} rows x {EXCEL_MAX_COLUMNS:,} columns), so it was "
+                             "saved as a CSV file instead.")
+    return csv_path
+
+
+def write_sheets(path, sheets, job_id=None):
+    """Write several named tables [(sheet_name, df), ...] to one .xlsx. If any table is too big for an Excel sheet
+    the tables are written as one CSV each inside a .zip instead, so nothing is lost. Returns the path written."""
+    sheets = [(name, frame) for name, frame in sheets if frame is not None]
+    if not any(sheet_too_big(frame) for _, frame in sheets):
+        with excel_writer(path) as writer:
+            for name, frame in sheets:
+                frame.to_excel(writer, sheet_name=name, index=False)
+        return path
+    zip_path = os.path.splitext(path)[0] + '.zip'
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for name, frame in sheets:
+            archive.writestr(f"{name}.csv", sanitize_csv(frame).to_csv(index=False))
+    if job_id:
+        note_warning(job_id, f"A table has more rows or columns than an Excel sheet can hold ({EXCEL_MAX_ROWS - 1:,} "
+                             "rows x {:,} columns), so the result is a zip of CSV files, one per sheet.".format(EXCEL_MAX_COLUMNS))
+    return zip_path
 
 
 def write_data_file(df, file_path, file_format='xlsx', **kwargs):
@@ -2505,16 +2552,13 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
         output_filename = f"duplicates_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with excel_writer(output_path) as writer:
-            # Sheet 1: Duplicate summary
-            results_df.to_excel(writer, sheet_name='Duplicates', index=False)
-            
-            # Sheet 2: IDs to remove (single column for easy copy/paste)
-            if all_ids_to_remove:
-                ids_to_remove_df = pd.DataFrame({'ID': all_ids_to_remove})
-                ids_to_remove_df.to_excel(writer, sheet_name='IDs to Remove', index=False)
-        
-        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
+        output_path = write_sheets(output_path, [
+            ('Duplicates', results_df),
+            # IDs to remove: a single column for easy copy/paste
+            ('IDs to Remove', pd.DataFrame({'ID': all_ids_to_remove}) if all_ids_to_remove else None),
+        ], session_id)
+
+        download_url = job_download_url(session_id, os.path.basename(output_path))
         
         send_progress('saving', 100, 100, 'Results saved...', 95)
         
@@ -3088,20 +3132,25 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         send_progress('saving', 60, 100, 'Generating Excel data file...', 88)
         excel_path = job_output_path(session_id, f"{output_basename}_data.xlsx")
 
-        with excel_writer(excel_path) as writer:
-            # Sheet 1: Data with Unique IDs
-            df.to_excel(writer, sheet_name='Data with Unique IDs', index=False)
-
-            # Sheet 2: Key Combinations
-            alternatives_data = []
-            for idx, combo in enumerate(minimal_combinations, 1):
-                alternatives_data.append({
-                    'Candidate': f'#{idx}' if idx > 1 else 'Primary',
-                    'Key Columns': ', '.join(combo),
-                    'Column Count': len(combo)
-                })
-            alternatives_df = pd.DataFrame(alternatives_data)
-            alternatives_df.to_excel(writer, sheet_name='Key Candidates', index=False)
+        alternatives_data = []
+        for idx, combo in enumerate(minimal_combinations, 1):
+            alternatives_data.append({
+                'Candidate': f'#{idx}' if idx > 1 else 'Primary',
+                'Key Columns': ', '.join(combo),
+                'Column Count': len(combo)
+            })
+        alternatives_df = pd.DataFrame(alternatives_data)
+        data_too_big = sheet_too_big(df)
+        if data_too_big:
+            # More rows than an Excel sheet holds: the data goes into the zip as CSV instead
+            excel_path = job_output_path(session_id, f"{output_basename}_data.csv")
+            sanitize_csv(df).to_csv(excel_path, index=False)
+            note_warning(session_id, f"The data has {len(df):,} rows, more than an Excel sheet can hold, so it is "
+                                     "included as a CSV file (the key candidates are in a second CSV).")
+        else:
+            with excel_writer(excel_path) as writer:
+                df.to_excel(writer, sheet_name='Data with Unique IDs', index=False)
+                alternatives_df.to_excel(writer, sheet_name='Key Candidates', index=False)
 
         # Create ZIP package containing both files
         send_progress('saving', 85, 100, 'Packaging results...', 93)
@@ -3109,7 +3158,9 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(pdf_path, f"{output_basename}_report.pdf")
-            zipf.write(excel_path, f"{output_basename}_data.xlsx")
+            zipf.write(excel_path, f"{output_basename}_data.{'csv' if data_too_big else 'xlsx'}")
+            if data_too_big:
+                zipf.writestr(f"{output_basename}_key_candidates.csv", alternatives_df.to_csv(index=False))
 
         # Clean up individual files (keep only ZIP)
         os.remove(pdf_path)
@@ -3428,11 +3479,9 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
         output_filename = f"merged_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with excel_writer(output_path) as writer:
-            merged_df.to_excel(writer, sheet_name='Merged Data', index=False)
-            summary_df.to_excel(writer, sheet_name='Join Summary', index=False)
-        
-        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
+        output_path = write_sheets(output_path, [('Merged Data', merged_df), ('Join Summary', summary_df)], session_id)
+
+        download_url = job_download_url(session_id, os.path.basename(output_path))
         
         send_progress('saving', 100, 100, 'Results saved...', 95)
         
@@ -3759,20 +3808,16 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
         output_filename = f"comparison_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with excel_writer(output_path) as writer:
-            summary_df.to_excel(writer, sheet_name='Summary', index=False)
-            if len(added_df) > 0:
-                added_df.to_excel(writer, sheet_name='Added Rows', index=False)
-            if len(removed_df) > 0:
-                removed_df.to_excel(writer, sheet_name='Removed Rows', index=False)
-            if len(changed_df) > 0:
-                changed_df.to_excel(writer, sheet_name='Changed Rows', index=False)
-            if len(unchanged_df) > 0:
-                unchanged_df.to_excel(writer, sheet_name='Unchanged Rows', index=False)
-            if len(keyless_df) > 0:
-                keyless_df.to_excel(writer, sheet_name='Rows Without Key', index=False)
-        
-        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
+        output_path = write_sheets(output_path, [
+            ('Summary', summary_df),
+            ('Added Rows', added_df if len(added_df) > 0 else None),
+            ('Removed Rows', removed_df if len(removed_df) > 0 else None),
+            ('Changed Rows', changed_df if len(changed_df) > 0 else None),
+            ('Unchanged Rows', unchanged_df if len(unchanged_df) > 0 else None),
+            ('Rows Without Key', keyless_df if len(keyless_df) > 0 else None),
+        ], session_id)
+
+        download_url = job_download_url(session_id, os.path.basename(output_path))
         
         send_progress('saving', 100, 100, 'Results saved...', 95)
         
@@ -4151,12 +4196,16 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
                 summary_df_flat = flatten_columns(summary_df.copy())
                 summary_df_flat.to_excel(writer, sheet_name='Summary', index=False)
             
-            try:
-                df.to_excel(writer, sheet_name='Source Data', index=False)
-            except Exception as e:
-                print(f"Warning writing source data: {e}")
-                df_flat = flatten_columns(df.copy())
-                df_flat.to_excel(writer, sheet_name='Source Data', index=False)
+            if len(df) > PIVOT_SOURCE_SHEET_LIMIT:
+                note_warning(session_id, f"The Source Data sheet was left out because the file has more than "
+                                         f"{PIVOT_SOURCE_SHEET_LIMIT:,} rows.")
+            else:
+                try:
+                    df.to_excel(writer, sheet_name='Source Data', index=False)
+                except Exception as e:
+                    print(f"Warning writing source data: {e}")
+                    df_flat = flatten_columns(df.copy())
+                    df_flat.to_excel(writer, sheet_name='Source Data', index=False)
         
         # Apply formatting to make it look like a real pivot table
         from openpyxl import load_workbook
@@ -5010,76 +5059,74 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
         output_filename = f"normalized_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with excel_writer(output_path) as writer:
-            normalized_df.to_excel(writer, sheet_name='Normalized Data', index=False)
-            
-            # Create summary sheet
-            summary_data = {
-                'Column': [t['column'] for t in transformations_applied],
-                'Target Type': [t['type'] for t in transformations_applied],
-                'Rows Transformed': [t['transformed'] for t in transformations_applied],
-                'Conversion Errors': [t['errors'] for t in transformations_applied]
-            }
-            summary_df = pd.DataFrame(summary_data)
-            summary_df.to_excel(writer, sheet_name='Transformation Summary', index=False)
+        summary_df = pd.DataFrame({
+            'Column': [t['column'] for t in transformations_applied],
+            'Target Type': [t['type'] for t in transformations_applied],
+            'Rows Transformed': [t['transformed'] for t in transformations_applied],
+            'Conversion Errors': [t['errors'] for t in transformations_applied]
+        })
+        output_path = write_sheets(output_path, [('Normalized Data', normalized_df),
+                                                 ('Transformation Summary', summary_df)], session_id)
+        formatted = output_path.endswith('.xlsx')   # cell formatting only applies to the workbook, not CSV files
+
+        if formatted:
+            # Apply formatting for currency columns
+            from openpyxl import load_workbook
+            from openpyxl.styles import Font, PatternFill, Alignment
+            from openpyxl.styles.numbers import FORMAT_CURRENCY_USD, FORMAT_PERCENTAGE_00
         
-        # Apply formatting for currency columns
-        from openpyxl import load_workbook
-        from openpyxl.styles import Font, PatternFill, Alignment
-        from openpyxl.styles.numbers import FORMAT_CURRENCY_USD, FORMAT_PERCENTAGE_00
+            wb = load_workbook(output_path)
+            ws = wb['Normalized Data']
         
-        wb = load_workbook(output_path)
-        ws = wb['Normalized Data']
+            # Format headers
+            header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+            header_font = Font(bold=True, color='FFFFFF', size=11)
         
-        # Format headers
-        header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
-        header_font = Font(bold=True, color='FFFFFF', size=11)
+            for cell in ws[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center', vertical='center')
         
-        for cell in ws[1]:
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal='center', vertical='center')
+            # Apply column-specific formatting (by the column's real position in the sheet)
+            for col_name, target_type in column_types.items():
+                if col_name not in normalized_df.columns:
+                    continue
+                col_idx = normalized_df.columns.get_loc(col_name) + 1
+                if target_type == 'currency' or target_type == 'dollar':
+                    col_letter = ws.cell(row=1, column=col_idx).column_letter
+                    for row in range(2, ws.max_row + 1):
+                        cell = ws[f'{col_letter}{row}']
+                        if cell.value is not None:
+                            cell.number_format = FORMAT_CURRENCY_USD
+                elif target_type == 'percentage':
+                    col_letter = ws.cell(row=1, column=col_idx).column_letter
+                    for row in range(2, ws.max_row + 1):
+                        cell = ws[f'{col_letter}{row}']
+                        if cell.value is not None:
+                            cell.number_format = FORMAT_PERCENTAGE_00
+                elif target_type == 'date':
+                    col_letter = ws.cell(row=1, column=col_idx).column_letter
+                    for row in range(2, ws.max_row + 1):
+                        cell = ws[f'{col_letter}{row}']
+                        if cell.value is not None:
+                            cell.number_format = 'mm/dd/yyyy'
         
-        # Apply column-specific formatting (by the column's real position in the sheet)
-        for col_name, target_type in column_types.items():
-            if col_name not in normalized_df.columns:
-                continue
-            col_idx = normalized_df.columns.get_loc(col_name) + 1
-            if target_type == 'currency' or target_type == 'dollar':
-                col_letter = ws.cell(row=1, column=col_idx).column_letter
-                for row in range(2, ws.max_row + 1):
-                    cell = ws[f'{col_letter}{row}']
-                    if cell.value is not None:
-                        cell.number_format = FORMAT_CURRENCY_USD
-            elif target_type == 'percentage':
-                col_letter = ws.cell(row=1, column=col_idx).column_letter
-                for row in range(2, ws.max_row + 1):
-                    cell = ws[f'{col_letter}{row}']
-                    if cell.value is not None:
-                        cell.number_format = FORMAT_PERCENTAGE_00
-            elif target_type == 'date':
-                col_letter = ws.cell(row=1, column=col_idx).column_letter
-                for row in range(2, ws.max_row + 1):
-                    cell = ws[f'{col_letter}{row}']
-                    if cell.value is not None:
-                        cell.number_format = 'mm/dd/yyyy'
+            # Auto-adjust column widths
+            for column in ws.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[column_letter].width = adjusted_width
         
-        # Auto-adjust column widths
-        for column in ws.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            ws.column_dimensions[column_letter].width = adjusted_width
+            wb.save(output_path)
         
-        wb.save(output_path)
-        
-        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
+        download_url = job_download_url(session_id, os.path.basename(output_path))
         
         send_progress('saving', 100, 100, 'File saved...', 95)
         
@@ -5857,9 +5904,8 @@ def row_filter():
 
         # Save filtered file
         base_name = os.path.splitext(filename)[0]
-        output_filename = f"{base_name}_filtered_{session_id}.xlsx"
-        output_path = job_output_path(session_id, output_filename)
-        write_excel(filtered_df, output_path)
+        output_path = save_table(filtered_df, job_output_path(session_id, f"{base_name}_filtered_{session_id}.xlsx"), session_id)
+        output_filename = os.path.basename(output_path)
 
         # Cache the result
         cache_session_file(session_id, output_filename, output_path, matching_rows, len(filtered_df.columns), 'Row Filter')
@@ -5982,9 +6028,8 @@ def find_replace():
 
         # Save the modified file
         base_name = os.path.splitext(filename)[0]
-        output_filename = f"{base_name}_replaced_{session_id}.xlsx"
-        output_path = job_output_path(session_id, output_filename)
-        write_excel(df, output_path)
+        output_path = save_table(df, job_output_path(session_id, f"{base_name}_replaced_{session_id}.xlsx"), session_id)
+        output_filename = os.path.basename(output_path)
 
         # Cache the result
         cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Find & Replace')
@@ -6090,9 +6135,8 @@ def calculated_columns():
 
         # Save the modified file
         base_name = os.path.splitext(filename)[0]
-        output_filename = f"{base_name}_calculated_{session_id}.xlsx"
-        output_path = job_output_path(session_id, output_filename)
-        write_excel(df, output_path)
+        output_path = save_table(df, job_output_path(session_id, f"{base_name}_calculated_{session_id}.xlsx"), session_id)
+        output_filename = os.path.basename(output_path)
 
         # Cache the result
         cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Calculated Columns')
@@ -6347,9 +6391,8 @@ def column_operations():
 
         # Save the modified file
         base_name = os.path.splitext(filename)[0]
-        output_filename = f"{base_name}_modified_{session_id}.xlsx"
-        output_path = job_output_path(session_id, output_filename)
-        write_excel(df, output_path)
+        output_path = save_table(df, job_output_path(session_id, f"{base_name}_modified_{session_id}.xlsx"), session_id)
+        output_filename = os.path.basename(output_path)
 
         # Cache the result
         cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Column Operations')
@@ -7045,15 +7088,14 @@ def pipeline_execute(session_id):
                 send_progress(80, 'Saving transformed data...')
 
                 # Save transformed data
-                excel_path = job_output_path(session_id, f"{output_basename}_data.xlsx")
-                write_excel(result_df, excel_path)
+                excel_path = save_table(result_df, job_output_path(session_id, f"{output_basename}_data.xlsx"), session_id)
 
                 # Create ZIP package
                 send_progress(90, 'Packaging results...')
                 zip_path = job_output_path(session_id, f"{output_basename}.zip")
                 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     zipf.write(pdf_path, f"{output_basename}_report.pdf")
-                    zipf.write(excel_path, f"{output_basename}_data.xlsx")
+                    zipf.write(excel_path, os.path.basename(excel_path))
 
                 # The report is inside the zip; the data file stays so the result can be chained into another tool
                 os.remove(pdf_path)
