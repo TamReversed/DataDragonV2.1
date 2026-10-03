@@ -18,7 +18,7 @@ Status: `todo` · `doing` · `done` · `blocked`
 | T0.7 CI + agent docs | done | CI YAML parses (ruby YAML); locally: pytest green (59 passed, 1 skipped, 28 xfailed with slow excluded), pyflakes 34 warnings / 1 undefined name, pip-audit reports Flask/Werkzeug CVEs (both non-gating for now) |
 
 ## Phase 1 — P0 fixes
-T1.1 done (`datadragon_formula.py`: AST allow-list; `eval`/`exec`/`compile(` grep = 0; G-01 xfail flipped; 60 new formula tests; calc snapshots unchanged) · T1.2 todo · T1.3 todo · T1.4 todo · T1.5 todo · T1.6 todo · T1.7 todo · T1.8 todo · T1.9 todo · T1.10 todo · T1.11 todo · T1.12 todo
+T1.1 done (`datadragon_formula.py`: AST allow-list; `eval`/`exec`/`compile(` grep = 0; G-01 xfail flipped; 60 new formula tests; calc snapshots unchanged) · T1.2 done (`reject_cross_origin_writes` before_request + cookie flags; 14 tests; real-browser check: cross-origin POST from 127.0.0.1:5002 page → unpatched copy 400 (reached route), patched app 403; same-origin POST still reaches route) · T1.3 todo · T1.4 todo · T1.5 todo · T1.6 todo · T1.7 todo · T1.8 todo · T1.9 todo · T1.10 todo · T1.11 todo · T1.12 todo
 
 ## Phase 2 — P1
 T2.1 todo · T2.2 todo · T2.3 todo · T2.4 todo · T2.5 todo · T2.6 todo · T2.7 todo · T2.8 todo · T2.9 todo · T2.10 todo · T2.11 todo · T2.12 todo · T2.13 todo · T2.14 todo
@@ -60,4 +60,5 @@ M-1 todo (not approved) · M-2 todo (not approved)
 - Known and already planned: `calc_preview` snapshot serialises a NaN as invalid JSON (A-18, fixed in T3.2); snapshot scrubbing drops any key matching `url|path|session|timestamp|elapsed|duration|created|_at$|filename|output_file`, so a real field with such a name would be excluded from snapshots (revisit if a tool adds one).
 - First CI run is unverified: `pdf2docx` + Python 3.14 on ubuntu could fail at install (installs fine locally on macOS). The 3.12 job is independent (`fail-fast: false`). Nothing is pushed, so CI has not run.
 - Independent Phase 0 review: no blockers (28 xfails fail for intended reasons, 4 concurrency xfails stable over 6 runs, clean clone gives identical counts).
+- G-01 drive-by is now **proven at the request level**: from a page on another origin, a browser delivers a form POST to a locally running unpatched copy (reached the route, 400 only because no file was attached); the patched app answers 403. (First attempt was confounded by a leftover audit server still on :5002 — `pkill` pattern did not match; use `lsof -t -iTCP:PORT` to kill servers.)
 - Test suite takes ~45 s, of which ~21 s is the ReDoS test (marked `slow`; CI excludes it).

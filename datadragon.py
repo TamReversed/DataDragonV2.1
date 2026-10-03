@@ -16,6 +16,7 @@ from functools import wraps
 from collections import defaultdict
 import re
 import uuid
+from urllib.parse import urlparse
 from itertools import combinations
 
 from datadragon_formula import FormulaError, evaluate_formula as safe_evaluate_formula
@@ -31,6 +32,27 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 app = Flask(__name__)
 app.config['SECRET_KEY'] = secrets.token_hex(32)  # Generate secure secret key
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('DATADRAGON_HTTPS', '') == '1'
+
+
+@app.before_request
+def reject_cross_origin_writes():
+    """Block state-changing requests that a browser sends from another site (drive-by / CSRF).
+
+    Browsers attach Origin (or at least Referer) to cross-site POSTs. Requests with neither header
+    (curl, scripts, tests) are not browser-driven cross-site requests and are allowed.
+    """
+    if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        return None
+    source = request.headers.get('Origin') or request.headers.get('Referer')
+    if not source:
+        return None
+    source_host = urlparse(source).netloc if source != 'null' else 'null'
+    if source_host != request.host:
+        return jsonify({'error': 'Cross-origin request blocked'}), 403
+    return None
 
 # Store progress queues for active sessions
 progress_queues = {}
