@@ -41,10 +41,9 @@ def post_job(client, url, files=None, data=None):
 
 
 def output_path(final):
-    """Resolve a final message's download_url to a file under OUTPUT_FOLDER."""
-    url = final["download_url"]
-    return os.path.join(datadragon.app.config["OUTPUT_FOLDER"], url.rsplit("/", 1)[-1])
-
+    """Resolve a message's download_url (/download/<job_id>/<name>) to the file on disk."""
+    job_id, name = final["download_url"].rsplit("/", 2)[-2:]
+    return os.path.join(datadragon.app.config["OUTPUT_FOLDER"], job_id, name)
 
 def post_form(client, url, files=None, data=None):
     """POST to a synchronous route. Returns (response, json_payload)."""
@@ -64,9 +63,8 @@ def post_form(client, url, files=None, data=None):
 
 
 def sync_output(payload):
-    """Resolve a synchronous route's 'filename' to a path under OUTPUT_FOLDER."""
-    return os.path.join(datadragon.app.config["OUTPUT_FOLDER"], payload["filename"])
-
+    """Resolve a synchronous route's download_url to the file under its job directory."""
+    return output_path(payload)
 
 def drain_progress(client, session_id):
     return sse_messages(client.get(f"/progress/{session_id}").get_data(as_text=True))

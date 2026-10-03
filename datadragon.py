@@ -84,9 +84,7 @@ class OwnerRegistry:
 
 
 job_registry = OwnerRegistry()    # progress/session ids -> owner
-file_registry = OwnerRegistry()   # downloadable output filenames -> owner
 OWNER_TTL_SECONDS = 2 * 3600
-DOWNLOAD_URL_RE = re.compile(r'/download/([A-Za-z0-9._-]+)')
 
 
 def current_owner():
@@ -109,14 +107,24 @@ def register_job(session_id, progress_queue, owner=None):
     job_registry.bind(session_id, owner or current_owner())
 
 
-def bind_file(filename, owner=None):
-    """Allow only `owner` to download output file `filename`."""
-    file_registry.bind(filename, owner or current_owner())
+def job_dir(job_id, create=True):
+    """Output directory of one job: output/<job_id>/ (job ids are random, so jobs can never collide)."""
+    path = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
+    if create:
+        os.makedirs(path, exist_ok=True)
+    return path
+
+
+def job_output_path(job_id, filename):
+    return os.path.join(job_dir(job_id), filename)
+
+
+def job_download_url(job_id, filename):
+    return f'/download/{job_id}/{filename}'
 
 
 def cleanup_owner_registries():
     job_registry.expire(OWNER_TTL_SECONDS)
-    file_registry.expire(OWNER_TTL_SECONDS)
 
 
 # Store progress queues for active sessions
@@ -222,7 +230,6 @@ def cache_session_file(session_id, filename, file_path, rows, cols, source_tool=
         'source_tool': source_tool,
         'owner': owner
     }
-    bind_file(os.path.basename(file_path), owner)
     return cache_id
 
 def get_cached_files(session_id=None):
@@ -739,8 +746,6 @@ def progress(session_id):
                     # Serialize the data - handle large analysis objects
                     try:
                         json_data = json.dumps(progress_data, default=str)
-                        for name in DOWNLOAD_URL_RE.findall(json_data):
-                            bind_file(name, owner)  # the owner learns the link here, so the file becomes theirs
                         yield f"data: {json_data}\n\n"
                         last_ping = time.time()
                     except Exception as json_err:
@@ -802,7 +807,7 @@ def process_file_async(upload_path, output_folder, chunk_size, base_filename, ti
         
         # Create a zip file
         zip_filename = f"split_files_{timestamp}.zip"
-        zip_path = os.path.join(app.config['OUTPUT_FOLDER'], zip_filename)
+        zip_path = job_output_path(session_id, zip_filename)
         print(f"Creating zip: {zip_path}")
         
         progress_queue.put({
@@ -831,7 +836,7 @@ def process_file_async(upload_path, output_folder, chunk_size, base_filename, ti
             'message': 'Complete!',
             'total_rows': total_rows,
             'num_files': num_splits,
-            'download_url': f'/download/{zip_filename}',
+            'download_url': job_download_url(session_id, zip_filename),
             'zip_filename': zip_filename
         })
         
@@ -905,7 +910,7 @@ def upload_file():
         file.save(upload_path)
         
         # Create output folder for this session
-        output_folder = os.path.join(app.config['OUTPUT_FOLDER'], timestamp)
+        output_folder = os.path.join(job_dir(session_id), 'chunks')
         print(f"Output folder: {output_folder}")
         
         # Create progress queue for this session
@@ -930,23 +935,24 @@ def upload_file():
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
-@app.route('/download/<filename>')
-def download_file(filename):
-    # Validate filename to prevent path traversal
+@app.route('/download/<job_id>/<filename>')
+def download_file(job_id, filename):
+    # Both segments must be plain names (no separators or traversal)
     safe_filename = secure_filename(filename)
-    if safe_filename != filename:
+    if safe_filename != filename or secure_filename(job_id) != job_id:
         return jsonify({'error': 'Invalid filename'}), 400
 
-    # Files nobody has claimed (or that belong to another browser) look like missing files.
-    if file_registry.owner_of(safe_filename) != current_owner():
+    # Jobs that are unknown, or that belong to another browser, look like missing files.
+    if job_registry.owner_of(job_id) != current_owner():
         return jsonify({'error': 'File not found'}), 404
-    
-    file_path = os.path.join(app.config['OUTPUT_FOLDER'], safe_filename)
-    
-    # Additional security: ensure file is within output folder
-    if not os.path.abspath(file_path).startswith(os.path.abspath(app.config['OUTPUT_FOLDER'])):
+
+    directory = os.path.realpath(job_dir(job_id, create=False))
+    file_path = os.path.join(directory, safe_filename)
+
+    # Additional security: ensure the file is inside this job's folder
+    if not os.path.realpath(file_path).startswith(directory + os.sep):
         return jsonify({'error': 'Invalid file path'}), 400
-    
+
     # Check if file exists
     if not os.path.exists(file_path):
         return jsonify({'error': 'File not found'}), 404
@@ -2060,13 +2066,13 @@ def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, expor
         output_filename = f"anonymized_{timestamp}"
         
         if filename.endswith('.csv'):
-            output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.csv")
+            output_path = job_output_path(session_id, f"{output_filename}.csv")
             anonymized_df.to_csv(output_path, index=False)
-            download_url = f'/download/{output_filename}.csv'
+            download_url = job_download_url(session_id, f"{output_filename}.csv")
         else:
-            output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
+            output_path = job_output_path(session_id, f"{output_filename}.xlsx")
             anonymized_df.to_excel(output_path, index=False)
-            download_url = f'/download/{output_filename}.xlsx'
+            download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         # POST-SAVE VERIFICATION: Read back the file to ensure it was saved correctly
         print("\n" + "="*80)
@@ -2100,10 +2106,10 @@ def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, expor
         # Save mapping key if requested
         mapping_url = None
         if export_mapping and mapping_dict:
-            mapping_path = os.path.join(app.config['OUTPUT_FOLDER'], f"mapping_key_{timestamp}.json")
+            mapping_path = job_output_path(session_id, f"mapping_key_{timestamp}.json")
             with open(mapping_path, 'w') as f:
                 json.dump(mapping_dict, f, indent=2, default=str)
-            mapping_url = f'/download/mapping_key_{timestamp}.json'
+            mapping_url = job_download_url(session_id, f"mapping_key_{timestamp}.json")
             send_progress('saving', 100, 100, 'Mapping key saved...', 98)
         else:
             send_progress('saving', 100, 100, 'Complete...', 98)
@@ -2599,7 +2605,7 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
         # Save results to Excel
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"duplicates_{timestamp}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
+        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             # Sheet 1: Duplicate summary
@@ -2610,7 +2616,7 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
                 ids_to_remove_df = pd.DataFrame({'ID': all_ids_to_remove})
                 ids_to_remove_df.to_excel(writer, sheet_name='IDs to Remove', index=False)
         
-        download_url = f'/download/{output_filename}.xlsx'
+        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         send_progress('saving', 100, 100, 'Results saved...', 95)
         
@@ -3159,7 +3165,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
 
         # Generate PDF Report
         send_progress('saving', 25, 100, 'Generating PDF report...', 80)
-        pdf_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}_report.pdf")
+        pdf_path = job_output_path(session_id, f"{output_basename}_report.pdf")
 
         generate_natural_key_report(
             output_path=pdf_path,
@@ -3175,7 +3181,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
 
         # Generate Excel Data File
         send_progress('saving', 60, 100, 'Generating Excel data file...', 88)
-        excel_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}_data.xlsx")
+        excel_path = job_output_path(session_id, f"{output_basename}_data.xlsx")
 
         with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
             # Sheet 1: Data with Unique IDs
@@ -3194,7 +3200,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
 
         # Create ZIP package containing both files
         send_progress('saving', 85, 100, 'Packaging results...', 93)
-        zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}.zip")
+        zip_path = job_output_path(session_id, f"{output_basename}.zip")
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(pdf_path, f"{output_basename}_report.pdf")
@@ -3204,7 +3210,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         os.remove(pdf_path)
         os.remove(excel_path)
 
-        download_url = f'/download/{output_basename}.zip'
+        download_url = job_download_url(session_id, f"{output_basename}.zip")
 
         send_progress('saving', 100, 100, 'Results packaged successfully', 95)
 
@@ -3460,13 +3466,13 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
         # Save to Excel
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"merged_{timestamp}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
+        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             merged_df.to_excel(writer, sheet_name='Merged Data', index=False)
             summary_df.to_excel(writer, sheet_name='Join Summary', index=False)
         
-        download_url = f'/download/{output_filename}.xlsx'
+        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         send_progress('saving', 100, 100, 'Results saved...', 95)
         
@@ -3790,7 +3796,7 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
         # Save to Excel
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"comparison_{timestamp}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
+        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             summary_df.to_excel(writer, sheet_name='Summary', index=False)
@@ -3803,7 +3809,7 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
             if len(unchanged_df) > 0:
                 unchanged_df.to_excel(writer, sheet_name='Unchanged Rows', index=False)
         
-        download_url = f'/download/{output_filename}.xlsx'
+        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         send_progress('saving', 100, 100, 'Results saved...', 95)
         
@@ -4094,7 +4100,7 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         # Save to Excel with formatting
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"pivot_{timestamp}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
+        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
         # Write to Excel with error handling
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
@@ -4311,7 +4317,7 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         send_progress('saving', ws.max_column, ws.max_column, 'Saving file...', 95)
         wb.save(output_path)
         
-        download_url = f'/download/{output_filename}.xlsx'
+        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         send_progress('saving', 100, 100, 'Results saved...', 95)
         
@@ -4620,7 +4626,7 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
         # Save to Excel
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"validation_{timestamp}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
+        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             summary_df.to_excel(writer, sheet_name='Validation Summary', index=False)
@@ -4630,7 +4636,7 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
             if len(valid_df) > 0:
                 valid_df.to_excel(writer, sheet_name='Valid Records', index=False)
         
-        download_url = f'/download/{output_filename}.xlsx'
+        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         send_progress('saving', 100, 100, 'Results saved...', 95)
         
@@ -4908,7 +4914,7 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
         # Save to Excel with formatting
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"normalized_{timestamp}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
+        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             normalized_df.to_excel(writer, sheet_name='Normalized Data', index=False)
@@ -4976,7 +4982,7 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
         
         wb.save(output_path)
         
-        download_url = f'/download/{output_filename}.xlsx'
+        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         send_progress('saving', 100, 100, 'File saved...', 95)
         
@@ -5140,7 +5146,7 @@ def convert_pdf_to_word_async(file_path, progress_queue, session_id):
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         output_filename = f"converted_{timestamp}_{base_name}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.docx")
+        output_path = job_output_path(session_id, f"{output_filename}.docx")
         
         # Convert PDF to Word
         try:
@@ -5158,7 +5164,7 @@ def convert_pdf_to_word_async(file_path, progress_queue, session_id):
         if not os.path.exists(output_path):
             raise FileNotFoundError("Word document was not created successfully")
         
-        download_url = f'/download/{output_filename}.docx'
+        download_url = job_download_url(session_id, f"{output_filename}.docx")
         
         # Get file size
         file_size = os.path.getsize(output_path)
@@ -5352,7 +5358,7 @@ def compare_columns_async(file1_path, file2_path, file1_name, file2_name, progre
         # Save to Excel - keep it simple and fast (no formatting for speed)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"column_comparison_{timestamp}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
+        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
         # Just write the data - formatting can slow things down significantly
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
@@ -5395,7 +5401,7 @@ def compare_columns_async(file1_path, file2_path, file1_name, file2_name, progre
                     # If formatting fails, just continue without it - data is still saved
                     print(f"Warning: Formatting failed, but file saved: {format_error}")
         
-        download_url = f'/download/{output_filename}.xlsx'
+        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         # Clean up uploaded files
         os.remove(file1_path)
@@ -5559,12 +5565,12 @@ def transpose_file_async(upload_path, progress_queue, session_id):
         # Save transposed data to Excel
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"transposed_{timestamp}"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_filename}.xlsx")
+        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             transposed_df.to_excel(writer, sheet_name='Transposed Data', index=False)
         
-        download_url = f'/download/{output_filename}.xlsx'
+        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
         # Clean up uploaded file
         os.remove(upload_path)
@@ -5688,6 +5694,7 @@ def row_filter():
 
         # Generate session ID
         session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+        job_registry.bind(session_id, current_owner())
         filename = secure_filename(file.filename)
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         file.save(upload_path)
@@ -5784,7 +5791,7 @@ def row_filter():
         # Save filtered file
         base_name = os.path.splitext(filename)[0]
         output_filename = f"{base_name}_filtered_{session_id}.xlsx"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+        output_path = job_output_path(session_id, output_filename)
         filtered_df.to_excel(output_path, index=False)
 
         # Cache the result
@@ -5799,6 +5806,7 @@ def row_filter():
         return jsonify({
             'success': True,
             'filename': output_filename,
+            'download_url': job_download_url(session_id, output_filename),
             'original_rows': original_rows,
             'matching_rows': matching_rows
         })
@@ -5841,6 +5849,7 @@ def find_replace():
 
         # Generate session ID
         session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+        job_registry.bind(session_id, current_owner())
         filename = secure_filename(file.filename)
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         file.save(upload_path)
@@ -5931,7 +5940,7 @@ def find_replace():
         # Save the modified file
         base_name = os.path.splitext(filename)[0]
         output_filename = f"{base_name}_replaced_{session_id}.xlsx"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+        output_path = job_output_path(session_id, output_filename)
         df.to_excel(output_path, index=False)
 
         # Cache the result
@@ -5946,6 +5955,7 @@ def find_replace():
         return jsonify({
             'success': True,
             'filename': output_filename,
+            'download_url': job_download_url(session_id, output_filename),
             'replacements_made': int(total_replacements),
             'rows_affected': len(rows_affected)
         })
@@ -5979,6 +5989,7 @@ def calculated_columns():
             df = read_data_file(cache_info['path'])
             filename = cache_info['filename']
             session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+            job_registry.bind(session_id, current_owner())
             upload_path = None
         else:
             if 'file' not in request.files:
@@ -5990,6 +6001,7 @@ def calculated_columns():
 
             # Generate session ID
             session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+            job_registry.bind(session_id, current_owner())
             filename = secure_filename(file.filename)
             upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
             file.save(upload_path)
@@ -6034,7 +6046,7 @@ def calculated_columns():
         # Save the modified file
         base_name = os.path.splitext(filename)[0]
         output_filename = f"{base_name}_calculated_{session_id}.xlsx"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+        output_path = job_output_path(session_id, output_filename)
         df.to_excel(output_path, index=False)
 
         # Cache the result
@@ -6050,6 +6062,7 @@ def calculated_columns():
         return jsonify({
             'success': True,
             'filename': output_filename,
+            'download_url': job_download_url(session_id, output_filename),
             'new_column': new_column_name,
             'rows': len(df),
             'columns': len(df.columns)
@@ -6097,6 +6110,7 @@ def column_operations():
 
         # Generate session ID
         session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+        job_registry.bind(session_id, current_owner())
         filename = secure_filename(file.filename)
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         file.save(upload_path)
@@ -6271,7 +6285,7 @@ def column_operations():
         # Save the modified file
         base_name = os.path.splitext(filename)[0]
         output_filename = f"{base_name}_modified_{session_id}.xlsx"
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+        output_path = job_output_path(session_id, output_filename)
         df.to_excel(output_path, index=False)
 
         # Cache the result
@@ -6286,6 +6300,7 @@ def column_operations():
         return jsonify({
             'success': True,
             'filename': output_filename,
+            'download_url': job_download_url(session_id, output_filename),
             'summary': operation_summary,
             'original_columns': len(original_cols),
             'new_columns': len(df.columns)
@@ -6947,7 +6962,7 @@ def pipeline_execute(session_id):
                 # Generate PDF Report
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 output_basename = f"data_readiness_report_{timestamp}"
-                pdf_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}.pdf")
+                pdf_path = job_output_path(session_id, f"{output_basename}.pdf")
 
                 generate_readiness_report(
                     output_path=pdf_path,
@@ -6958,12 +6973,12 @@ def pipeline_execute(session_id):
                 send_progress(80, 'Saving transformed data...')
 
                 # Save transformed data
-                excel_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}_data.xlsx")
+                excel_path = job_output_path(session_id, f"{output_basename}_data.xlsx")
                 result_df.to_excel(excel_path, index=False)
 
                 # Create ZIP package
                 send_progress(90, 'Packaging results...')
-                zip_path = os.path.join(app.config['OUTPUT_FOLDER'], f"{output_basename}.zip")
+                zip_path = job_output_path(session_id, f"{output_basename}.zip")
                 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                     zipf.write(pdf_path, f"{output_basename}_report.pdf")
                     zipf.write(excel_path, f"{output_basename}_data.xlsx")
@@ -6994,7 +7009,7 @@ def pipeline_execute(session_id):
                     'stage': 'done',
                     'percentage': 100,
                     'message': 'Pipeline execution complete',
-                    'download_url': f'/download/{output_basename}.zip',
+                    'download_url': job_download_url(session_id, f"{output_basename}.zip"),
                     'output_filename': f"{output_basename}.zip",
                     'transformation_log': transformation_log
                 })

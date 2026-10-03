@@ -480,7 +480,7 @@
     const previewMoreIndicator = document.getElementById('previewMoreIndicator');
 
     let selectedFile = null;
-    let downloadFilename = null;
+    let downloadUrl = null;
     let fileColumns = [];
     let totalRows = 0;
     let conditionCount = 0;
@@ -743,7 +743,7 @@
             const data = await response.json();
 
             if (data.success) {
-                downloadFilename = data.filename;
+                downloadUrl = data.download_url;
                 resultsSummary.innerHTML = `
                     <strong>Filter Applied Successfully!</strong><br><br>
                     Original rows: <strong>${data.original_rows.toLocaleString()}</strong><br>
@@ -762,7 +762,7 @@
     });
 
     downloadBtn.addEventListener('click', () => {
-        if (downloadFilename) window.location.href = `/download/${downloadFilename}`;
+        if (downloadUrl) window.location.href = downloadUrl;
     });
 </script>
 {% endblock %}

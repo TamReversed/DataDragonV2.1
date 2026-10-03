@@ -508,7 +508,7 @@
     const previewMoreIndicator = document.getElementById('previewMoreIndicator');
 
     let selectedFile = null;
-    let downloadFilename = null;
+    let downloadUrl = null;
     let fileColumns = [];
 
     // Cached files functions
@@ -704,7 +704,7 @@
                 progressBar.textContent = '100%';
                 progressMessage.textContent = 'Complete!';
 
-                downloadFilename = data.filename;
+                downloadUrl = data.download_url;
                 resultsSummary.innerHTML = `
                     <strong>Find & Replace Complete!</strong><br><br>
                     Searched for: "<strong>${escapeHtml(findText.value)}</strong>"<br>
@@ -736,8 +736,8 @@
 
     // Download button
     downloadBtn.addEventListener('click', () => {
-        if (downloadFilename) {
-            window.location.href = `/download/${downloadFilename}`;
+        if (downloadUrl) {
+            window.location.href = downloadUrl;
         }
     });
 </script>

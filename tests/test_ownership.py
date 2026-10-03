@@ -64,10 +64,12 @@ def test_download_link_belongs_to_the_browser_that_received_it(client, other):
 
 
 def test_unclaimed_files_are_not_downloadable_by_anyone(client):
-    name = "unclaimed_file.xlsx"
-    with open(os.path.join(datadragon.app.config["OUTPUT_FOLDER"], name), "wb") as fh:
+    job_folder = os.path.join(datadragon.app.config["OUTPUT_FOLDER"], "unclaimed_job")
+    os.makedirs(job_folder, exist_ok=True)
+    with open(os.path.join(job_folder, "unclaimed_file.xlsx"), "wb") as fh:
         fh.write(b"x")
-    assert client.get(f"/download/{name}").status_code == 404
+    assert client.get("/download/unclaimed_job/unclaimed_file.xlsx").status_code == 404  # job nobody owns
+    assert client.get("/download/unclaimed_file.xlsx").status_code == 404                # old flat URL is gone
 
 
 def test_fetch_analysis_is_owner_only(client, other):

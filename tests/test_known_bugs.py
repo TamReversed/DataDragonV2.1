@@ -248,7 +248,7 @@ def test_cache_isolated_between_clients(client):
 def test_download_requires_owner(client):
     payload = _run_cached(client, "A")
     other = datadragon.app.test_client()
-    assert other.get(f"/download/{payload['filename']}").status_code in (403, 404)
+    assert other.get(payload["download_url"]).status_code in (403, 404)
 
 
 @bug("G-06")
@@ -275,7 +275,6 @@ def test_regex_redos_bounded(client, tmp_path):
 
 # ---------------------------------------------------------------- H: reliability
 
-@bug("H-01")
 def test_concurrent_split_isolated(client, tmp_path, monkeypatch):
     import datetime as real
 
@@ -296,7 +295,14 @@ def test_concurrent_split_isolated(client, tmp_path, monkeypatch):
         sids.append(resp.get_json()["session_id"])
     finals = [next(m for m in drain_progress(client, sid) if m.get("stage") in ("done", "error")) for sid in sids]
     assert [f["stage"] for f in finals] == ["done", "done"], finals
-    assert finals[0]["zip_filename"] != finals[1]["zip_filename"]
+    # Each job has its own directory, so even identical zip names cannot collide: every download
+    # must contain exactly its own rows.
+    assert finals[0]["download_url"] != finals[1]["download_url"]
+    for final, owner, rows in zip(finals, ("ALICE", "BOB"), (30, 50)):
+        zf = zipfile.ZipFile(output_path(final))
+        frames = [pd.read_excel(io.BytesIO(zf.read(n))) for n in zf.namelist()]
+        combined = pd.concat(frames)
+        assert len(combined) == rows and set(combined["owner"]) == {owner}
 
 
 @bug("H-04")

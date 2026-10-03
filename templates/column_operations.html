@@ -463,7 +463,7 @@
     const cachedFilesList = document.getElementById('cachedFilesList');
 
     let selectedFile = null;
-    let downloadFilename = null;
+    let downloadUrl = null;
     let fileColumns = [];
     let currentTab = 'reorder';
     let columnOrder = [];
@@ -714,7 +714,7 @@
             const response = await fetch('/column-operations', { method: 'POST', body: formData });
             const data = await response.json();
             if (data.success) {
-                downloadFilename = data.filename;
+                downloadUrl = data.download_url;
                 resultsSummary.innerHTML = `<strong>Column Operations Complete!</strong><br><br>${data.message}`;
                 results.classList.add('show');
             } else {
@@ -730,7 +730,7 @@
     });
 
     downloadBtn.addEventListener('click', () => {
-        if (downloadFilename) window.location.href = `/download/${downloadFilename}`;
+        if (downloadUrl) window.location.href = downloadUrl;
     });
 </script>
 {% endblock %}

@@ -951,7 +951,7 @@
             // Show results
             resultsSection.classList.add('show');
             resultSummary.textContent = `Created column "${data.new_column}" with ${data.rows.toLocaleString()} values`;
-            downloadBtn.href = '/download/' + data.filename;
+            downloadBtn.href = data.download_url;
 
             optionsSection.classList.remove('show');
             progressContainer.classList.remove('show');
