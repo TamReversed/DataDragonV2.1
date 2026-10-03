@@ -1,0 +1,27 @@
+{"case": "read", "file": "syn_10000.csv", "wall_s": 0.01, "peak_rss_mb": 121, "rows": 10000}
+{"case": "analyze", "file": "syn_10000.csv", "wall_s": 0.14, "peak_rss_mb": 123}
+{"case": "dup_lowcard", "file": "syn_10000.csv", "wall_s": 0.39, "peak_rss_mb": 136}
+{"case": "dup_highcard", "file": "syn_10000.csv", "wall_s": 0.18, "peak_rss_mb": 132}
+{"case": "uniqueid12", "file": "syn_10000.csv", "wall_s": 0.75, "peak_rss_mb": 183, "key": ["amount", "first_name"]}
+{"case": "pivot", "file": "syn_10000.csv", "wall_s": 1.64, "peak_rss_mb": 242}
+{"case": "validate", "file": "syn_10000.csv", "wall_s": 0.8, "peak_rss_mb": 188}
+{"case": "compare1key", "file": "syn_10000.csv", "wall_s": 4.6, "peak_rss_mb": 148}
+{"case": "read", "file": "syn_10000.xlsx", "wall_s": 0.63, "peak_rss_mb": 134, "rows": 10000}
+{"case": "write_xlsx", "file": "syn_10000.xlsx", "wall_s": 0.65, "peak_rss_mb": 178}
+{"case": "split40k", "file": "syn_10000.xlsx", "wall_s": 1.31, "peak_rss_mb": 178}
+{"case": "read", "file": "syn_100000.csv", "wall_s": 0.08, "peak_rss_mb": 194, "rows": 100000}
+{"case": "analyze", "file": "syn_100000.csv", "wall_s": 0.57, "peak_rss_mb": 208}
+{"case": "dup_lowcard", "file": "syn_100000.csv", "wall_s": 2.89, "peak_rss_mb": 270}
+{"case": "dup_highcard", "file": "syn_100000.csv", "wall_s": 40.03, "peak_rss_mb": 246}
+{"case": "uniqueid12", "file": "syn_100000.csv", "wall_s": 7.91, "peak_rss_mb": 847, "key": ["amount", "zip"]}
+{"case": "pivot", "file": "syn_100000.csv", "wall_s": 18.09, "peak_rss_mb": 1417}
+{"case": "validate", "file": "syn_100000.csv", "wall_s": 8.18, "peak_rss_mb": 767}
+{"case": "compare1key", "file": "syn_100000.csv", "wall_s": 335.23, "peak_rss_mb": 356}
+{"case": "read", "file": "syn_100000.xlsx", "wall_s": 6.23, "peak_rss_mb": 264, "rows": 100000}
+{"case": "write_xlsx", "file": "syn_100000.xlsx", "wall_s": 6.54, "peak_rss_mb": 758}
+{"case": "split40k", "file": "syn_100000.xlsx", "wall_s": 12.62, "peak_rss_mb": 387}
+{"case": "keyworst", "file": "syn_100000.csv", "wall_s": 10.99, "peak_rss_mb": 141, "error": "No combination of selected columns can create unique identifiers for all rows."}
+{"case": "read", "file": "syn_500000.csv", "wall_s": 0.41, "peak_rss_mb": 505, "rows": 500000}
+{"case": "analyze", "file": "syn_500000.csv", "wall_s": 2.55, "peak_rss_mb": 627}
+{"case": "pivot", "file": "syn_500000.csv", "wall_s": 89.29, "peak_rss_mb": 5990}
+{"case": "validate", "file": "syn_500000.csv", "wall_s": 41.34, "peak_rss_mb": 3668}
