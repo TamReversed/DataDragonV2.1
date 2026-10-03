@@ -104,7 +104,6 @@ def _pivot(client, path, data):
     return final
 
 
-@bug("A-06")
 def test_pivot_keeps_blank_keys(client, tmp_path):
     path = make_csv(tmp_path / "p.csv", "Region,amt\nN,10\nS,5\n,100\n")
     final = _pivot(client, path, {"rows[]": ["Region"], "values[]": ["amt"], "aggfunc": "sum"})
@@ -112,7 +111,6 @@ def test_pivot_keeps_blank_keys(client, tmp_path):
     assert 115 in numbers(sheets(output_path(final))["Pivot Table"])
 
 
-@bug("A-06")
 def test_pivot_mean_empty_is_blank(client, tmp_path):
     path = make_csv(tmp_path / "p.csv", "Region,Flag,amt\nN,a,10\nS,b,20\n")
     final = _pivot(client, path, {"rows[]": ["Region"], "columns[]": ["Flag"], "values[]": ["amt"],
@@ -122,7 +120,6 @@ def test_pivot_mean_empty_is_blank(client, tmp_path):
     assert 0 not in numbers([r[1:] for r in table[1:]])  # empty combinations must stay blank, not 0
 
 
-@bug("A-19")
 def test_pivot_filters_work(client, tmp_path):
     path = make_csv(tmp_path / "p.csv", "Region,amt\nN,10\nS,20\n")
     final = _pivot(client, path, {"rows[]": ["Region"], "values[]": ["amt"], "aggfunc": "sum",

@@ -5,6 +5,12 @@
   "percentage": 100,
   "preview": [
    {
+    "Amount_False": "2700.0",
+    "Amount_Total": "5850.0",
+    "Amount_True": "3150.0",
+    "Region": "(blank)"
+   },
+   {
     "Amount_False": "3412.5",
     "Amount_Total": "5962.5",
     "Amount_True": "2550.0",
@@ -17,9 +23,9 @@
     "Region": "S"
    },
    {
-    "Amount_False": "6337.5",
-    "Amount_Total": "11287.5",
-    "Amount_True": "4950.0",
+    "Amount_False": "9037.5",
+    "Amount_Total": "17137.5",
+    "Amount_True": "8100.0",
     "Region": "Total"
    }
   ],
@@ -31,7 +37,7 @@
   "summary": {
    "aggfunc": "sum",
    "pivot_cols": 4,
-   "pivot_rows": 3,
+   "pivot_rows": 4,
    "source_rows": 40
   },
   "total": 100,
@@ -44,6 +50,12 @@
     "s:'Amount_False'",
     "s:'Amount_True'",
     "s:'Amount_Total'"
+   ],
+   [
+    "s:'(blank)'",
+    "n:2700",
+    "n:3150",
+    "n:5850"
    ],
    [
     "s:'N'",
@@ -59,9 +71,9 @@
    ],
    [
     "s:'Total'",
-    "n:6337.5",
-    "n:4950",
-    "n:11287.5"
+    "n:9037.5",
+    "n:8100",
+    "n:17137.5"
    ]
   ],
   "Source Data": [
@@ -733,7 +745,7 @@
    ],
    [
     "s:'Pivot Rows'",
-    "n:3"
+    "n:4"
    ],
    [
     "s:'Pivot Columns'",

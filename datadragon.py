@@ -4104,32 +4104,20 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows', 15)
         
         # Validate columns exist
-        all_cols = (rows or []) + (columns or []) + (values or []) + (filters or [])
+        all_cols = (rows or []) + (columns or []) + (values or []) + list((filters or {}).keys())
         invalid_cols = [col for col in all_cols if col not in df.columns]
         if invalid_cols:
             raise ValueError(f"Columns not found in file: {', '.join(invalid_cols)}")
         
         send_progress('preparing', 0, 100, 'Preparing data for pivot...', 20)
 
-        # Files are read losslessly (values keep their stored type), so number-crunching columns are
-        # converted explicitly. Anything that is not a number is ignored and reported.
-        ignored_non_numeric = {}
-        if values and aggfunc not in ('count', 'nunique'):
-            converted = {}
-            for value_col in values:
-                numeric = pd.to_numeric(df[value_col], errors='coerce')
-                converted[value_col] = (numeric, int((numeric.isna() & df[value_col].notna()).sum()))
-            if aggfunc or all(ignored == 0 for _, ignored in converted.values()):
-                for value_col, (numeric, ignored) in converted.items():
-                    df[value_col] = numeric
-                    if ignored:
-                        ignored_non_numeric[value_col] = ignored
-
         # Apply filters if any
         if filters:
             for filter_col, filter_value in filters.items():
                 if filter_value:
-                    df = df[df[filter_col] == filter_value]
+                    # Compare as canonical text so a number filter ("2023") matches 2023, 2023.0 and '2023'
+                    cell_text = df[filter_col].map(_comparable_text)
+                    df = df[cell_text.str.strip() == str(filter_value).strip()]
         
         send_progress('preparing', 50, 100, 'Creating pivot table...', 30)
         
@@ -4137,11 +4125,31 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         if not values:
             raise ValueError("At least one value field must be selected for the pivot table")
         
-        # Determine default aggregation if not provided
+        # The pivot works on its own trimmed copy so the "Source Data" sheet keeps the original values.
+        dimension_cols = list(dict.fromkeys((rows or []) + (columns or [])))
+        pivot_input = df[list(dict.fromkeys(dimension_cols + list(values)))].copy()
+        
+        # A blank row/column label would silently vanish from the table and from the totals
+        for col in dimension_cols:
+            pivot_input[col] = pivot_input[col].where(pivot_input[col].notna(), '(blank)')
+        
+        # Files are read losslessly (values keep their stored type), so the values to add up are converted
+        # explicitly. Anything that is not a number is ignored and reported.
+        ignored_non_numeric = {}
+        if aggfunc not in ('count', 'nunique'):
+            converted = {}
+            for value_col in values:
+                numeric = pd.to_numeric(pivot_input[value_col], errors='coerce')
+                converted[value_col] = (numeric, int((numeric.isna() & pivot_input[value_col].notna()).sum()))
+            if aggfunc or all(ignored == 0 for _, ignored in converted.values()):
+                for value_col, (numeric, ignored) in converted.items():
+                    pivot_input[value_col] = numeric
+                    if ignored:
+                        ignored_non_numeric[value_col] = ignored
+        
+        # Determine default aggregation if not provided: add up numbers, otherwise count
         if not aggfunc:
-            # Check if values are numeric to determine default aggfunc
-            numeric_cols = [col for col in values if col in df.columns and pd.api.types.is_numeric_dtype(df[col])]
-            aggfunc = 'sum' if numeric_cols else 'count'
+            aggfunc = 'sum' if all(pd.api.types.is_numeric_dtype(pivot_input[c]) for c in values) else 'count'
         
         # Create pivot table
         pivot_params = {
@@ -4157,13 +4165,46 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         if pivot_params['columns'] is None:
             del pivot_params['columns']
         
-        # Create the pivot table
+        # Empty combinations are 0 only where 0 is true (sums and counts); for mean/min/max they stay empty.
+        # dropna=False keeps every row in the totals (the default drops rows with a blank in ANY pivot column).
+        fill_value = 0 if aggfunc in ('sum', 'count', 'nunique') else None
+        margins_added = True
         try:
-            pivot_df = pd.pivot_table(df, **pivot_params, fill_value=0, margins=True, margins_name='Total')
+            pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False,
+                                      margins=True, margins_name='Total')
         except Exception as e:
             # If margins fail, try without
+            margins_added = False
             print(f"Warning: Could not add totals/margins: {e}")
-            pivot_df = pd.pivot_table(df, **pivot_params, fill_value=0)
+            pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False)
+        
+        # dropna=False also invents every combination of the row (and column) labels. Keep only combinations that
+        # exist in the data, plus the margin row/columns (those are always last, so found by position).
+        def last_per_block(labels):
+            last = {}
+            for position, label in enumerate(labels):
+                last[label[0] if isinstance(label, tuple) else None] = position
+            return set(last.values())
+        
+        if rows:
+            observed_rows = set(pivot_input[rows].itertuples(index=False, name=None))
+            labels = list(pivot_df.index)
+            keep_rows = []
+            for position, label in enumerate(labels):
+                is_margin = margins_added and position == len(labels) - 1
+                keep_rows.append(is_margin or (label if isinstance(label, tuple) else (label,)) in observed_rows)
+            pivot_df = pivot_df.loc[keep_rows]
+        if columns:
+            observed_columns = set(pivot_input[columns].itertuples(index=False, name=None))
+            margin_positions = last_per_block(pivot_df.columns) if margins_added else set()
+            keep_columns = [
+                position in margin_positions or tuple(label[1:1 + len(columns)]) in observed_columns
+                for position, label in enumerate(pivot_df.columns)
+            ]
+            pivot_df = pivot_df.loc[:, keep_columns]
+        
+        # Margin columns by position: the last column of each value block when there is a column dimension
+        total_column_positions = last_per_block(pivot_df.columns) if (margins_added and columns) else set()
         
         send_progress('preparing', 100, 100, f'Pivot table created: {len(pivot_df):,} rows, {len(pivot_df.columns)} columns', 50)
         
@@ -4341,9 +4382,8 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
                     progress_pct = 60 + int((idx / total_rows) * 12)  # 60% to 72%
                     send_progress('saving', idx, total_rows * 2, f'Formatting row headers: {idx}/{total_rows}...', progress_pct)
                 
-                # Check if this is a total row (starts with "Total")
-                first_cell = ws.cell(row=row_idx, column=1)
-                is_total_row = str(first_cell.value).startswith('Total') if first_cell.value else False
+                # The margin row is the last row (found by position, not by a label that data could also use)
+                is_total_row = margins_added and row_idx == ws.max_row
                 
                 for col_idx in range(1, row_header_cols + 1):
                     cell = ws.cell(row=row_idx, column=col_idx)
@@ -4360,10 +4400,9 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
             send_progress('saving', total_rows, total_rows * 2, 'Formatting data columns...', 72)
             
             # Pre-cache column header values to avoid repeated lookups
-            column_headers = {}
-            for col_idx in range(row_header_cols + 1, ws.max_column + 1):
-                header_cell = ws.cell(row=1, column=col_idx)
-                column_headers[col_idx] = 'Total' in str(header_cell.value) if header_cell.value else False
+            column_headers = {col_idx: (col_idx - row_header_cols - 1) in total_column_positions
+                              for col_idx in range(row_header_cols + 1, ws.max_column + 1)}
+            number_format = '#,##0' if aggfunc in ('count', 'nunique') else '#,##0.00'
             
             for idx, row_idx in enumerate(range(2, ws.max_row + 1), 1):
                 # Send progress every 100 rows or on last row
@@ -4371,8 +4410,7 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
                     progress_pct = 72 + int((idx / total_rows) * 18)  # 72% to 90%
                     send_progress('saving', total_rows + idx, total_rows * 2, f'Formatting data columns: {idx}/{total_rows}...', progress_pct)
                 
-                first_cell = ws.cell(row=row_idx, column=1)
-                is_total_row = str(first_cell.value).startswith('Total') if first_cell.value else False
+                is_total_row = margins_added and row_idx == ws.max_row
                 
                 for col_idx in range(row_header_cols + 1, ws.max_column + 1):
                     cell = ws.cell(row=row_idx, column=col_idx)
@@ -4391,7 +4429,7 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
                     try:
                         val = float(cell.value) if cell.value is not None else None
                         if val is not None:
-                            cell.number_format = '#,##0.00'  # Number format with thousands separator
+                            cell.number_format = number_format  # thousands separator; whole numbers for counts
                             cell.alignment = align_right
                         else:
                             cell.alignment = align_center
