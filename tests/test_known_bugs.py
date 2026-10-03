@@ -40,7 +40,6 @@ def numbers(rows):
 
 # ---------------------------------------------------------------- A: data correctness
 
-@bug("A-01")
 def test_read_preserves_leading_zeros(client):
     final, _ = post_job(client, "/upload", {"file": GOLDEN_XLSX}, {"chunk_size": "100", "base_filename": "z"})
     assert final["stage"] == "done", final
@@ -70,7 +69,6 @@ def test_merge_stats_non_negative(client):
     assert summary["unmatched_left"] >= 0 and summary["unmatched_right"] >= 0
 
 
-@bug("A-04")
 def test_compare_int_float_composite_keys(client, tmp_path):
     a = make_csv(tmp_path / "a.csv", "k1,k2,v\n1,x,a\n2,y,b\n")
     b = make_csv(tmp_path / "b.csv", "k1,k2,v\n1,x,a\n2,y,b\n,z,c\n")  # blank makes k1 float in file 2
@@ -197,7 +195,6 @@ def test_semantic_id_not_postal(dd):
     assert all(c["type_confidence"] <= 100 for c in cols.values())
 
 
-@bug("A-21")
 def test_analyze_bool_column(dd):
     dd.analyze_dataframe(pd.DataFrame({"a": [True, False, True], "b": [1, 2, 3]}))
 

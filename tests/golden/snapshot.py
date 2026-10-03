@@ -11,12 +11,11 @@ import openpyxl
 EXPECTED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "expected")
 VOLATILE_KEY = re.compile(r"(url|path|session|timestamp|elapsed|duration|created|_at$|filename|output_file)", re.I)
 TS = re.compile(r"\d{8}_\d{6}")
-HEX = re.compile(r"[0-9a-f]{16}")
 EPOCH = re.compile(r"\b1[5-9]\d{8}\b")
 
 
 def _clean_str(s):
-    return EPOCH.sub("<EPOCH>", HEX.sub("<HEX>", TS.sub("<TS>", s)))
+    return EPOCH.sub("<EPOCH>", TS.sub("<TS>", s))
 
 
 def scrub(o):

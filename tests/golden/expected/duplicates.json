@@ -9,13 +9,18 @@
     "Count": 2,
     "IDs to Remove": "PR-00007",
     "Keep ID (Original)": "PR-00007",
-    "Row Preview": "Zip=1042, Region=N"
+    "Row Preview": "Zip=01042, Region=N"
    }
+  ],
+  "sheet_names": [
+   "Main",
+   "Second"
   ],
   "stage": "done",
   "total": 100,
   "total_duplicates": 1,
-  "total_ids_to_remove": 1
+  "total_ids_to_remove": 1,
+  "warning": "golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed."
  },
  "output": {
   "Duplicates": [
@@ -27,7 +32,7 @@
     "s:'IDs to Remove'"
    ],
    [
-    "s:'Zip=1042, Region=N'",
+    "s:'Zip=01042, Region=N'",
     "n:2",
     "s:'PR-00007'",
     "s:'PR-00007, PR-00007'",

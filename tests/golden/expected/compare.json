@@ -4,7 +4,12 @@
   "message": "Complete!",
   "percentage": 100,
   "preview": {
-   "added": [],
+   "added": [
+    {
+     "k1": null,
+     "v": "z"
+    }
+   ],
    "changed": [],
    "removed": []
   },
@@ -21,6 +26,16 @@
   "total": 100
  },
  "output": {
+  "Added Rows": [
+   [
+    "s:'k1'",
+    "s:'v'"
+   ],
+   [
+    "inlineStr:None",
+    "s:'z'"
+   ]
+  ],
   "Summary": [
    [
     "s:'Metric'",
@@ -61,11 +76,11 @@
     "s:'v'"
    ],
    [
-    "n:1",
+    "s:'1'",
     "s:'a'"
    ],
    [
-    "n:2",
+    "s:'2'",
     "s:'b'"
    ]
   ]

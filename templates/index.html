@@ -1052,6 +1052,7 @@
             <h3>Success!</h3>
             <p><strong>Total Rows:</strong> <span id="totalRows"></span></p>
             <p><strong>Files Created:</strong> <span id="numFiles"></span></p>
+            <p id="resultWarning" style="display:none; color:#b45309;"></p>
             <button class="btn download-btn" id="downloadBtn">Download Split Files</button>
         </div>
     </div>
@@ -1309,6 +1310,9 @@
                             if (progressData.total_rows && progressData.download_url) {
                                 document.getElementById('totalRows').textContent = progressData.total_rows.toLocaleString();
                                 document.getElementById('numFiles').textContent = progressData.num_files;
+                                const warningEl = document.getElementById('resultWarning');
+                                warningEl.textContent = progressData.warning || '';
+                                warningEl.style.display = progressData.warning ? 'block' : 'none';
                                 result.classList.add('show');
                                 downloadUrl = progressData.download_url;
                                 

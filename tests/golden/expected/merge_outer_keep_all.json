@@ -5,22 +5,22 @@
   "percentage": 100,
   "preview": [
    {
-    "id": "1.0",
+    "id": "1",
     "left_val": "a",
     "right_val": "x"
    },
    {
-    "id": "2.0",
+    "id": "2",
     "left_val": "d",
     "right_val": "p"
    },
    {
-    "id": "2.0",
+    "id": "2",
     "left_val": "e",
     "right_val": "p"
    },
    {
-    "id": "3.0",
+    "id": "3",
     "left_val": null,
     "right_val": "q"
    },
@@ -99,22 +99,22 @@
     "s:'right_val'"
    ],
    [
-    "n:1",
+    "s:'1'",
     "s:'a'",
     "s:'x'"
    ],
    [
-    "n:2",
+    "s:'2'",
     "s:'d'",
     "s:'p'"
    ],
    [
-    "n:2",
+    "s:'2'",
     "s:'e'",
     "s:'p'"
    ],
    [
-    "n:3",
+    "s:'3'",
     "inlineStr:None",
     "s:'q'"
    ],

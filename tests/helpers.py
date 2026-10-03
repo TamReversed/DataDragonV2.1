@@ -86,10 +86,10 @@ def make_xlsx(path, header, rows, text_cols=()):
             elif isinstance(c.value, str) and c.value.startswith("="):
                 c.data_type = "s"
     wb.save(path)
-    return path
+    return str(path)
 
 
 def make_csv(path, text):
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(text)
-    return path
+    return str(path)

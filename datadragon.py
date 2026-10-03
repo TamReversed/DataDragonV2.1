@@ -356,42 +356,135 @@ def get_file_extension(filename):
     """Get lowercase file extension"""
     return filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
 
-def read_data_file(file_path, **kwargs):
+def read_data_file(file_path, mode='lossless', sheet_name=0, **kwargs):
     """
-    Unified file reader that handles Excel (.xlsx, .xls) and CSV files.
+    Unified file reader for Excel (.xlsx, .xls) and CSV files.
 
-    Args:
-        file_path: Path to the file
-        **kwargs: Additional arguments passed to pandas read functions
-                  (e.g., nrows, usecols, dtype, parse_dates)
+    mode='lossless' (default): cell values are kept exactly as stored. CSV cells stay text, Excel text
+        cells stay text (so '00123' keeps its zeros), numbers/dates/booleans keep their Python type and
+        blanks are NaN. Use this for every tool that passes data through or matches keys.
+    mode='infer': pandas' own type inference (numbers as int64/float64, dates...). Use where arithmetic or
+        statistics are needed (see inferred_copy() for doing this on an already-loaded frame).
 
-    Returns:
-        pandas DataFrame
-
-    Raises:
-        ValueError: If file format is not supported
+    Only the first sheet of a workbook is read unless sheet_name says otherwise.
+    Extra keyword arguments (nrows, usecols, ...) are passed to pandas.
     """
     ext = get_file_extension(file_path)
 
     if ext == 'csv':
-        # Try different encodings for CSV
-        encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
-        for encoding in encodings:
+        options = dict(kwargs)
+        if mode == 'lossless':
+            options.setdefault('dtype', str)
+            options.setdefault('keep_default_na', False)
+            options.setdefault('na_values', [''])
+        # utf-8-sig also strips a byte-order mark; cp1252 covers Windows exports; latin-1 never fails.
+        # Only a decoding failure moves on to the next encoding; any other error is real and propagates.
+        for encoding in ('utf-8-sig', 'cp1252', 'latin-1'):
             try:
-                return pd.read_csv(file_path, encoding=encoding, **kwargs)
+                return pd.read_csv(file_path, encoding=encoding, **options)
             except UnicodeDecodeError:
                 continue
-            except Exception as e:
-                if encoding == encodings[-1]:
-                    raise e
-                continue
-        raise ValueError(f"Could not read CSV file with any supported encoding")
+        raise ValueError("Could not read CSV file with any supported encoding")
 
     elif ext in ('xlsx', 'xls'):
-        return pd.read_excel(file_path, **kwargs)
+        options = dict(kwargs)
+        if mode == 'lossless':
+            options.setdefault('dtype', object)
+        return pd.read_excel(file_path, sheet_name=sheet_name, **options)
 
     else:
         raise ValueError(f"Unsupported file format: {ext}. Supported formats: xlsx, xls, csv")
+
+
+def inferred_copy(df):
+    """Type-inferred copy of a lossless frame, for arithmetic/statistics. The original is not changed.
+
+    A column becomes numeric only if every non-blank value parses as a number (pandas' own rule);
+    object columns of dates/bools are re-typed by infer_objects().
+    """
+    out = df.copy()
+    for col in out.columns:
+        if out[col].dtype == object:
+            numeric = pd.to_numeric(out[col], errors='coerce')
+            if numeric.notna().sum() == out[col].notna().sum():
+                out[col] = numeric
+    return out.infer_objects()
+
+
+def _canonical_key_text(value):
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def align_key_types(df_a, cols_a, df_b, cols_b):
+    """Make key columns comparable when one file stores a key as a number and the other as text
+    (e.g. Excel 123 vs CSV '123'): the numeric side is converted to text. Frames are changed in place."""
+    def kind(series):
+        kinds = set()
+        for v in series.dropna():
+            if isinstance(v, (bool, np.bool_)):
+                kinds.add('other')
+            elif isinstance(v, (int, float, np.integer, np.floating)):
+                kinds.add('num')
+            elif isinstance(v, str):
+                kinds.add('str')
+            else:
+                kinds.add('other')
+        return kinds.pop() if len(kinds) == 1 else None
+
+    for col_a, col_b in zip(cols_a, cols_b):
+        if col_a not in df_a.columns or col_b not in df_b.columns:
+            continue
+        kind_a, kind_b = kind(df_a[col_a]), kind(df_b[col_b])
+        if {kind_a, kind_b} == {'num', 'str'}:
+            numeric_df, numeric_col = (df_a, col_a) if kind_a == 'num' else (df_b, col_b)
+            numeric_df[numeric_col] = numeric_df[numeric_col].map(
+                lambda v: v if pd.isna(v) else _canonical_key_text(v))
+
+
+def sheet_names_of(file_path):
+    """Sheet names of an Excel workbook ([] for CSV or on any read problem)."""
+    if get_file_extension(file_path) not in ('xlsx', 'xls'):
+        return []
+    try:
+        with pd.ExcelFile(file_path) as workbook:
+            return list(workbook.sheet_names)
+    except Exception:
+        return []
+
+
+# job_id -> {'sheet_names': [...], 'warning': str}; added to the job's final message
+job_notes = {}
+MAX_JOB_NOTES = 500
+
+
+def add_job_notes(message, job_id):
+    """Add the job's multi-sheet warning (if any) to a message dict and return it."""
+    note = job_notes.get(job_id)
+    if note:
+        message['sheet_names'] = note['sheet_names']
+        message['warning'] = (message.get('warning', '') + ' ' + note['warning']).strip()
+    return message
+
+
+def save_upload(file_storage, path, job_id):
+    """Save an uploaded file; remember a warning if it is a workbook with several sheets."""
+    file_storage.save(path)
+    names = sheet_names_of(path)
+    if len(names) > 1:
+        while len(job_notes) >= MAX_JOB_NOTES:
+            job_notes.pop(next(iter(job_notes)))  # drop the oldest
+        note = job_notes.setdefault(job_id, {'sheet_names': [], 'warning': ''})
+        note['sheet_names'] = names
+        display = os.path.basename(path)
+        if display.startswith(job_id + '_'):
+            display = display[len(job_id) + 1:]
+        display = re.sub(r'^(left|right|file1|file2)_', '', display)
+        text = (f"{display} has {len(names)} sheets ({', '.join(names)}); "
+                f"only the first sheet, '{names[0]}', was processed.")
+        note['warning'] = (note['warning'] + ' ' + text).strip()
+
 
 def write_data_file(df, file_path, file_format='xlsx', **kwargs):
     """
@@ -439,7 +532,7 @@ def get_file_preview(file_path, max_rows=20):
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 total_rows = sum(1 for _ in f) - 1  # Subtract header
         else:
-            full_df = pd.read_excel(file_path, usecols=[0])  # Read just first column for count
+            full_df = read_data_file(file_path, usecols=[0])  # Read just first column for count
             total_rows = len(full_df)
 
         # Convert preview to JSON-serializable format
@@ -500,7 +593,7 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
     send_progress('loading', 0, 100, 'Reading Excel file...')
     
     # Read the data from the Excel file
-    df = pd.read_excel(input_file_path)
+    df = read_data_file(input_file_path)
     total_rows = len(df)
     num_splits = (total_rows + chunk_size - 1) // chunk_size
     
@@ -738,6 +831,8 @@ def progress(session_id):
                 try:
                     progress_data = q.get(timeout=5)  # 5 second timeout
                     empty_queue_count = 0  # Reset counter
+                    if progress_data.get('stage') == 'done':
+                        add_job_notes(progress_data, session_id)
                     
                     # Log what we're sending
                     stage = progress_data.get('stage', 'unknown')
@@ -907,7 +1002,7 @@ def upload_file():
         session_id = f"{timestamp}_{secrets.token_hex(8)}"  # Use secure random session ID
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         print(f"Saving to: {upload_path}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
         
         # Create output folder for this session
         output_folder = os.path.join(job_dir(session_id), 'chunks')
@@ -1415,8 +1510,8 @@ def analyze_dataframe(df, progress_queue=None, session_id=None):
         col_info['type_samples'] = semantic_type_info['sample_values']
         col_info['format_info'] = semantic_type_info['format_info']
         
-        # Numeric column statistics
-        if pd.api.types.is_numeric_dtype(col_data):
+        # Numeric column statistics (booleans count as numeric to pandas but have no meaningful quartiles)
+        if pd.api.types.is_numeric_dtype(col_data) and not pd.api.types.is_bool_dtype(col_data):
             col_info['is_numeric'] = True
             col_info['statistics'] = {
                 'mean': float(col_data.mean()) if col_data.notna().any() else None,
@@ -1544,10 +1639,7 @@ def analyze_file_async(upload_path, progress_queue, session_id):
         
         # Read file into memory
         filename = os.path.basename(upload_path)
-        if filename.endswith('.csv'):
-            df = pd.read_csv(upload_path)
-        else:
-            df = pd.read_excel(upload_path)
+        df = read_data_file(upload_path, mode='infer')
         
         send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
         
@@ -1683,7 +1775,7 @@ def analyze_file():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         session_id = f"analyze_{timestamp}_{secrets.token_hex(8)}"  # Use secure random session ID
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -2009,10 +2101,7 @@ def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, expor
         
         # Read file into memory
         filename = os.path.basename(upload_path)
-        if filename.endswith('.csv'):
-            df = pd.read_csv(upload_path)
-        else:
-            df = pd.read_excel(upload_path)
+        df = read_data_file(upload_path)
         
         send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
         
@@ -2079,10 +2168,7 @@ def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, expor
         print("POST-SAVE VERIFICATION")
         print("="*80)
         try:
-            if filename.endswith('.csv'):
-                saved_df = pd.read_csv(output_path, nrows=10)  # Read first 10 rows
-            else:
-                saved_df = pd.read_excel(output_path, nrows=10)
+            saved_df = read_data_file(output_path, nrows=10)
             
             print(f"Successfully read saved file: {output_path}")
             for col_name in columns_to_scrub:
@@ -2186,10 +2272,7 @@ def get_columns():
         
         try:
             # Read file to get columns
-            if filename.endswith('.csv'):
-                df = pd.read_csv(upload_path, nrows=0)  # Read only headers
-            else:
-                df = pd.read_excel(upload_path, nrows=0)
+            df = read_data_file(upload_path, nrows=0)
             
             columns_info = []
             for col in df.columns:
@@ -2241,10 +2324,7 @@ def get_columns_with_samples():
         
         try:
             # Read file to get columns and sample values (first 10 rows)
-            if filename.endswith('.csv'):
-                df = pd.read_csv(upload_path, nrows=10)
-            else:
-                df = pd.read_excel(upload_path, nrows=10)
+            df = read_data_file(upload_path, nrows=10)
             
             columns_info = []
             for col in df.columns:
@@ -2456,7 +2536,7 @@ def scrub_data():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         session_id = f"scrub_{timestamp}_{secrets.token_hex(8)}"
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -2503,10 +2583,7 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
         
         # Read file into memory
         filename = os.path.basename(upload_path)
-        if filename.endswith('.csv'):
-            df = pd.read_csv(upload_path)
-        else:
-            df = pd.read_excel(upload_path)
+        df = read_data_file(upload_path)
         
         send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
         
@@ -2698,7 +2775,7 @@ def find_duplicates():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         session_id = f"duplicates_{timestamp}_{secrets.token_hex(8)}"
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -3017,10 +3094,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         
         # Read file into memory
         filename = os.path.basename(upload_path)
-        if filename.endswith('.csv'):
-            df = pd.read_csv(upload_path)
-        else:
-            df = pd.read_excel(upload_path)
+        df = read_data_file(upload_path)
         
         original_row_count = len(df)
         send_progress('loading', 50, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
@@ -3292,7 +3366,7 @@ def find_unique_identifier():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         session_id = f"unique_id_{timestamp}_{secrets.token_hex(8)}"
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -3334,18 +3408,13 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
         send_progress('loading', 0, 100, 'Reading left file...', 5)
         
         # Read left file
-        if left_file_path.endswith('.csv'):
-            df_left = pd.read_csv(left_file_path)
-        else:
-            df_left = pd.read_excel(left_file_path)
+        df_left = read_data_file(left_file_path)
         
         send_progress('loading', 50, 100, 'Reading right file...', 10)
         
         # Read right file
-        if right_file_path.endswith('.csv'):
-            df_right = pd.read_csv(right_file_path)
-        else:
-            df_right = pd.read_excel(right_file_path)
+        df_right = read_data_file(right_file_path)
+        align_key_types(df_left, [left_key], df_right, [right_key])
         
         send_progress('loading', 100, 100, f'Files loaded: Left {len(df_left):,} rows, Right {len(df_right):,} rows', 15)
         
@@ -3591,8 +3660,8 @@ def merge_data():
         left_file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_left_{left_filename}")
         right_file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_right_{right_filename}")
         
-        left_file.save(left_file_path)
-        right_file.save(right_file_path)
+        save_upload(left_file, left_file_path, session_id)
+        save_upload(right_file, right_file_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -3634,18 +3703,13 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
         send_progress('loading', 0, 100, 'Reading file 1...', 5)
         
         # Read file 1
-        if file1_path.endswith('.csv'):
-            df1 = pd.read_csv(file1_path)
-        else:
-            df1 = pd.read_excel(file1_path)
+        df1 = read_data_file(file1_path)
         
         send_progress('loading', 50, 100, 'Reading file 2...', 10)
         
         # Read file 2
-        if file2_path.endswith('.csv'):
-            df2 = pd.read_csv(file2_path)
-        else:
-            df2 = pd.read_excel(file2_path)
+        df2 = read_data_file(file2_path)
+        align_key_types(df1, key_columns, df2, key_columns)
         
         send_progress('loading', 100, 100, f'Files loaded: File 1 {len(df1):,} rows, File 2 {len(df2):,} rows', 15)
         
@@ -3718,7 +3782,8 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
         changed_rows = []
         unchanged_rows = []
         
-        for key in common_keys:
+        # Follow file 1's row order (iterating the set directly would vary with the process's hash seed)
+        for key in [k for k in df1_compare['_key'].drop_duplicates() if k in common_keys]:
             row1 = df1_compare[df1_compare['_key'] == key].iloc[0]
             row2 = df2_compare[df2_compare['_key'] == key].iloc[0]
             
@@ -3935,8 +4000,8 @@ def compare_data():
         file1_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file1_{file1_filename}")
         file2_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file2_{file2_filename}")
         
-        file1.save(file1_path)
-        file2.save(file2_path)
+        save_upload(file1, file1_path, session_id)
+        save_upload(file2, file2_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -3978,10 +4043,7 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         send_progress('loading', 0, 100, 'Reading file...', 5)
         
         # Read file
-        if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
-        else:
-            df = pd.read_excel(file_path)
+        df = read_data_file(file_path)
         
         send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows', 15)
         
@@ -3992,7 +4054,21 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
             raise ValueError(f"Columns not found in file: {', '.join(invalid_cols)}")
         
         send_progress('preparing', 0, 100, 'Preparing data for pivot...', 20)
-        
+
+        # Files are read losslessly (values keep their stored type), so number-crunching columns are
+        # converted explicitly. Anything that is not a number is ignored and reported.
+        ignored_non_numeric = {}
+        if values and aggfunc not in ('count', 'nunique'):
+            converted = {}
+            for value_col in values:
+                numeric = pd.to_numeric(df[value_col], errors='coerce')
+                converted[value_col] = (numeric, int((numeric.isna() & df[value_col].notna()).sum()))
+            if aggfunc or all(ignored == 0 for _, ignored in converted.values()):
+                for value_col, (numeric, ignored) in converted.items():
+                    df[value_col] = numeric
+                    if ignored:
+                        ignored_non_numeric[value_col] = ignored
+
         # Apply filters if any
         if filters:
             for filter_col, filter_value in filters.items():
@@ -4362,6 +4438,10 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
             },
             'preview': preview_data
         }
+        if ignored_non_numeric:
+            final_message['ignored_non_numeric'] = ignored_non_numeric
+            final_message['warning'] = 'Non-numeric values were ignored: ' + ', '.join(
+                f'{count} in {col}' for col, count in ignored_non_numeric.items()) + '.'
         
         try:
             progress_queue.put(final_message, timeout=5)
@@ -4435,7 +4515,7 @@ def generate_pivot():
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         
-        file.save(file_path)
+        save_upload(file, file_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -4477,10 +4557,7 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
         send_progress('loading', 0, 100, 'Reading file...', 5)
         
         # Read file
-        if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
-        else:
-            df = pd.read_excel(file_path)
+        df = read_data_file(file_path)
         
         send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows', 15)
         
@@ -4722,7 +4799,7 @@ def validate_data():
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         
-        file.save(file_path)
+        save_upload(file, file_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -4764,10 +4841,7 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
         send_progress('loading', 0, 100, 'Reading file...', 5)
         
         # Read file
-        if file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
-        else:
-            df = pd.read_excel(file_path)
+        df = read_data_file(file_path)
         
         send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 15)
         
@@ -5079,7 +5153,7 @@ def normalize_columns():
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         
-        file.save(file_path)
+        save_upload(file, file_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -5242,7 +5316,7 @@ def convert_pdf_to_word():
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         
-        file.save(file_path)
+        save_upload(file, file_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -5290,7 +5364,7 @@ def compare_columns_async(file1_path, file2_path, file1_name, file2_name, progre
         else:
             # For Excel, use pandas with nrows=0 to read only headers (handles both .xlsx and .xls)
             try:
-                df1 = pd.read_excel(file1_path, nrows=0)
+                df1 = read_data_file(file1_path, nrows=0)
                 columns1 = set([str(col).strip() for col in df1.columns if col])
             except Exception as e:
                 # Fallback: try openpyxl for .xlsx files only
@@ -5320,7 +5394,7 @@ def compare_columns_async(file1_path, file2_path, file1_name, file2_name, progre
         else:
             # For Excel, use pandas with nrows=0 to read only headers (handles both .xlsx and .xls)
             try:
-                df2 = pd.read_excel(file2_path, nrows=0)
+                df2 = read_data_file(file2_path, nrows=0)
                 columns2 = set([str(col).strip() for col in df2.columns if col])
             except Exception as e:
                 # Fallback: try openpyxl for .xlsx files only
@@ -5488,8 +5562,8 @@ def compare_columns():
         file1_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file1_{file1_filename}")
         file2_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file2_{file2_filename}")
         
-        file1.save(file1_path)
-        file2.save(file2_path)
+        save_upload(file1, file1_path, session_id)
+        save_upload(file2, file2_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -5528,10 +5602,7 @@ def transpose_file_async(upload_path, progress_queue, session_id):
         
         # Read file into memory
         filename = os.path.basename(upload_path)
-        if filename.endswith('.csv'):
-            df = pd.read_csv(upload_path)
-        else:
-            df = pd.read_excel(upload_path)
+        df = read_data_file(upload_path)
         
         original_shape = df.shape
         send_progress('loading', 100, 100, f'File loaded: {original_shape[0]:,} rows × {original_shape[1]:,} columns', 20)
@@ -5637,7 +5708,7 @@ def transpose_data():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         session_id = f"transpose_{timestamp}_{secrets.token_hex(8)}"
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
         
         # Create progress queue for this session
         progress_queue = Queue()
@@ -5697,7 +5768,7 @@ def row_filter():
         job_registry.bind(session_id, current_owner())
         filename = secure_filename(file.filename)
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
 
         # Read the file
         df = read_data_file(upload_path)
@@ -5807,6 +5878,7 @@ def row_filter():
             'success': True,
             'filename': output_filename,
             'download_url': job_download_url(session_id, output_filename),
+            **job_notes.get(session_id, {}),
             'original_rows': original_rows,
             'matching_rows': matching_rows
         })
@@ -5852,7 +5924,7 @@ def find_replace():
         job_registry.bind(session_id, current_owner())
         filename = secure_filename(file.filename)
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
 
         # Read the file
         df = read_data_file(upload_path)
@@ -5956,6 +6028,7 @@ def find_replace():
             'success': True,
             'filename': output_filename,
             'download_url': job_download_url(session_id, output_filename),
+            **job_notes.get(session_id, {}),
             'replacements_made': int(total_replacements),
             'rows_affected': len(rows_affected)
         })
@@ -6004,7 +6077,7 @@ def calculated_columns():
             job_registry.bind(session_id, current_owner())
             filename = secure_filename(file.filename)
             upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-            file.save(upload_path)
+            save_upload(file, upload_path, session_id)
 
             # Read the file
             df = read_data_file(upload_path)
@@ -6021,7 +6094,7 @@ def calculated_columns():
 
         # Parse and evaluate the formula
         try:
-            result = evaluate_formula(df, formula)
+            result = evaluate_formula(inferred_copy(df), formula)
         except Exception as e:
             return jsonify({'error': f'Formula error: {str(e)}'}), 400
 
@@ -6063,6 +6136,7 @@ def calculated_columns():
             'success': True,
             'filename': output_filename,
             'download_url': job_download_url(session_id, output_filename),
+            **job_notes.get(session_id, {}),
             'new_column': new_column_name,
             'rows': len(df),
             'columns': len(df.columns)
@@ -6113,7 +6187,7 @@ def column_operations():
         job_registry.bind(session_id, current_owner())
         filename = secure_filename(file.filename)
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
 
         # Read the file
         df = read_data_file(upload_path)
@@ -6301,6 +6375,7 @@ def column_operations():
             'success': True,
             'filename': output_filename,
             'download_url': job_download_url(session_id, output_filename),
+            **job_notes.get(session_id, {}),
             'summary': operation_summary,
             'original_columns': len(original_cols),
             'new_columns': len(df.columns)
@@ -6344,7 +6419,7 @@ def pipeline_start():
         # Save file
         filename = secure_filename(file.filename)
         upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        file.save(upload_path)
+        save_upload(file, upload_path, session_id)
 
         # Create pipeline state
         state = PipelineState(session_id, upload_path, filename, owner=current_owner())
@@ -6420,7 +6495,7 @@ def pipeline_analyze(session_id):
         def run_analysis():
             try:
                 # Analyze the DataFrame
-                analysis = analyze_dataframe(state.df, progress_queue, session_id)
+                analysis = analyze_dataframe(inferred_copy(state.df), progress_queue, session_id)
 
                 # Extract gap summary for Stage 2
                 gap_summary = []

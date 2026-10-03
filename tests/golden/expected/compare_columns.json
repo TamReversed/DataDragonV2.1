@@ -68,9 +68,14 @@
   "file2_only": 0,
   "message": "Complete!",
   "percentage": 100,
+  "sheet_names": [
+   "Main",
+   "Second"
+  ],
   "stage": "done",
   "total": 14,
-  "total_columns": 14
+  "total_columns": 14,
+  "warning": "golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed."
  },
  "output": {
   "Column Comparison": [

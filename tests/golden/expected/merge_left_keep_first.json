@@ -5,7 +5,7 @@
   "percentage": 100,
   "preview": [
    {
-    "id": "1.0",
+    "id": "1",
     "left_val": "a",
     "right_val": "x"
    },
@@ -15,7 +15,7 @@
     "right_val": "y"
    },
    {
-    "id": "2.0",
+    "id": "2",
     "left_val": "d",
     "right_val": "p"
    }
@@ -74,7 +74,7 @@
     "s:'right_val'"
    ],
    [
-    "n:1",
+    "s:'1'",
     "s:'a'",
     "s:'x'"
    ],
@@ -84,7 +84,7 @@
     "s:'y'"
    ],
    [
-    "n:2",
+    "s:'2'",
     "s:'d'",
     "s:'p'"
    ]
