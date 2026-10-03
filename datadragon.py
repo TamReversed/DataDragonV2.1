@@ -10,6 +10,7 @@ import traceback
 import json
 from queue import Queue, Empty
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import secrets
 import time
 from functools import wraps
@@ -113,6 +114,7 @@ def assign_owner():
 def register_job(session_id, progress_queue, owner=None):
     """Create the progress channel for a job and bind it to its owner."""
     progress_queues[session_id] = progress_queue
+    progress_queue_created[session_id] = time.time()
     job_registry.bind(session_id, owner or current_owner())
 
 
@@ -136,8 +138,54 @@ def cleanup_owner_registries():
     job_registry.expire(OWNER_TTL_SECONDS)
 
 
+# =============================================================================
+# RETENTION & CONCURRENCY (see README / security page)
+# =============================================================================
+def _minutes(name, default):
+    try:
+        return float(os.environ.get(name, default)) * 60
+    except ValueError:
+        return default * 60
+
+
+OUTPUT_TTL_SECONDS = _minutes('DATADRAGON_OUTPUT_TTL_MIN', 30)   # result files are deleted this long after their job
+UPLOAD_TTL_SECONDS = _minutes('DATADRAGON_UPLOAD_TTL_MIN', 30)   # stray uploads (failed/abandoned requests)
+QUEUE_TTL_SECONDS = 10 * 60                                      # progress channels nobody collected
+PIPELINE_IDLE_SECONDS = 2 * 3600                                 # pipeline sessions expire on last activity
+MAX_PIPELINES_PER_OWNER = 3
+MAX_PIPELINES_TOTAL = 20
+CLEANUP_INTERVAL_SECONDS = 300
+MAX_JOBS = max(1, int(os.environ.get('DATADRAGON_MAX_JOBS', 4)))
+
+# Every background job runs in this bounded pool (a flood of uploads queues up instead of spawning a thread each)
+executor = ThreadPoolExecutor(max_workers=MAX_JOBS, thread_name_prefix='job')
+
+
+def _log_job_failure(future):
+    error = future.exception()
+    if error is not None:   # jobs report their own errors to the user; this only catches what escaped them
+        print(f"Background job crashed: {error!r}")
+
+
+def start_job(function, *args):
+    """Run `function(*args)` in the job pool."""
+    future = executor.submit(function, *args)
+    future.add_done_callback(_log_job_failure)
+    return future
+
+
+def discard_upload(path):
+    """Delete an uploaded file as soon as its contents are loaded."""
+    try:
+        if path:
+            os.remove(path)
+    except OSError:
+        pass
+
+
 # Store progress queues for active sessions
 progress_queues = {}
+progress_queue_created = {}   # session_id -> created timestamp, so uncollected queues can expire
 
 # Store analysis results temporarily (session_id -> {'data': analysis_data, 'timestamp': time.time()})
 # These are cleaned up after being fetched or after 1 hour
@@ -184,22 +232,74 @@ def rate_limit(max_requests=10, window=60):
 def cleanup_old_analysis_results():
     """Remove analysis results older than 1 hour"""
     current_time = time.time()
-    expired_sessions = [
-        session_id for session_id, data in analysis_results.items()
-        if current_time - data.get('timestamp', 0) > 3600
-    ]
-    for session_id in expired_sessions:
-        del analysis_results[session_id]
-        print(f"Cleaned up expired analysis session: {session_id}")
+    for session_id, data in list(analysis_results.items()):
+        if current_time - data.get('timestamp', 0) > 3600:
+            analysis_results.pop(session_id, None)
+            print(f"Cleaned up expired analysis session: {session_id}")
+
+
+def _tree_mtime(path):
+    """Newest modification time in a file or directory tree."""
+    newest = os.path.getmtime(path)
+    if os.path.isdir(path):
+        for entry in os.scandir(path):
+            try:
+                newest = max(newest, entry.stat().st_mtime)
+            except OSError:
+                pass
+    return newest
+
+
+def cleanup_outputs(now=None):
+    """Delete job output folders (and stray files) older than the output TTL, downloaded or not."""
+    now = now or time.time()
+    root = app.config['OUTPUT_FOLDER']
+    for name in os.listdir(root):
+        path = os.path.join(root, name)
+        try:
+            if now - _tree_mtime(path) > OUTPUT_TTL_SECONDS:
+                shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)
+        except OSError:
+            pass
+
+
+def cleanup_uploads(now=None):
+    """Delete uploads that no job removed (failed or abandoned requests)."""
+    now = now or time.time()
+    root = app.config['UPLOAD_FOLDER']
+    for name in os.listdir(root):
+        path = os.path.join(root, name)
+        try:
+            if os.path.isfile(path) and now - os.path.getmtime(path) > UPLOAD_TTL_SECONDS:
+                os.remove(path)
+        except OSError:
+            pass
+
+
+def cleanup_progress_queues(now=None):
+    """Drop progress channels that were never collected."""
+    now = now or time.time()
+    for session_id, created in list(progress_queue_created.items()):
+        if now - created > QUEUE_TTL_SECONDS:
+            progress_queue_created.pop(session_id, None)
+            progress_queues.pop(session_id, None)
+
+
+def run_cleanup():
+    """One sweep. Each step is isolated: a failure in one must not stop the others or kill the sweeper."""
+    for step in (cleanup_old_analysis_results, cleanup_session_cache, cleanup_pipeline_sessions,
+                 cleanup_owner_registries, cleanup_outputs, cleanup_uploads, cleanup_progress_queues):
+        try:
+            step()
+        except Exception:
+            app.logger.exception('Cleanup step %s failed', step.__name__)
+
 
 # Start cleanup thread
 def cleanup_thread():
     while True:
-        time.sleep(300)  # Run every 5 minutes
-        cleanup_old_analysis_results()
-        cleanup_session_cache()
-        cleanup_pipeline_sessions()
-        cleanup_owner_registries()
+        time.sleep(CLEANUP_INTERVAL_SECONDS)
+        run_cleanup()
 
 cleanup_thread_instance = threading.Thread(target=cleanup_thread, daemon=True)
 cleanup_thread_instance.start()
@@ -254,21 +354,17 @@ def get_cached_file_by_id(cache_id):
     return info
 
 def cleanup_session_cache():
-    """Remove cached files older than 1 hour"""
+    """Remove cached files older than the output TTL"""
     current_time = time.time()
-    expired_ids = []
-    for cache_id, data in file_cache.items():
-        if current_time - data.get('timestamp', 0) > 3600:
-            expired_ids.append(cache_id)
-
-    for cache_id in expired_ids:
-        file_info = file_cache.pop(cache_id, {})
-        if os.path.exists(file_info.get('path', '')):
+    for cache_id, data in list(file_cache.items()):
+        if current_time - data.get('timestamp', 0) > OUTPUT_TTL_SECONDS:
+            file_info = file_cache.pop(cache_id, {})
             try:
-                os.remove(file_info['path'])
-            except:
+                if os.path.exists(file_info.get('path', '')):
+                    os.remove(file_info['path'])
+            except OSError:
                 pass
-        print(f"Cleaned up expired cache: {cache_id}")
+            print(f"Cleaned up expired cache: {cache_id}")
 
 # =============================================================================
 # DATA READINESS PIPELINE - Guided multi-stage data assessment workflow
@@ -281,6 +377,7 @@ class PipelineState:
         self.file_path = file_path
         self.filename = filename
         self.created_at = time.time()
+        self.last_activity = self.created_at
         self.current_stage = 1
         self.df = None  # DataFrame loaded in memory during session
         self.row_count = 0
@@ -317,33 +414,46 @@ class PipelineState:
 # Pipeline session storage
 pipeline_sessions = {}  # session_id -> PipelineState
 
+def evict_pipeline_session(session_id):
+    """Forget a pipeline session: free its DataFrame and delete its uploaded file."""
+    state = pipeline_sessions.pop(session_id, None)
+    if state is None:
+        return
+    discard_upload(state.file_path)
+    state.df = None
+    print(f"Removed pipeline session: {session_id}")
+
+
+def make_room_for_pipeline(owner):
+    """Least-recently-used eviction so one browser (or all of them) cannot hold unbounded DataFrames."""
+    def least_recent(candidates):
+        return min(candidates, key=lambda sid: pipeline_sessions[sid].last_activity)
+
+    while True:
+        mine = [sid for sid, st in list(pipeline_sessions.items()) if st.owner == owner]
+        if len(mine) >= MAX_PIPELINES_PER_OWNER:
+            evict_pipeline_session(least_recent(mine))
+        elif len(pipeline_sessions) >= MAX_PIPELINES_TOTAL:
+            evict_pipeline_session(least_recent(list(pipeline_sessions)))
+        else:
+            return
+
+
 def owned_pipeline_state(session_id):
-    """The pipeline session, but only for the browser that started it."""
+    """The pipeline session, but only for the browser that started it. Using it counts as activity."""
     state = pipeline_sessions.get(session_id)
     if state is None or state.owner != current_owner():
         return None
+    state.last_activity = time.time()
     return state
 
 
 def cleanup_pipeline_sessions():
-    """Remove pipeline sessions older than 2 hours"""
+    """Remove pipeline sessions idle for more than two hours"""
     current_time = time.time()
-    expired_sessions = [
-        session_id for session_id, state in pipeline_sessions.items()
-        if current_time - state.created_at > 7200  # 2 hours
-    ]
-    for session_id in expired_sessions:
-        state = pipeline_sessions.pop(session_id)
-        # Clean up temp file if exists
-        if state.file_path and os.path.exists(state.file_path):
-            try:
-                os.remove(state.file_path)
-            except:
-                pass
-        # Free DataFrame memory
-        if state.df is not None:
-            del state.df
-        print(f"Cleaned up expired pipeline session: {session_id}")
+    for session_id, state in list(pipeline_sessions.items()):
+        if current_time - state.last_activity > PIPELINE_IDLE_SECONDS:
+            evict_pipeline_session(session_id)
 
 # =============================================================================
 # UNIFIED FILE READER - Handles Excel and CSV with automatic detection
@@ -1071,12 +1181,7 @@ def upload_file():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=process_file_async,
-            args=(upload_path, output_folder, chunk_size, base_filename, timestamp, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(process_file_async, upload_path, output_folder, chunk_size, base_filename, timestamp, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -1117,31 +1222,7 @@ def download_file(job_id, filename):
             safe_filename.endswith('.json') or safe_filename.endswith('.docx')):
         return jsonify({'error': 'Invalid file type'}), 400
     
-    # Schedule cleanup after the response is sent
-    @after_this_request
-    def cleanup_file(response):
-        try:
-            # Delete the downloaded file
-            if os.path.exists(file_path) and os.path.isfile(file_path):
-                os.remove(file_path)
-                print(f"Cleaned up downloaded file: {safe_filename}")
-            
-            # If the file was in a subdirectory, check if we should remove the empty parent directory
-            parent_dir = os.path.dirname(file_path)
-            if parent_dir != app.config['OUTPUT_FOLDER'] and os.path.exists(parent_dir):
-                try:
-                    # Check if directory is empty (only . and .. entries)
-                    if not os.listdir(parent_dir):
-                        os.rmdir(parent_dir)
-                        print(f"Removed empty directory: {parent_dir}")
-                except OSError:
-                    # Directory not empty or other error - that's fine, just continue
-                    pass
-        except Exception as e:
-            # Log error but don't fail the request
-            print(f"Error cleaning up file {safe_filename}: {str(e)}")
-        return response
-    
+    # The file stays until the retention sweeper removes the job folder, so a repeat click or a retry still works
     return send_file(file_path, as_attachment=True)
 
 def make_json_serializable(obj):
@@ -1840,12 +1921,7 @@ def analyze_file():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=analyze_file_async,
-            args=(upload_path, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(analyze_file_async, upload_path, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -2390,12 +2466,7 @@ def scrub_data():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=scrub_file_async,
-            args=(upload_path, columns_to_scrub, relationship_preserve, export_mapping, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(scrub_file_async, upload_path, columns_to_scrub, relationship_preserve, export_mapping, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -2615,12 +2686,7 @@ def find_duplicates():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=find_duplicates_async,
-            args=(upload_path, id_column, duplicate_columns, progress_queue, session_id, treat_blank_as_value)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(find_duplicates_async, upload_path, id_column, duplicate_columns, progress_queue, session_id, treat_blank_as_value)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -3206,12 +3272,7 @@ def find_unique_identifier():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=find_unique_identifier_async,
-            args=(upload_path, selected_columns, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(find_unique_identifier_async, upload_path, selected_columns, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -3567,12 +3628,7 @@ def merge_data():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=merge_files_async,
-            args=(left_file_path, right_file_path, left_key, right_key, join_type, left_columns, right_columns, duplicate_handling, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(merge_files_async, left_file_path, right_file_path, left_key, right_key, join_type, left_columns, right_columns, duplicate_handling, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -3922,12 +3978,7 @@ def compare_data():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=compare_files_async,
-            args=(file1_path, file2_path, key_columns, compare_columns, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(compare_files_async, file1_path, file2_path, key_columns, compare_columns, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -4476,12 +4527,7 @@ def generate_pivot():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=generate_pivot_async,
-            args=(file_path, rows, columns, values, aggfunc, filters, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(generate_pivot_async, file_path, rows, columns, values, aggfunc, filters, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -4761,12 +4807,7 @@ def validate_data():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=validate_data_async,
-            args=(file_path, validation_rules, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(validate_data_async, file_path, validation_rules, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -5222,12 +5263,7 @@ def normalize_columns():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=normalize_columns_async,
-            args=(file_path, column_types, trim_whitespace, progress_queue, session_id, decimal_separator, date_order)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(normalize_columns_async, file_path, column_types, trim_whitespace, progress_queue, session_id, decimal_separator, date_order)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -5385,12 +5421,7 @@ def convert_pdf_to_word():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=convert_pdf_to_word_async,
-            args=(file_path, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(convert_pdf_to_word_async, file_path, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -5603,12 +5634,7 @@ def compare_columns():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=compare_columns_async,
-            args=(file1_path, file2_path, file1_name, file2_name, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(compare_columns_async, file1_path, file2_path, file1_name, file2_name, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -5748,12 +5774,7 @@ def transpose_data():
         progress_queue = Queue()
         register_job(session_id, progress_queue)
         # Start processing in background thread
-        thread = threading.Thread(
-            target=transpose_file_async,
-            args=(upload_path, progress_queue, session_id)
-        )
-        thread.daemon = True
-        thread.start()
+        start_job(transpose_file_async, upload_path, progress_queue, session_id)
         
         # Return session ID immediately so client can start listening to progress
         return jsonify({
@@ -5806,6 +5827,7 @@ def row_filter():
 
         # Read the file
         df = read_data_file(upload_path)
+        discard_upload(upload_path)  # contents are loaded; do not keep the file
         original_rows = len(df)
 
         # Build filter mask
@@ -5963,6 +5985,7 @@ def find_replace():
         # Read the file
         df = read_data_file(upload_path)
 
+        discard_upload(upload_path)  # contents are loaded; do not keep the file
         # Track replacements
         total_replacements = 0
         rows_affected = set()
@@ -6090,6 +6113,7 @@ def calculated_columns():
             # Read the file
             df = read_data_file(upload_path)
 
+            discard_upload(upload_path)  # contents are loaded; do not keep the file
         # Get parameters
         formula = request.form.get('formula', '')
         new_column_name = request.form.get('new_column_name', '')
@@ -6199,6 +6223,7 @@ def column_operations():
 
         # Read the file
         df = read_data_file(upload_path)
+        discard_upload(upload_path)  # contents are loaded; do not keep the file
         original_cols = df.columns.tolist()
         operation_summary = ""
 
@@ -6430,6 +6455,7 @@ def pipeline_start():
         save_upload(file, upload_path, session_id)
 
         # Create pipeline state
+        make_room_for_pipeline(current_owner())
         state = PipelineState(session_id, upload_path, filename, owner=current_owner())
         job_registry.bind(session_id, state.owner)
 
@@ -6557,9 +6583,7 @@ def pipeline_analyze(session_id):
                     'message': str(e)
                 })
 
-        thread = threading.Thread(target=run_analysis)
-        thread.daemon = True
-        thread.start()
+        start_job(run_analysis)
 
         return jsonify({
             'success': True,
@@ -6795,9 +6819,7 @@ def pipeline_find_keys(session_id):
                 print(traceback.format_exc())
                 progress_queue.put({'stage': 'error', 'message': str(e)})
 
-        thread = threading.Thread(target=run_key_discovery)
-        thread.daemon = True
-        thread.start()
+        start_job(run_key_discovery)
 
         return jsonify({
             'success': True,
@@ -7102,9 +7124,7 @@ def pipeline_execute(session_id):
                 print(traceback.format_exc())
                 progress_queue.put({'stage': 'error', 'message': str(e)})
 
-        thread = threading.Thread(target=run_execute)
-        thread.daemon = True
-        thread.start()
+        start_job(run_execute)
 
         return jsonify({
             'success': True,

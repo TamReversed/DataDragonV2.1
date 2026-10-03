@@ -1,4 +1,5 @@
 """Process model: health check, PORT/HOST, the Procfile, and a progress stream that survives a client disconnect."""
+import itertools
 import os
 import runpy
 import time
@@ -9,6 +10,7 @@ import pytest
 
 import datadragon
 
+_stream_ids = itertools.count()
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -45,7 +47,7 @@ def stream_job(client, messages):
     client.get("/")
     with client.session_transaction() as sess:
         owner = sess["owner"]
-    sid = f"stream_test_{time.time_ns()}"
+    sid = f"stream_test_{next(_stream_ids)}"
     q = Queue()
     for message in messages:
         q.put(message)
