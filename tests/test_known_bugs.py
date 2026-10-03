@@ -290,7 +290,6 @@ def test_concurrent_split_isolated(client, tmp_path, monkeypatch):
         assert len(combined) == rows and set(combined["owner"]) == {owner}
 
 
-@bug("H-04")
 def test_calc_with_cache_id(client):
     _run_cached(client, "A")
     cache_id = client.get("/get-cached-files").get_json()["files"][0]["cache_id"]
@@ -307,7 +306,6 @@ def _start_pipeline(client, path):
     return resp.get_json()["session_id"]
 
 
-@bug("H-05")
 def test_pipeline_execute_without_analyze(client):
     sid = _start_pipeline(client, fixture_path("compare_a.csv"))
     resp = client.post(f"/pipeline/{sid}/execute")

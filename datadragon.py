@@ -439,6 +439,15 @@ def make_room_for_pipeline(owner):
             return
 
 
+def invalidate_pipeline_stages(state, from_stage):
+    """Re-running a stage makes everything computed or decided after it stale: forget it."""
+    for stage in range(from_stage, 6):
+        state.stage_data[stage] = None
+        if stage in state.user_decisions:
+            state.user_decisions[stage] = {}
+    state.current_stage = min(state.current_stage, max(from_stage - 1, 1))
+
+
 def owned_pipeline_state(session_id):
     """The pipeline session, but only for the browser that started it. Using it counts as activity."""
     state = pipeline_sessions.get(session_id)
@@ -1048,10 +1057,12 @@ def progress(session_id):
             print(f"SSE error: {e}")
             print(traceback.format_exc())
         
-        # Clean up the queue
-        if session_id in progress_queues:
+        # Clean up the queue, but only the one this stream served: the next pipeline stage may already have
+        # registered a new queue under the same session id
+        if progress_queues.get(session_id) is q:
             print(f"Cleaning up session {session_id}")
             del progress_queues[session_id]
+            progress_queue_created.pop(session_id, None)
     
     return Response(stream_with_context(generate()), mimetype='text/event-stream', headers={
         'Cache-Control': 'no-cache',
@@ -5667,6 +5678,12 @@ def transpose_file_async(upload_path, progress_queue, session_id):
         original_shape = df.shape
         send_progress('loading', 100, 100, f'File loaded: {original_shape[0]:,} rows × {original_shape[1]:,} columns', 20)
         
+        # Every row becomes a column (plus one for the original column names) and a sheet holds 16,384 columns
+        if original_shape[0] + 1 > EXCEL_MAX_COLUMNS:
+            raise ValueError(f"This file has {original_shape[0]:,} rows. Transposing it would create "
+                             f"{original_shape[0] + 1:,} columns, but Excel supports at most {EXCEL_MAX_COLUMNS:,} "
+                             f"(so at most {EXCEL_MAX_COLUMNS - 1:,} rows). Split the file first.")
+        
         send_progress('processing', 0, 100, 'Transposing data (rows ↔ columns)...', 30)
         
         # Transpose the dataframe
@@ -5686,7 +5703,7 @@ def transpose_file_async(upload_path, progress_queue, session_id):
         
         # Rename the first column to something descriptive
         if transposed_df.columns[0] == 'index' or transposed_df.columns[0] == 'Original Row':
-            transposed_df.columns.values[0] = 'Original Column/Row'
+            transposed_df = transposed_df.rename(columns={transposed_df.columns[0]: 'Original Column/Row'})
         
         new_shape = transposed_df.shape
         send_progress('processing', 100, 100, f'Transposed: {new_shape[0]:,} rows × {new_shape[1]:,} columns', 60)
@@ -6087,11 +6104,11 @@ def calculated_columns():
 
         if cache_id:
             # Use cached file
-            cache_info = get_cached_file(cache_id)
+            cache_info = get_cached_file_by_id(cache_id)
             if not cache_info:
                 return jsonify({'error': 'Cached file not found or expired'}), 400
             df = read_data_file(cache_info['path'])
-            filename = cache_info['filename']
+            filename = cache_info['name']
             session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
             job_registry.bind(session_id, current_owner())
             upload_path = None
@@ -6522,6 +6539,8 @@ def pipeline_analyze(session_id):
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
 
     try:
+        invalidate_pipeline_stages(state, 2)   # a new analysis makes later results and decisions stale
+
         # Create progress queue for SSE
         progress_queue = Queue()
         register_job(session_id, progress_queue)
@@ -6662,6 +6681,8 @@ def pipeline_find_keys(session_id):
 
         if not selected_columns:
             return jsonify({'error': 'Please select at least one column'}), 400
+
+        invalidate_pipeline_stages(state, 3)   # new key candidates: the chosen key and later stages are stale
 
         # Create progress queue
         progress_queue = Queue()
@@ -6994,6 +7015,7 @@ def pipeline_select_transformations(session_id):
         if selections is None:
             selections = {}
 
+        invalidate_pipeline_stages(state, 5)   # new selections: any earlier execution result is stale
         state.user_decisions[4] = selections
         state.stage_data[4] = {
             'selected_transformations': selections,
@@ -7018,6 +7040,8 @@ def pipeline_execute(session_id):
     state = owned_pipeline_state(session_id)
     if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
+    if state.stage_data[1] is None:
+        return jsonify({'error': 'Run the shape analysis (stage 1) before executing the pipeline'}), 409
 
     try:
         progress_queue = Queue()
@@ -7088,9 +7112,8 @@ def pipeline_execute(session_id):
                     zipf.write(pdf_path, f"{output_basename}_report.pdf")
                     zipf.write(excel_path, f"{output_basename}_data.xlsx")
 
-                # Cleanup individual files
+                # The report is inside the zip; the data file stays so the result can be chained into another tool
                 os.remove(pdf_path)
-                os.remove(excel_path)
 
                 # Store execution results
                 state.stage_data[5] = {
@@ -7102,8 +7125,8 @@ def pipeline_execute(session_id):
                 # Cache the result file
                 cache_session_file(
                     session_id,
-                    f"{output_basename}_data.xlsx",
-                    zip_path,
+                    os.path.basename(excel_path),
+                    excel_path,
                     len(result_df),
                     len(result_df.columns),
                     'Data Readiness Pipeline',
@@ -7165,7 +7188,7 @@ def generate_readiness_report(output_path, state, transformation_log=None):
 
     # Executive Summary
     story.append(Paragraph("1. Executive Summary", heading_style))
-    analysis = state.stage_data.get(1, {})
+    analysis = (state.stage_data.get(1) or {})
     overview = analysis.get('overview', {})
     shape = overview.get('shape', {})
 
@@ -7231,7 +7254,7 @@ def generate_readiness_report(output_path, state, transformation_log=None):
 
     # Stage 3: Natural Key Discovery
     story.append(Paragraph("3. Natural Key Discovery", heading_style))
-    key_data = state.stage_data.get(3, {})
+    key_data = (state.stage_data.get(3) or {})
     if key_data:
         all_candidates = key_data.get('minimal_combinations', [])
         selected_key = key_data.get('user_selected_key', all_candidates[0] if all_candidates else [])
