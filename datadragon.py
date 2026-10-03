@@ -29,6 +29,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from xml.sax.saxutils import escape as pdf_text  # reportlab Paragraphs parse <...> as markup: escape file-derived text
 
 app = Flask(__name__)
 _configured_secret = os.environ.get('DATADRAGON_SECRET_KEY')
@@ -2666,14 +2667,14 @@ def generate_natural_key_report(output_path, original_rows, duplicate_count, row
 
     if len(primary_combo) == 1:
         summary_text = f"""
-        Analysis of <b>{source_filename}</b> identified <b>{primary_combo[0]}</b> as a single-column
+        Analysis of <b>{pdf_text(str(source_filename))}</b> identified <b>{pdf_text(str(primary_combo[0]))}</b> as a single-column
         natural key capable of uniquely identifying all {rows_analyzed:,} records. This column can serve
         as a primary key without requiring additional columns.
         """
     else:
-        combo_text = " + ".join([f"<b>{col}</b>" for col in primary_combo])
+        combo_text = " + ".join([f"<b>{pdf_text(str(col))}</b>" for col in primary_combo])
         summary_text = f"""
-        Analysis of <b>{source_filename}</b> determined that a composite key of {len(primary_combo)} columns
+        Analysis of <b>{pdf_text(str(source_filename))}</b> determined that a composite key of {len(primary_combo)} columns
         ({combo_text}) is required to uniquely identify all {rows_analyzed:,} records.
         No single column provides unique identification.
         """
@@ -7141,7 +7142,7 @@ def generate_readiness_report(output_path, state, transformation_log=None):
 
     # Title
     story.append(Paragraph("Data Readiness Report", title_style))
-    story.append(Paragraph(f"Source File: {state.filename}", body_style))
+    story.append(Paragraph(f"Source File: {pdf_text(str(state.filename))}", body_style))
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", body_style))
     story.append(Spacer(1, 20))
 
@@ -7219,8 +7220,8 @@ def generate_readiness_report(output_path, state, transformation_log=None):
         selected_key = key_data.get('user_selected_key', all_candidates[0] if all_candidates else [])
 
         if selected_key:
-            selected_key_str = ' + '.join(selected_key) if isinstance(selected_key, list) else str(selected_key)
-            story.append(Paragraph(f"<b>Selected Natural Key:</b> {selected_key_str}", body_style))
+            selected_key_str = ' + '.join(map(str, selected_key)) if isinstance(selected_key, list) else str(selected_key)
+            story.append(Paragraph(f"<b>Selected Natural Key:</b> {pdf_text(selected_key_str)}", body_style))
             story.append(Spacer(1, 8))
             story.append(Paragraph(
                 "This column combination uniquely identifies each row in your dataset and can serve as a primary key.",
@@ -7238,8 +7239,8 @@ def generate_readiness_report(output_path, state, transformation_log=None):
                 story.append(Paragraph("<b>Other Available Keys:</b>", body_style))
                 story.append(Spacer(1, 4))
                 for idx, alt_key in enumerate(other_keys[:5], 1):  # Show up to 5 alternatives
-                    alt_key_str = ' + '.join(alt_key) if isinstance(alt_key, list) else str(alt_key)
-                    story.append(Paragraph(f"  {idx}. {alt_key_str}", body_style))
+                    alt_key_str = ' + '.join(map(str, alt_key)) if isinstance(alt_key, list) else str(alt_key)
+                    story.append(Paragraph(f"  {idx}. {pdf_text(alt_key_str)}", body_style))
                 if len(other_keys) > 5:
                     story.append(Paragraph(f"  ... and {len(other_keys) - 5} more candidate(s)", body_style))
         elif all_candidates and len(all_candidates) == 1:
@@ -7256,7 +7257,7 @@ def generate_readiness_report(output_path, state, transformation_log=None):
         for ttype, config in transform_decisions.items():
             if config.get('enabled'):
                 cols = config.get('columns', [])
-                story.append(Paragraph(f"• {ttype.title()}: {len(cols)} column(s)", body_style))
+                story.append(Paragraph(f"• {pdf_text(str(ttype).title())}: {len(cols)} column(s)", body_style))
     else:
         story.append(Paragraph("No transformations were selected.", body_style))
     story.append(Spacer(1, 20))
@@ -7265,7 +7266,7 @@ def generate_readiness_report(output_path, state, transformation_log=None):
     story.append(Paragraph("5. Execution Log", heading_style))
     if transformation_log:
         for entry in transformation_log:
-            story.append(Paragraph(f"• {entry.get('type', 'Unknown').title()}: {len(entry.get('columns', []))} column(s) affected", body_style))
+            story.append(Paragraph(f"• {pdf_text(str(entry.get('type', 'Unknown')).title())}: {len(entry.get('columns', []))} column(s) affected", body_style))
     else:
         story.append(Paragraph("No transformations were executed.", body_style))
 

@@ -978,9 +978,10 @@
 <script>
     // XSS Protection
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Format file size
@@ -1041,7 +1042,7 @@
                             <div class="cached-file-name">${escapeHtml(file.filename)}</div>
                             <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns - ${file.cached_at}</div>
                         </div>
-                        <div class="cached-file-source">${file.source_tool}</div>
+                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
                     </div>
                 `).join('');
             } else {
@@ -1456,7 +1457,7 @@
                 tableHTML += `
                     <tr>
                         <td style="max-width: 300px; font-size: 12px;">${escapeHtml(String(result['Row Preview'] || ''))}</td>
-                        <td>${result['Count']}</td>
+                        <td>${result['Count'] /* safe: number, css class/colour or HTML assembled from escaped parts */}</td>
                         <td><strong>${escapeHtml(String(result['Keep ID (Original)'] || ''))}</strong></td>
                         <td style="max-width: 200px; font-size: 12px;">${escapeHtml(result['All IDs'] || '')}</td>
                         <td style="max-width: 200px; font-size: 12px;">${escapeHtml(result['IDs to Remove'] || '')}</td>

@@ -437,9 +437,10 @@
 {% block scripts %}
 <script>
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     function formatFileSize(bytes) {
@@ -570,7 +571,7 @@
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             tab.classList.add('active');
-            document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
+            document.getElementById(`${escapeHtml(tab.dataset.tab)}-tab`).classList.add('active');
             currentTab = tab.dataset.tab;
         });
     });
@@ -715,7 +716,7 @@
             const data = await response.json();
             if (data.success) {
                 downloadUrl = data.download_url;
-                resultsSummary.innerHTML = `<strong>Column Operations Complete!</strong><br><br>${data.message}`;
+                resultsSummary.innerHTML = `<strong>Column Operations Complete!</strong><br><br>${escapeHtml(data.message)}`;
                 results.classList.add('show');
             } else {
                 throw new Error(data.error || 'Operation failed');

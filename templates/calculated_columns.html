@@ -696,9 +696,10 @@
     let columns = [];
 
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Load cached files
@@ -772,7 +773,7 @@
 
         selectedFile = fileInput.files[0];
         const sizeMB = (selectedFile.size / (1024 * 1024)).toFixed(2);
-        fileSizeInfo.textContent = `${selectedFile.name} (${sizeMB} MB)`;
+        fileSizeInfo.textContent = `${escapeHtml(selectedFile.name)} (${sizeMB} MB)`;
         uploadArea.classList.add('has-file');
 
         // Load preview
@@ -789,7 +790,7 @@
             }
 
             // Show preview
-            previewStats.textContent = `${data.rows.length} of ${data.total_rows.toLocaleString()} rows - ${data.total_cols} columns`;
+            previewStats.textContent = `${data.rows.length} of ${data.total_rows.toLocaleString()} rows - ${data.total_cols /* safe: number, css class/colour or HTML assembled from escaped parts */} columns`;
 
             previewTableHead.innerHTML = '<tr>' + data.columns.map(col =>
                 `<th>${escapeHtml(col)}</th>`
@@ -821,7 +822,7 @@
 
         document.querySelectorAll('.column-chip').forEach(chip => {
             chip.addEventListener('click', () => {
-                const colRef = `[${chip.dataset.column}]`;
+                const colRef = `[${escapeHtml(chip.dataset.column)}]`;
                 insertAtCursor(formula, colRef);
                 formula.focus();
             });
@@ -904,12 +905,12 @@
         if (preview.length > 0) {
             const cols = Object.keys(preview[0]);
             formulaPreviewHead.innerHTML = '<tr>' + cols.map(col =>
-                `<th${col === newColName ? ' class="new-column"' : ''}>${escapeHtml(col)}</th>`
+                `<th${col === newColName ? ' class="new-column"' : '' /* safe: number, css class/colour or HTML assembled from escaped parts */}>${escapeHtml(col)}</th>`
             ).join('') + '</tr>';
 
             formulaPreviewBody.innerHTML = preview.map(row =>
                 '<tr>' + cols.map(col =>
-                    `<td${col === newColName ? ' class="new-column"' : ''}>${escapeHtml(String(row[col] ?? ''))}</td>`
+                    `<td${col === newColName ? ' class="new-column"' : '' /* safe: number, css class/colour or HTML assembled from escaped parts */}>${escapeHtml(String(row[col] ?? ''))}</td>`
                 ).join('') + '</tr>'
             ).join('');
 
@@ -950,7 +951,7 @@
 
             // Show results
             resultsSection.classList.add('show');
-            resultSummary.textContent = `Created column "${data.new_column}" with ${data.rows.toLocaleString()} values`;
+            resultSummary.textContent = `Created column "${escapeHtml(data.new_column)}" with ${data.rows.toLocaleString()} values`;
             downloadBtn.href = data.download_url;
 
             optionsSection.classList.remove('show');

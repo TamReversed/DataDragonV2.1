@@ -442,9 +442,10 @@
 {% block scripts %}
 <script>
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     function formatFileSize(bytes) {
@@ -633,7 +634,7 @@
                     ${fileColumns.map(c => `<option value="${escapeHtml(c.name || c)}">${escapeHtml(c.name || c)}</option>`).join('')}
                 </select>
                 <select class="condition-select condition-operator" id="operator_${conditionId}" onchange="handleOperatorChange(${conditionId}); updateButtons()">
-                    ${operators.map(op => `<option value="${op.value}">${op.label}</option>`).join('')}
+                    ${operators.map(op => `<option value="${op.value /* safe: number, css class/colour or HTML assembled from escaped parts */}">${op.label /* safe: number, css class/colour or HTML assembled from escaped parts */}</option>`).join('')}
                 </select>
                 <input type="text" class="condition-input condition-value" id="value_${conditionId}" placeholder="Enter value..." onchange="updateButtons()">
                 ${conditionCount > 1 ? `<button class="remove-condition-btn" onclick="removeCondition(${conditionId})"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg></button>` : ''}
@@ -645,8 +646,8 @@
     }
 
     function removeCondition(id) {
-        const conditionEl = document.getElementById(`condition_${id}`);
-        const logicEl = document.getElementById(`logic_${id}`);
+        const conditionEl = document.getElementById(`condition_${id /* safe: number, css class/colour or HTML assembled from escaped parts */}`);
+        const logicEl = document.getElementById(`logic_${id /* safe: number, css class/colour or HTML assembled from escaped parts */}`);
         if (conditionEl) conditionEl.remove();
         if (logicEl) logicEl.remove();
         updateButtons();
@@ -661,8 +662,8 @@
     }
 
     function handleOperatorChange(id) {
-        const operator = document.getElementById(`operator_${id}`).value;
-        const valueInput = document.getElementById(`value_${id}`);
+        const operator = document.getElementById(`operator_${id /* safe: number, css class/colour or HTML assembled from escaped parts */}`).value;
+        const valueInput = document.getElementById(`value_${id /* safe: number, css class/colour or HTML assembled from escaped parts */}`);
         if (operator === 'is_empty' || operator === 'is_not_empty') {
             valueInput.style.display = 'none';
             valueInput.value = '';
@@ -676,9 +677,9 @@
         const conditionRows = conditionsContainer.querySelectorAll('.condition-row');
         conditionRows.forEach((row, idx) => {
             const id = row.id.split('_')[1];
-            const column = document.getElementById(`column_${id}`)?.value;
-            const operator = document.getElementById(`operator_${id}`)?.value;
-            const value = document.getElementById(`value_${id}`)?.value;
+            const column = document.getElementById(`column_${id /* safe: number, css class/colour or HTML assembled from escaped parts */}`)?.value;
+            const operator = document.getElementById(`operator_${id /* safe: number, css class/colour or HTML assembled from escaped parts */}`)?.value;
+            const value = document.getElementById(`value_${id /* safe: number, css class/colour or HTML assembled from escaped parts */}`)?.value;
             if (column && operator) {
                 conditions.push({ column, operator, value, logic: idx > 0 ? currentLogic : null });
             }

@@ -888,9 +888,10 @@
 <script>
     // XSS Protection
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Format file size
@@ -1315,8 +1316,8 @@
 
             comparisonData.forEach(row => {
                 const colName = escapeHtml(row['Column Headers'] || '');
-                const file1Status = row[`Found in ${file1Name}`] || '';
-                const file2Status = row[`Found in ${file2Name}`] || '';
+                const file1Status = row[`Found in ${escapeHtml(file1Name)}`] || '';
+                const file2Status = row[`Found in ${escapeHtml(file2Name)}`] || '';
 
                 // Determine cell styling
                 const file1Style = file1Status === 'Yes'
@@ -1328,9 +1329,9 @@
 
                 tableHTML += `
                     <tr>
-                        <td style="font-weight: 500;">${colName}</td>
-                        <td style="${file1Style}">${escapeHtml(file1Status)}</td>
-                        <td style="${file2Style}">${escapeHtml(file2Status)}</td>
+                        <td style="font-weight: 500;">${escapeHtml(colName)}</td>
+                        <td style="${file1Style /* safe: number, css class/colour or HTML assembled from escaped parts */}">${escapeHtml(file1Status)}</td>
+                        <td style="${file2Style /* safe: number, css class/colour or HTML assembled from escaped parts */}">${escapeHtml(file2Status)}</td>
                     </tr>
                 `;
             });

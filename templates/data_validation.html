@@ -843,9 +843,10 @@
 <script>
     // XSS Protection
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Format file size
@@ -910,7 +911,7 @@
                             <div class="cached-file-name">${escapeHtml(f.filename)}</div>
                             <div class="cached-file-meta">${f.rows.toLocaleString()} rows x ${f.cols} columns</div>
                         </div>
-                        <div class="cached-file-source">${f.source_tool}</div>
+                        <div class="cached-file-source">${escapeHtml(f.source_tool)}</div>
                     </div>
                 `).join('');
             } else {
@@ -1079,14 +1080,14 @@
             if (rule.type === 'range') {
                 valueInput = `
                     <div class="rule-value-row">
-                        <input type="number" class="rule-input" placeholder="Min value" id="rule_${rule.id}_min" value="${rule.value?.min || ''}">
-                        <input type="number" class="rule-input" placeholder="Max value" id="rule_${rule.id}_max" value="${rule.value?.max || ''}">
+                        <input type="number" class="rule-input" placeholder="Min value" id="rule_${rule.id}_min" value="${escapeHtml(rule.value?.min || '')}">
+                        <input type="number" class="rule-input" placeholder="Max value" id="rule_${rule.id}_max" value="${escapeHtml(rule.value?.max || '')}">
                     </div>
                 `;
             } else if (rule.type === 'list') {
-                valueInput = `<input type="text" class="rule-input" placeholder="Comma-separated values" id="rule_${rule.id}_value" value="${rule.value || ''}">`;
+                valueInput = `<input type="text" class="rule-input" placeholder="Comma-separated values" id="rule_${rule.id}_value" value="${escapeHtml(rule.value || '')}">`;
             } else if (rule.type === 'pattern' || rule.type === 'length') {
-                valueInput = `<input type="text" class="rule-input" placeholder="${rule.type === 'pattern' ? 'Regular expression pattern' : 'min-max (e.g., 5-10)'}" id="rule_${rule.id}_value" value="${rule.value || ''}">`;
+                valueInput = `<input type="text" class="rule-input" placeholder="${rule.type === 'pattern' ? 'Regular expression pattern' : 'min-max (e.g., 5-10)'}" id="rule_${rule.id}_value" value="${escapeHtml(rule.value || '')}">`;
             }
 
             ruleDiv.innerHTML = `
@@ -1106,7 +1107,7 @@
                     <option value="pattern" ${rule.type === 'pattern' ? 'selected' : ''}>Pattern (Regex)</option>
                     <option value="length" ${rule.type === 'length' ? 'selected' : ''}>Length</option>
                 </select>
-                ${valueInput}
+                ${valueInput /* safe: HTML built here; every dynamic part is escapeHtml'd */}
             `;
 
             rulesContainer.appendChild(ruleDiv);
@@ -1380,7 +1381,7 @@
 
             progressData.preview.forEach(error => {
                 tableHTML += '<tr>';
-                tableHTML += `<td>${error.row}</td>`;
+                tableHTML += `<td>${error.row /* safe: number, css class/colour or HTML assembled from escaped parts */}</td>`;
                 tableHTML += `<td>${escapeHtml(error.errors.join('; '))}</td>`;
                 tableHTML += '</tr>';
             });

@@ -93,3 +93,24 @@ def make_csv(path, text):
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(text)
     return str(path)
+
+
+def pdf_text(data):
+    """Text drawn on a reportlab-generated PDF (decodes its ASCII85+Flate content streams)."""
+    import base64
+    import re
+    import zlib
+    out = []
+    for raw in re.findall(rb"stream\r?\n(.*?)endstream", data, flags=re.S):
+        raw = raw.strip()
+        try:
+            if raw.endswith(b"~>"):
+                raw = base64.a85decode(raw[:-2], adobe=False)
+            raw = zlib.decompress(raw)
+        except Exception:
+            continue
+        for chunk in re.findall(rb"\((.*?)(?<!\\)\)\s*Tj|\[(.*?)\]\s*TJ", raw, flags=re.S):
+            pieces = [chunk[0]] if chunk[0] else re.findall(rb"\((.*?)(?<!\\)\)", chunk[1], flags=re.S)
+            for piece in pieces:
+                out.append(piece.replace(b"\\(", b"(").replace(b"\\)", b")").replace(b"\\\\", b"\\").decode("latin-1"))
+    return " ".join(out)

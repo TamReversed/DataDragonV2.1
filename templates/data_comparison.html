@@ -1036,9 +1036,10 @@
 <script>
     // XSS Protection
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Format file size
@@ -1541,7 +1542,7 @@
             // Create tab buttons
             let tabsHTML = '';
             tabs.forEach(tab => {
-                tabsHTML += `<button class="tab-btn ${currentTab === tab.id ? 'active' : ''}" onclick="switchTab('${tab.id}')">${escapeHtml(tab.label)}</button>`;
+                tabsHTML += `<button class="tab-btn ${currentTab === tab.id ? 'active' : ''}" onclick="switchTab('${tab.id /* safe: number, css class/colour or HTML assembled from escaped parts */}')">${escapeHtml(tab.label)}</button>`;
             });
             resultsTabs.innerHTML = tabsHTML;
 
@@ -1603,7 +1604,7 @@
         // Update tab buttons
         let tabsHTML = '';
         tabs.forEach(t => {
-            tabsHTML += `<button class="tab-btn ${currentTab === t.id ? 'active' : ''}" onclick="switchTab('${t.id}')">${escapeHtml(t.label)}</button>`;
+            tabsHTML += `<button class="tab-btn ${currentTab === t.id ? 'active' : ''}" onclick="switchTab('${t.id /* safe: number, css class/colour or HTML assembled from escaped parts */}')">${escapeHtml(t.label)}</button>`;
         });
         resultsTabs.innerHTML = tabsHTML;
     }

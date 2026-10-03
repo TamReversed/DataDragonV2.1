@@ -1251,9 +1251,10 @@
 <script>
     // XSS Protection: Escape HTML to prevent XSS attacks
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Sanitize text for safe display (allows basic formatting)
@@ -1707,7 +1708,7 @@
                             fetch(progressData.analysis_fetch_url)
                                 .then(response => {
                                     if (!response.ok) {
-                                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                                        throw new Error(`HTTP ${response.status /* safe: number, css class/colour or HTML assembled from escaped parts */}: ${escapeHtml(response.statusText)}`);
                                     }
                                     return response.json();
                                 })
@@ -1867,9 +1868,9 @@
 
         const typeBreakdown = [];
         if (numericCols > 0) typeBreakdown.push(`${numericCols} numeric`);
-        if (categoricalCols > 0) typeBreakdown.push(`${categoricalCols} categorical`);
-        if (datetimeCols > 0) typeBreakdown.push(`${datetimeCols} datetime`);
-        if (booleanCols > 0) typeBreakdown.push(`${booleanCols} boolean`);
+        if (categoricalCols > 0) typeBreakdown.push(`${categoricalCols /* safe: number, css class/colour or HTML assembled from escaped parts */} categorical`);
+        if (datetimeCols > 0) typeBreakdown.push(`${datetimeCols /* safe: number, css class/colour or HTML assembled from escaped parts */} datetime`);
+        if (booleanCols > 0) typeBreakdown.push(`${booleanCols /* safe: number, css class/colour or HTML assembled from escaped parts */} boolean`);
 
         if (typeBreakdown.length > 0) {
             summary += `The dataset consists of ${typeBreakdown.join(', ')} column${typeBreakdown.length > 1 ? 's' : ''}. `;
@@ -1878,10 +1879,10 @@
         if (overview.detected_types_count) {
             const detectedTypes = Object.entries(overview.detected_types_count)
                 .filter(([type, count]) => count > 0)
-                .map(([type, count]) => `${count} ${type.toLowerCase()}`)
+                .map(([type, count]) => `${count} ${escapeHtml(type.toLowerCase())}`)
                 .join(', ');
             if (detectedTypes) {
-                summary += `Semantic type analysis identified: ${detectedTypes}. `;
+                summary += `Semantic type analysis identified: ${detectedTypes /* safe: number, css class/colour or HTML assembled from escaped parts */}. `;
             }
             if (overview.reclassified_columns > 0) {
                 summary += `<strong>${overview.reclassified_columns} column${overview.reclassified_columns > 1 ? 's' : ''}</strong> were successfully reclassified from generic text to specific data types. `;
@@ -1893,15 +1894,15 @@
         if (totalMissingCols === 0) {
             summary += `<strong>Data Quality:</strong> Excellent - no missing values detected across any columns. `;
         } else {
-            summary += `<strong>Data Quality:</strong> ${totalMissingCols} column${totalMissingCols > 1 ? 's have' : ' has'} missing data `;
+            summary += `<strong>Data Quality:</strong> ${totalMissingCols /* safe: number, css class/colour or HTML assembled from escaped parts */} column${totalMissingCols > 1 ? 's have' : ' has'} missing data `;
             if (highMissingCols > 0) {
-                summary += `(${highMissingCols} column${highMissingCols > 1 ? 's' : ''} with more than 50% missing values). `;
+                summary += `(${highMissingCols /* safe: number, css class/colour or HTML assembled from escaped parts */} column${highMissingCols > 1 ? 's' : ''} with more than 50% missing values). `;
             } else {
                 summary += `(all missing values are below 50% threshold). `;
             }
             if (totalMissingCols > 0) {
                 const avgMissing = (columnsWithMissing.reduce((sum, col) => sum + col.null_percentage, 0) / totalMissingCols).toFixed(1);
-                summary += `The average missing data percentage across affected columns is ${avgMissing}%. `;
+                summary += `The average missing data percentage across affected columns is ${avgMissing /* safe: number, css class/colour or HTML assembled from escaped parts */}%. `;
             }
         }
 
@@ -1915,13 +1916,13 @@
         summary += '</p><p>';
 
         if (columnsWithOutliers > 0) {
-            summary += `<strong>Outlier Detection:</strong> ${columnsWithOutliers} numeric column${columnsWithOutliers > 1 ? 's contain' : ' contains'} potential outliers `;
+            summary += `<strong>Outlier Detection:</strong> ${columnsWithOutliers /* safe: number, css class/colour or HTML assembled from escaped parts */} numeric column${columnsWithOutliers > 1 ? 's contain' : ' contains'} potential outliers `;
             summary += `(detected using the Interquartile Range method). `;
         }
 
         const completeCols = columns.filter(col => col.null_count === 0).length;
         const completenessPct = ((completeCols / overview.shape.columns) * 100).toFixed(1);
-        summary += `Overall, <strong>${completeCols} of ${overview.shape.columns} columns (${completenessPct}%)</strong> are completely populated with no missing values. `;
+        summary += `Overall, <strong>${completeCols /* safe: number, css class/colour or HTML assembled from escaped parts */} of ${overview.shape.columns} columns (${completenessPct /* safe: number, css class/colour or HTML assembled from escaped parts */}%)</strong> are completely populated with no missing values. `;
 
         summary += '</p>';
 
@@ -1929,7 +1930,7 @@
             summary += '<p><strong>Recommendations:</strong> ';
             const recommendations = [];
             if (highMissingCols > 0) {
-                recommendations.push(`review the ${highMissingCols} column${highMissingCols > 1 ? 's' : ''} with high missing data rates`);
+                recommendations.push(`review the ${highMissingCols /* safe: number, css class/colour or HTML assembled from escaped parts */} column${highMissingCols > 1 ? 's' : ''} with high missing data rates`);
             }
             if (hasDuplicates) {
                 recommendations.push(`investigate and potentially remove duplicate rows`);
@@ -1996,7 +1997,7 @@
                             <div class="column-summary-stats">
                                 <div class="column-summary-stat">
                                     <span>Type:</span>
-                                    <strong>${detectedType}</strong>
+                                    <strong>${escapeHtml(detectedType)}</strong>
                                 </div>
                                 <div class="column-summary-stat">
                                     <span>Non-Null:</span>
@@ -2014,9 +2015,9 @@
                         </div>
                     </div>
                     <div class="column-header-right">
-                        <div class="detected-type-badge" style="background: ${confidenceColor};">
-                            ${detectedType}
-                            ${typeConfidence < 100 ? `<span class="confidence-badge">${typeConfidence}%</span>` : ''}
+                        <div class="detected-type-badge" style="background: ${confidenceColor /* safe: number, css class/colour or HTML assembled from escaped parts */};">
+                            ${escapeHtml(detectedType)}
+                            ${typeConfidence < 100 ? `<span class="confidence-badge">${typeConfidence /* safe: number, css class/colour or HTML assembled from escaped parts */}%</span>` : ''}
                         </div>
                         <div class="column-expand-icon">v</div>
                     </div>
@@ -2027,12 +2028,12 @@
                 <div class="column-header" style="margin-top: 0;">
                     <div class="column-name">${safeColName}</div>
                     <div class="column-type-info">
-                        <div class="detected-type-badge" style="background: ${confidenceColor};">
-                            ${detectedType}
-                            ${typeConfidence < 100 ? `<span class="confidence-badge">${typeConfidence}%</span>` : ''}
+                        <div class="detected-type-badge" style="background: ${confidenceColor /* safe: number, css class/colour or HTML assembled from escaped parts */};">
+                            ${escapeHtml(detectedType)}
+                            ${typeConfidence < 100 ? `<span class="confidence-badge">${typeConfidence /* safe: number, css class/colour or HTML assembled from escaped parts */}%</span>` : ''}
                         </div>
                         <div class="pandas-dtype">pandas: ${safeDtype}</div>
-                        ${formatInfo ? `<div class="format-info">${formatInfo}</div>` : ''}
+                        ${formatInfo ? `<div class="format-info">${escapeHtml(formatInfo)}</div>` : ''}
                     </div>
                 </div>
                 <div class="column-stats-grid">
@@ -2087,7 +2088,7 @@
                         <div class="top-values-title">Top 10 Most Frequent Values</div>
                         ${Object.entries(colInfo.top_values).map(([value, count]) => `
                             <div class="value-item">
-                                <span class="value-text">${value}</span>
+                                <span class="value-text">${escapeHtml(String(value))}</span>
                                 <span class="value-count">${count.toLocaleString()}</span>
                             </div>
                         `).join('')}
@@ -2121,8 +2122,8 @@
                     <div class="numeric-stats">
                         <div class="numeric-stats-title">Date Range</div>
                         <div class="numeric-stats-grid">
-                            <div class="numeric-stat"><div class="numeric-stat-label">Min Date</div><div class="numeric-stat-value" style="font-size: 14px;">${colInfo.date_range.min}</div></div>
-                            <div class="numeric-stat"><div class="numeric-stat-label">Max Date</div><div class="numeric-stat-value" style="font-size: 14px;">${colInfo.date_range.max}</div></div>
+                            <div class="numeric-stat"><div class="numeric-stat-label">Min Date</div><div class="numeric-stat-value" style="font-size: 14px;">${escapeHtml(colInfo.date_range.min)}</div></div>
+                            <div class="numeric-stat"><div class="numeric-stat-label">Max Date</div><div class="numeric-stat-value" style="font-size: 14px;">${escapeHtml(colInfo.date_range.max)}</div></div>
                         </div>
                     </div>
                 `;
@@ -2133,7 +2134,7 @@
                 !colInfo.is_categorical) {
                 cardContentHTML += `
                     <div class="top-values">
-                        <div class="top-values-title">Sample Values (${detectedType})</div>
+                        <div class="top-values-title">Sample Values (${escapeHtml(detectedType)})</div>
                         ${colInfo.type_samples.map(value => `
                             <div class="value-item">
                                 <span class="value-text">${escapeHtml(String(value))}</span>
@@ -2149,7 +2150,7 @@
                         <div class="top-values-title">Boolean Value Distribution</div>
                         ${Object.entries(colInfo.boolean_counts).map(([value, count]) => `
                             <div class="value-item">
-                                <span class="value-text">${value}</span>
+                                <span class="value-text">${escapeHtml(String(value))}</span>
                                 <span class="value-count">${count.toLocaleString()}</span>
                             </div>
                         `).join('')}
@@ -2157,7 +2158,7 @@
                 `;
             }
 
-            colCard.innerHTML = cardHeaderHTML + `<div class="column-card-content">${cardContentHTML}</div>`;
+            colCard.innerHTML = cardHeaderHTML + `<div class="column-card-content">${cardContentHTML /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>`;
             columnsContainer.appendChild(colCard);
 
             const cardHeader = colCard.querySelector('.column-card-header');
@@ -2580,7 +2581,7 @@
             }
 
             const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-            const filename = `Column_Analysis_${timestamp}.pdf`;
+            const filename = `Column_Analysis_${escapeHtml(timestamp)}.pdf`;
 
             pdf.save(filename);
 

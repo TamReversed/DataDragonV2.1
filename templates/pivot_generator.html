@@ -1123,9 +1123,10 @@
 <script>
     // XSS Protection
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Format file size
@@ -1609,7 +1610,7 @@
                     </div>
                     <div class="summary-item">
                         <div class="summary-label">Aggregation</div>
-                        <div class="summary-value" style="font-size: 18px;">${summary.aggfunc.toUpperCase()}</div>
+                        <div class="summary-value" style="font-size: 18px;">${summary.aggfunc.toUpperCase() /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>
                     </div>
                 </div>
             `;

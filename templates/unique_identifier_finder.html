@@ -1083,9 +1083,10 @@
 <script>
     // XSS Protection
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Format file size
@@ -1544,10 +1545,10 @@
                 <div class="key-result-box">
                     <h3>Primary Key Candidate</h3>
                     <div class="key-columns">
-                        <strong>Key Columns:</strong> ${columnsList}
+                        <strong>Key Columns:</strong> ${columnsList /* safe: each column is escaped where the list is built */}
                     </div>
                     <div class="implementation-note">
-                        <strong>Implementation:</strong> Concatenate values from ${progressData.minimal_columns.length === 1 ? 'this column' : 'these ' + progressData.minimal_columns.length + ' columns'} to generate a unique identifier.
+                        <strong>Implementation:</strong> Concatenate values from ${progressData.minimal_columns.length === 1 ? 'this column' : 'these ' + progressData.minimal_columns.length + ' columns' /* safe: a count */} to generate a unique identifier.
                         The download package includes a detailed PDF report and an Excel file with pre-computed <em>Unique_ID</em> values.
                     </div>
                 </div>
@@ -1561,7 +1562,7 @@
                 const altColumnsList = alt.map(col => `<code>${escapeHtml(col)}</code>`).join(' + ');
                 resultsHTML += `
                     <div class="alternative-item">
-                        <strong>Candidate ${idx + 2}:</strong> ${altColumnsList}
+                        <strong>Candidate ${idx + 2}:</strong> ${altColumnsList /* safe: each column is escaped where the list is built */}
                     </div>
                 `;
             });

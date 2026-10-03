@@ -318,7 +318,6 @@ def test_pipeline_execute_without_analyze(client):
     assert resp.status_code == 409  # a prerequisite stage has not run
 
 
-@bug("G-04")
 def test_pipeline_pdf_escapes_column_names(client):
     sid = _start_pipeline(client, fixture_path("pdf_inject.csv"))
     client.post(f"/pipeline/{sid}/analyze")

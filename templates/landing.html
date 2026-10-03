@@ -896,7 +896,7 @@
 
             let url = `/generate-test-file?num_rows=${numRows}`;
             if (safeFileName) {
-                url += `&filename=${encodeURIComponent(safeFileName)}`;
+                url += `&filename=${encodeURIComponent(safeFileName) /* safe: number, css class/colour or HTML assembled from escaped parts */}`;
             }
 
             const link = document.createElement('a');

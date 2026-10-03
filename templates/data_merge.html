@@ -1065,9 +1065,10 @@
 <script>
     // XSS Protection
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Format file size
@@ -1264,7 +1265,7 @@
             }
         } catch (err) {
             console.error('Error reading file:', err);
-            showError(`Failed to read ${side} file: ` + err.message);
+            showError(`Failed to read ${escapeHtml(side)} file: ` + err.message);
         }
     }
 
@@ -1571,7 +1572,7 @@
                     </div>
                     <div class="summary-item">
                         <div class="summary-label">Join Type</div>
-                        <div class="summary-value" style="font-size: 18px;">${summary.join_type.toUpperCase()}</div>
+                        <div class="summary-value" style="font-size: 18px;">${summary.join_type.toUpperCase() /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>
                     </div>
                 </div>
                 ${progressData.warning ? `<div role="alert" style="margin-top: 16px; padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(234, 179, 8, 0.5); background: rgba(234, 179, 8, 0.12); color: var(--accent-yellow);">${escapeHtml(progressData.warning)}</div>` : ''}

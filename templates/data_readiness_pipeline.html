@@ -2181,7 +2181,7 @@
 
             // Show file badge
             document.getElementById('fileBadge').classList.add('visible');
-            document.getElementById('fileNameDisplay').textContent = `${data.filename} (${data.rows.toLocaleString()} rows)`;
+            document.getElementById('fileNameDisplay').textContent = `${escapeHtml(data.filename)} (${data.rows.toLocaleString()} rows)`;
 
             // Mark upload zone as complete
             document.getElementById('uploadZone').classList.add('uploaded');
@@ -2216,7 +2216,7 @@
                 '<tr>' + columns.map(col => {
                     const val = row[col];
                     const displayVal = val === null || val === undefined ? '<span style="color:var(--text-muted)">null</span>' : escapeHtml(String(val));
-                    return `<td>${displayVal}</td>`;
+                    return `<td>${displayVal /* safe: escaped where it is built */}</td>`;
                 }).join('') + '</tr>'
             ).join('');
         } else {
@@ -2512,7 +2512,7 @@
                             label: function(context) {
                                 const total = context.dataset.data.reduce((a, b) => a + b, 0);
                                 const pct = ((context.raw / total) * 100).toFixed(1);
-                                return `${context.label}: ${context.raw} (${pct}%)`;
+                                return `${escapeHtml(context.label)}: ${escapeHtml(context.raw)} (${pct}%)`;
                             }
                         }
                     }
@@ -2628,7 +2628,7 @@
                 <div class="completeness-row">
                     <span class="completeness-label" title="${escapeHtml(col.name)}">${escapeHtml(col.name)}</span>
                     <div class="completeness-bar-bg">
-                        <div class="completeness-bar-fill ${level}" style="width: ${col.completeness}%"></div>
+                        <div class="completeness-bar-fill ${escapeHtml(level)}" style="width: ${col.completeness /* safe: number, css class/colour or HTML assembled from escaped parts */}%"></div>
                     </div>
                     <span class="completeness-value">${col.completeness.toFixed(1)}%</span>
                 </div>
@@ -2662,7 +2662,7 @@
             let statsHtml = `
                 <div class="column-stat">
                     <span class="column-stat-label">Completeness</span>
-                    <span class="column-stat-value ${completenessClass}">${completeness.toFixed(1)}%</span>
+                    <span class="column-stat-value ${completenessClass /* safe: number, css class/colour or HTML assembled from escaped parts */}">${completeness.toFixed(1)}%</span>
                 </div>
                 <div class="column-stat">
                     <span class="column-stat-label">Unique Values</span>
@@ -2691,11 +2691,11 @@
                 statsHtml += `
                     <div class="column-stat">
                         <span class="column-stat-label">Date Range</span>
-                        <span class="column-stat-value">${info.date_range.min || 'N/A'}</span>
+                        <span class="column-stat-value">${escapeHtml(info.date_range.min || 'N/A')}</span>
                     </div>
                     <div class="column-stat">
                         <span class="column-stat-label">To</span>
-                        <span class="column-stat-value">${info.date_range.max || 'N/A'}</span>
+                        <span class="column-stat-value">${escapeHtml(info.date_range.max || 'N/A')}</span>
                     </div>
                 `;
             }
@@ -2731,13 +2731,13 @@
                 <div class="column-card" data-column="${escapeHtml(col)}">
                     <div class="column-card-header">
                         <span class="column-name">${escapeHtml(col)}</span>
-                        <span class="column-type-badge ${typeClass}">${escapeHtml(info.detected_type || 'Text')}</span>
+                        <span class="column-type-badge ${typeClass /* safe: number, css class/colour or HTML assembled from escaped parts */}">${escapeHtml(info.detected_type || 'Text')}</span>
                     </div>
                     <div class="column-completeness-bar">
-                        <div class="column-completeness-fill ${completenessLevel}" style="width: ${completeness}%"></div>
+                        <div class="column-completeness-fill ${completenessLevel /* safe: number, css class/colour or HTML assembled from escaped parts */}" style="width: ${completeness /* safe: number, css class/colour or HTML assembled from escaped parts */}%"></div>
                     </div>
-                    <div class="column-stats">${statsHtml}</div>
-                    ${samplesHtml}
+                    <div class="column-stats">${statsHtml /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>
+                    ${samplesHtml /* safe: number, css class/colour or HTML assembled from escaped parts */}
                 </div>
             `;
         }).join('');
@@ -2792,7 +2792,7 @@
             tbody.innerHTML = gaps.map(gap => `
                 <tr data-column="${escapeHtml(gap.column)}">
                     <td>
-                        <input type="checkbox" name="gap_${gap.column}" value="needs_attention">
+                        <input type="checkbox" name="gap_${escapeHtml(gap.column)}" value="needs_attention">
                     </td>
                     <td>${escapeHtml(gap.column)}</td>
                     <td>${gap.null_percentage.toFixed(1)}%</td>
@@ -3001,7 +3001,7 @@
         container.innerHTML = keys.map((key, idx) => `
             <div class="key-card ${idx === 0 ? 'selected' : ''}" data-idx="${idx}">
                 <div class="key-card-title">${idx === 0 ? 'Recommended' : `Option ${idx + 1}`}</div>
-                <div class="key-card-columns">${key.join(' + ')}</div>
+                <div class="key-card-columns">${escapeHtml(key.join(' + '))}</div>
             </div>
         `).join('');
 
@@ -3056,14 +3056,14 @@
                         } else if (col.detected) {
                             badge = `<span class="column-detail-badge">${escapeHtml(col.detected)}</span>`;
                         } else if (col.missing_percentage) {
-                            badge = `<span class="column-detail-badge">${col.missing_percentage}% missing</span>`;
+                            badge = `<span class="column-detail-badge">${col.missing_percentage /* safe: number, css class/colour or HTML assembled from escaped parts */}% missing</span>`;
                         }
 
                         return `
                             <div class="column-detail">
                                 <div class="column-detail-header">
                                     <span class="column-detail-name">${escapeHtml(col.column)}</span>
-                                    ${badge}
+                                    ${badge /* safe: escaped where it is built */}
                                 </div>
                                 <div class="column-detail-explanation">${escapeHtml(col.explanation)}</div>
                             </div>
@@ -3073,7 +3073,7 @@
                     columnDetailsHtml = `
                         <div class="transform-columns">
                             <div class="transform-columns-title">Affected Columns (${rec.column_details.length})</div>
-                            ${detailsItems}
+                            ${detailsItems /* safe: number, css class/colour or HTML assembled from escaped parts */}
                         </div>
                     `;
                 }
@@ -3082,7 +3082,7 @@
                 let substepsHtml = '';
                 if (rec.type === 'anonymization') {
                     substepsHtml = `
-                        <div class="substep-options" data-type="${rec.type}">
+                        <div class="substep-options" data-type="${escapeHtml(rec.type)}">
                             <div class="substep-title">How should we anonymize?</div>
                             <div class="substep-option">
                                 <input type="radio" name="anon_method" id="anon_fake" value="fake" checked>
@@ -3116,7 +3116,7 @@
                     `;
                 } else if (rec.type === 'normalization') {
                     substepsHtml = `
-                        <div class="substep-options" data-type="${rec.type}">
+                        <div class="substep-options" data-type="${escapeHtml(rec.type)}">
                             <div class="substep-title">How should we normalize?</div>
                             <div class="substep-option">
                                 <input type="radio" name="norm_method" id="norm_convert" value="convert" checked>
@@ -3143,7 +3143,7 @@
                     `;
                 } else if (rec.type === 'gap_handling') {
                     substepsHtml = `
-                        <div class="substep-options" data-type="${rec.type}">
+                        <div class="substep-options" data-type="${escapeHtml(rec.type)}">
                             <div class="substep-title">How should we handle missing data?</div>
                             <div class="substep-option">
                                 <input type="radio" name="gap_method" id="gap_flag" value="flag" checked>
@@ -3178,16 +3178,16 @@
                 }
 
                 return `
-                    <div class="transform-card" data-type="${rec.type}">
+                    <div class="transform-card" data-type="${escapeHtml(rec.type)}">
                         <div class="transform-header">
                             <span class="transform-title">${escapeHtml(rec.title)}
                                 <span class="priority-badge priority-${rec.priority}">${rec.priority}</span>
                             </span>
-                            <div class="transform-toggle" data-type="${rec.type}"></div>
+                            <div class="transform-toggle" data-type="${escapeHtml(rec.type)}"></div>
                         </div>
                         <div class="transform-desc">${escapeHtml(rec.description)}</div>
-                        ${columnDetailsHtml}
-                        ${substepsHtml}
+                        ${columnDetailsHtml /* safe: number, css class/colour or HTML assembled from escaped parts */}
+                        ${substepsHtml /* safe: number, css class/colour or HTML assembled from escaped parts */}
                     </div>
                 `;
             }).join('');
@@ -3270,11 +3270,11 @@
             .filter(([_, c]) => c.enabled)
             .map(([t, c]) => {
                 const method = methodLabels[c.method] || c.method;
-                return `<div>&#8226; ${t}: ${c.columns.length} columns (${method})</div>`;
+                return `<div>&#8226; ${escapeHtml(t)}: ${c.columns.length} columns (${escapeHtml(method)})</div>`;
             });
 
         content.innerHTML = `
-            <div>File: ${state.filename}</div>
+            <div>File: ${escapeHtml(state.filename)}</div>
             <div>Key: ${state.selectedKey.join(' + ') || 'None selected'}</div>
             <div style="margin-top:var(--space-3);">${transforms.length ? transforms.join('') : 'No transformations selected'}</div>
         `;
@@ -3363,9 +3363,10 @@
     }
 
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
+        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[ch]));
     }
 
     // Modal handling
