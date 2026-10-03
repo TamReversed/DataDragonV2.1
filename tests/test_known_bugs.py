@@ -161,7 +161,6 @@ def test_normalize_never_overwrites_with_nat(client, tmp_path):
     assert final["summary"]["total_errors"] == 1 and "not a date" in final["warning"]
 
 
-@bug("A-10")
 def test_validation_range_string_bounds(client, tmp_path):
     path = make_csv(tmp_path / "v.csv", "qty\n5\n2\n")
     rules = [{"column": "qty", "type": "range", "value": {"min": "1", "max": "3"}}]

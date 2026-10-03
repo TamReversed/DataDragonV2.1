@@ -4477,6 +4477,80 @@ def generate_pivot():
 def data_validation():
     return render_template('data_validation.html')
 
+VALIDATION_DETAIL_LIMIT = 10000
+VALIDATION_VALID_SHEET_LIMIT = 100000   # writing every valid row of a big file dominates the run time
+
+
+def validation_mask(series, rule, budget, number=0):
+    """(mask, message) for one validation rule: mask is True where a cell breaks the rule.
+
+    ``message(value)`` words the failure for the Error Details sheet. Blank cells only fail 'required'.
+    """
+    rule_type = rule.get('type')
+    value = rule.get('value')
+    present = series.notna()
+    text = series.astype(str)
+    blank = ~present | (text.str.strip() == '')
+    present = ~blank
+    col = rule.get('column')
+
+    def bound(raw, cast, name):
+        if raw is None or raw == '':
+            return None
+        try:
+            return cast(float(raw)) if cast is int else float(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"Rule {number} ({col}): the {name} '{raw}' is not a number")
+
+    if rule_type == 'required':
+        return blank, lambda v: f"{col}: Required field is empty"
+
+    if rule_type == 'numeric':
+        bad = present & pd.to_numeric(text.where(present), errors='coerce').isna()
+        return bad, lambda v: f"{col}: Must be numeric"
+
+    if rule_type == 'range':
+        low, high = bound((value or {}).get('min'), float, 'minimum'), bound((value or {}).get('max'), float, 'maximum')
+        numbers = pd.to_numeric(text.where(present), errors='coerce')
+        bad = present & numbers.isna()                       # not a number at all: cannot be inside the range
+        if low is not None:
+            bad |= numbers < low
+        if high is not None:
+            bad |= numbers > high
+
+        def range_message(v):
+            try:
+                n = float(v)
+            except (TypeError, ValueError):
+                return f"{col}: '{v}' is not a number, so it cannot be within the range"
+            if low is not None and n < low:
+                return f"{col}: Value {v} is below minimum {rule['value']['min']}"
+            return f"{col}: Value {v} is above maximum {rule['value']['max']}"
+        return bad, range_message
+
+    if rule_type == 'list':
+        allowed = {str(v) for v in (value if isinstance(value, list) else [value])}
+        return present & ~text.isin(allowed), lambda v: f"{col}: Value '{v}' not in allowed list"
+
+    if rule_type == 'pattern':
+        compiled = datadragon_regex.compile_pattern(value)
+        verdicts = {u: datadragon_regex.fullmatch(compiled, u, budget) for u in text[present].unique()}
+        return present & ~text.map(verdicts).fillna(True).astype(bool), \
+            lambda v: f"{col}: Value does not match required pattern"
+
+    if rule_type == 'length':
+        low, high = bound((value or {}).get('min'), int, 'minimum length'), bound((value or {}).get('max'), int, 'maximum length')
+        lengths = text.str.len()
+        bad = pd.Series(False, index=series.index)
+        if low is not None:
+            bad |= present & (lengths < low)
+        if high is not None:
+            bad |= present & (lengths > high)
+        return bad, lambda v: f"{col}: Length {len(str(v))} is outside the allowed range"
+
+    return pd.Series(False, index=series.index), lambda v: ''
+
+
 def validate_data_async(file_path, validation_rules, progress_queue, session_id):
     """Validate data in background thread with progress tracking"""
     try:
@@ -4501,140 +4575,64 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
         import json
         rules = json.loads(validation_rules) if isinstance(validation_rules, str) else validation_rules
         
-        # Track validation errors
-        errors = []
-        valid_rows = []
-        invalid_rows = []
-        
         total_rows = len(df)
-        validated = 0
-        
         pattern_budget = datadragon_regex.Budget()
-        
-        # Validate each row
-        for idx, row in df.iterrows():
-            row_errors = []
-            is_valid = True
-            
-            for rule in rules:
-                col = rule.get('column')
-                rule_type = rule.get('type')
-                rule_value = rule.get('value')
-                
-                if col not in df.columns:
-                    continue
-                
-                cell_value = row[col]
-                
-                # Required validation
-                if rule_type == 'required':
-                    if pd.isna(cell_value) or str(cell_value).strip() == '':
-                        row_errors.append(f"{col}: Required field is empty")
-                        is_valid = False
-                
-                # Data type validation
-                elif rule_type == 'numeric':
-                    if not pd.isna(cell_value):
-                        try:
-                            float(cell_value)
-                        except:
-                            row_errors.append(f"{col}: Must be numeric")
-                            is_valid = False
-                
-                # Range validation
-                elif rule_type == 'range':
-                    if not pd.isna(cell_value):
-                        try:
-                            val = float(cell_value)
-                            min_val = rule_value.get('min')
-                            max_val = rule_value.get('max')
-                            if min_val is not None and val < min_val:
-                                row_errors.append(f"{col}: Value {val} is below minimum {min_val}")
-                                is_valid = False
-                            if max_val is not None and val > max_val:
-                                row_errors.append(f"{col}: Value {val} is above maximum {max_val}")
-                                is_valid = False
-                        except:
-                            pass
-                
-                # List/Enum validation
-                elif rule_type == 'list':
-                    if not pd.isna(cell_value):
-                        allowed_values = rule_value if isinstance(rule_value, list) else [rule_value]
-                        if str(cell_value) not in [str(v) for v in allowed_values]:
-                            row_errors.append(f"{col}: Value '{cell_value}' not in allowed list")
-                            is_valid = False
-                
-                # Pattern validation (regex)
-                elif rule_type == 'pattern':
-                    if not pd.isna(cell_value):
-                        compiled_pattern = datadragon_regex.compile_pattern(rule_value)
-                        if not datadragon_regex.fullmatch(compiled_pattern, str(cell_value), pattern_budget):
-                            row_errors.append(f"{col}: Value does not match required pattern")
-                            is_valid = False
-                
-                # Length validation
-                elif rule_type == 'length':
-                    if not pd.isna(cell_value):
-                        val_str = str(cell_value)
-                        min_len = rule_value.get('min')
-                        max_len = rule_value.get('max')
-                        if min_len is not None and len(val_str) < min_len:
-                            row_errors.append(f"{col}: Length {len(val_str)} is below minimum {min_len}")
-                            is_valid = False
-                        if max_len is not None and len(val_str) > max_len:
-                            row_errors.append(f"{col}: Length {len(val_str)} is above maximum {max_len}")
-                            is_valid = False
-            
-            if row_errors:
-                errors.append({
-                    'row': int(idx) + 1,
-                    'errors': row_errors
-                })
-                invalid_rows.append(row.to_dict())
-            else:
-                valid_rows.append(row.to_dict())
-            
-            validated += 1
-            if validated % 1000 == 0:
-                send_progress('validating', validated, total_rows, f'Validated {validated:,} of {total_rows:,} rows...', 20 + int((validated / total_rows) * 50))
-        
-        send_progress('validating', total_rows, total_rows, f'Validation complete: {len(errors)} errors found', 70)
-        
+
+        # One boolean mask per rule (True = the cell breaks the rule), computed for the whole column at once
+        checks = []   # (column, mask, message(value) -> str)
+        for number, rule in enumerate(rules, 1):
+            col = rule.get('column')
+            if col not in df.columns:
+                continue
+            checks.append((col,) + validation_mask(df[col], rule, pattern_budget, number))
+            send_progress('validating', number, len(rules), f'Checked rule {number} of {len(rules)}',
+                          20 + int(number / len(rules) * 50))
+
+        invalid_mask = pd.Series(False, index=df.index)
+        failures_total = 0
+        for _, mask, _ in checks:
+            invalid_mask |= mask
+            failures_total += int(mask.sum())
+        invalid_count = int(invalid_mask.sum())
+        valid_count = total_rows - invalid_count
+
+        send_progress('validating', len(rules), len(rules),
+                      f'Validation complete: {invalid_count:,} invalid rows, {failures_total:,} rule failures', 70)
         send_progress('saving', 0, 100, 'Saving validation results...', 75)
-        
-        # Create summary
+
+        # Row-level detail is written for the first VALIDATION_DETAIL_LIMIT invalid rows only
+        positions = np.flatnonzero(invalid_mask.to_numpy())
+        truncated = len(positions) > VALIDATION_DETAIL_LIMIT
+        shown = positions[:VALIDATION_DETAIL_LIMIT]
+        shown_pos = {int(p): n for n, p in enumerate(shown)}
+        messages = [[] for _ in shown]
+        for col, mask, message in checks:
+            hit = np.flatnonzero(mask.to_numpy()[shown])
+            values = df[col].iloc[shown[hit]]
+            for n, value in zip(hit, values):
+                messages[int(n)].append(message(value))
+        errors = [{'row': int(p) + 2, 'errors': messages[n]} for p, n in shown_pos.items()]   # spreadsheet row number
+
         summary_data = {
-            'Metric': [
-                'Total Rows',
-                'Valid Rows',
-                'Invalid Rows',
-                'Error Rate (%)',
-                'Total Errors'
-            ],
-            'Value': [
-                total_rows,
-                len(valid_rows),
-                len(invalid_rows),
-                round((len(invalid_rows) / total_rows * 100) if total_rows > 0 else 0, 2),
-                len(errors)
-            ]
+            'Metric': ['Total Rows', 'Valid Rows', 'Invalid Rows', 'Error Rate (%)', 'Total Rule Failures'],
+            'Value': [total_rows, valid_count, invalid_count,
+                      round((invalid_count / total_rows * 100) if total_rows > 0 else 0, 2), failures_total],
         }
+        if truncated:
+            summary_data['Metric'].append('Note')
+            summary_data['Value'].append(f'Details shown for the first {VALIDATION_DETAIL_LIMIT:,} of {invalid_count:,} invalid rows')
+        write_valid = valid_count <= VALIDATION_VALID_SHEET_LIMIT
+        if not write_valid:
+            summary_data['Metric'].append('Note')
+            summary_data['Value'].append(f'Valid Records sheet omitted: more than {VALIDATION_VALID_SHEET_LIMIT:,} valid rows '
+                                         '(they are your original rows minus the invalid ones)')
         summary_df = pd.DataFrame(summary_data)
-        
-        # Create errors DataFrame
-        errors_data = []
-        for error in errors:
-            errors_data.append({
-                'Row Number': error['row'],
-                'Errors': '; '.join(error['errors'])
-            })
-        errors_df = pd.DataFrame(errors_data) if errors_data else pd.DataFrame(columns=['Row Number', 'Errors'])
-        
-        # Create invalid records DataFrame
-        invalid_df = pd.DataFrame(invalid_rows) if invalid_rows else pd.DataFrame(columns=df.columns)
-        valid_df = pd.DataFrame(valid_rows) if valid_rows else pd.DataFrame(columns=df.columns)
-        
+
+        errors_df = (pd.DataFrame([{'Row Number': e['row'], 'Errors': '; '.join(e['errors'])} for e in errors])
+                     if errors else pd.DataFrame(columns=['Row Number', 'Errors']))
+        invalid_df = df.iloc[shown]
+        valid_df = df[~invalid_mask] if valid_count <= VALIDATION_VALID_SHEET_LIMIT else None
+
         # Save to Excel
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         output_filename = f"validation_{timestamp}"
@@ -4645,7 +4643,7 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
             errors_df.to_excel(writer, sheet_name='Error Details', index=False)
             if len(invalid_df) > 0:
                 invalid_df.to_excel(writer, sheet_name='Invalid Records', index=False)
-            if len(valid_df) > 0:
+            if write_valid and len(valid_df) > 0:
                 valid_df.to_excel(writer, sheet_name='Valid Records', index=False)
         
         download_url = job_download_url(session_id, f"{output_filename}.xlsx")
@@ -4670,10 +4668,13 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
             'output_filename': os.path.basename(output_path),
             'summary': {
                 'total_rows': int(total_rows),
-                'valid_rows': int(len(valid_rows)),
-                'invalid_rows': int(len(invalid_rows)),
-                'error_rate': round((len(invalid_rows) / total_rows * 100) if total_rows > 0 else 0, 2),
-                'total_errors': int(len(errors))
+                'valid_rows': valid_count,
+                'invalid_rows': invalid_count,
+                'error_rate': round((invalid_count / total_rows * 100) if total_rows > 0 else 0, 2),
+                'total_errors': failures_total,
+                'errors_total': failures_total,
+                'details_truncated': truncated,
+                'valid_sheet_omitted': not write_valid,
             },
             'preview': preview_errors
         }

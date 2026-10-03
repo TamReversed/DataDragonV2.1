@@ -6,69 +6,69 @@
   "preview": [
    {
     "errors": [
-     "Account: Value 1000.0 is below minimum 1001"
+     "Account: Value 1000 is below minimum 1001"
     ],
-    "row": 1
+    "row": 2
    },
    {
     "errors": [
      "Amount: Required field is empty"
     ],
-    "row": 11
+    "row": 12
    },
    {
     "errors": [
-     "Account: Value 1031.0 is above maximum 1030"
-    ],
-    "row": 32
-   },
-   {
-    "errors": [
-     "Account: Value 1032.0 is above maximum 1030"
+     "Account: Value 1031 is above maximum 1030"
     ],
     "row": 33
    },
    {
     "errors": [
-     "Account: Value 1033.0 is above maximum 1030"
+     "Account: Value 1032 is above maximum 1030"
     ],
     "row": 34
    },
    {
     "errors": [
-     "Account: Value 1034.0 is above maximum 1030"
+     "Account: Value 1033 is above maximum 1030"
     ],
     "row": 35
    },
    {
     "errors": [
-     "Account: Value 1035.0 is above maximum 1030"
+     "Account: Value 1034 is above maximum 1030"
     ],
     "row": 36
    },
    {
     "errors": [
-     "Account: Value 1036.0 is above maximum 1030"
+     "Account: Value 1035 is above maximum 1030"
     ],
     "row": 37
    },
    {
     "errors": [
-     "Account: Value 1037.0 is above maximum 1030"
+     "Account: Value 1036 is above maximum 1030"
     ],
     "row": 38
    },
    {
     "errors": [
-     "Account: Value 1038.0 is above maximum 1030"
+     "Account: Value 1037 is above maximum 1030"
     ],
     "row": 39
    },
    {
     "errors": [
-     "Account: Value 1039.0 is above maximum 1030"
+     "Account: Value 1038 is above maximum 1030"
     ],
     "row": 40
+   },
+   {
+    "errors": [
+     "Account: Value 1039 is above maximum 1030"
+    ],
+    "row": 41
    }
   ],
   "sheet_names": [
@@ -77,11 +77,14 @@
   ],
   "stage": "done",
   "summary": {
+   "details_truncated": false,
    "error_rate": 27.5,
+   "errors_total": 11,
    "invalid_rows": 11,
    "total_errors": 11,
    "total_rows": 40,
-   "valid_rows": 29
+   "valid_rows": 29,
+   "valid_sheet_omitted": false
   },
   "total": 100,
   "warning": "golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed."
@@ -93,48 +96,48 @@
     "s:'Errors'"
    ],
    [
-    "n:1",
-    "s:'Account: Value 1000.0 is below minimum 1001'"
+    "n:2",
+    "s:'Account: Value 1000 is below minimum 1001'"
    ],
    [
-    "n:11",
+    "n:12",
     "s:'Amount: Required field is empty'"
    ],
    [
-    "n:32",
-    "s:'Account: Value 1031.0 is above maximum 1030'"
-   ],
-   [
     "n:33",
-    "s:'Account: Value 1032.0 is above maximum 1030'"
+    "s:'Account: Value 1031 is above maximum 1030'"
    ],
    [
     "n:34",
-    "s:'Account: Value 1033.0 is above maximum 1030'"
+    "s:'Account: Value 1032 is above maximum 1030'"
    ],
    [
     "n:35",
-    "s:'Account: Value 1034.0 is above maximum 1030'"
+    "s:'Account: Value 1033 is above maximum 1030'"
    ],
    [
     "n:36",
-    "s:'Account: Value 1035.0 is above maximum 1030'"
+    "s:'Account: Value 1034 is above maximum 1030'"
    ],
    [
     "n:37",
-    "s:'Account: Value 1036.0 is above maximum 1030'"
+    "s:'Account: Value 1035 is above maximum 1030'"
    ],
    [
     "n:38",
-    "s:'Account: Value 1037.0 is above maximum 1030'"
+    "s:'Account: Value 1036 is above maximum 1030'"
    ],
    [
     "n:39",
-    "s:'Account: Value 1038.0 is above maximum 1030'"
+    "s:'Account: Value 1037 is above maximum 1030'"
    ],
    [
     "n:40",
-    "s:'Account: Value 1039.0 is above maximum 1030'"
+    "s:'Account: Value 1038 is above maximum 1030'"
+   ],
+   [
+    "n:41",
+    "s:'Account: Value 1039 is above maximum 1030'"
    ]
   ],
   "Invalid Records": [
@@ -835,7 +838,7 @@
     "n:27.5"
    ],
    [
-    "s:'Total Errors'",
+    "s:'Total Rule Failures'",
     "n:11"
    ]
   ]

@@ -72,3 +72,4 @@ Same machine, data and harness as above (`scripts/bench.py`, CSV inputs from `sc
 | `dup_highcard` 10k | 0.18 s / 132 MB | 0.06 s / 133 MB | T1.8 | |
 | `write_xlsx` 100k | 6.54 s / 758 MB (pandas, openpyxl engine) | **3.37 s / 447 MB** (direct xlsxwriter in `write_excel`) | T2.3 | <= 4 s |
 | `split40k` 100k (xlsx in, xlsx out) | 12.62 s / 387 MB | 9.88 s / 324 MB | T2.3 | |
+| `validate` 500k | 41.3 s / 3.67 GB | **1.84 s / 499 MB** (Valid Records sheet omitted above 100k valid rows) | T2.9 | < 10 s, < 1.2 GB |
