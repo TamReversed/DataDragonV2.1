@@ -1,5 +1,22 @@
 # Excel File Splitter Web App
 
+> ## Deployment note (read before hosting this)
+>
+> DataDragon keeps all job state (progress streams, results, sessions, the file cache) in the memory of **one
+> process**. Run exactly **one gunicorn worker with threads**, as the `Procfile` does:
+>
+> ```
+> gunicorn -k gthread -w 1 --threads 8 -t 0 -b 0.0.0.0:${PORT:-5002} datadragon:app
+> ```
+>
+> - More than one worker is **not supported**: a progress stream that lands on a different worker answers
+>   "Session not found" (measured: 1 of 8 concurrent jobs completed with 4 workers, 8 of 8 with one).
+> - Use a threaded worker (`gthread`). gunicorn's default sync worker is killed at its timeout and takes running
+>   jobs with it (a 13-second job died after 3 seconds with `-t 3`).
+> - `GET /healthz` answers `{"ok": true}` for a load balancer.
+> - `PORT` and `HOST` configure `python datadragon.py` (defaults `5002` and `127.0.0.1`, so it stays local).
+> - Set `DATADRAGON_SECRET_KEY` so browser sessions survive a restart.
+
 A beautiful, easy-to-use web application for splitting large Excel files into smaller, manageable chunks.
 
 ## Features

@@ -8,7 +8,7 @@ import shutil
 from datetime import datetime, timedelta
 import traceback
 import json
-from queue import Queue
+from queue import Queue, Empty
 import threading
 import secrets
 import time
@@ -629,6 +629,11 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
 def index():
     return render_template('landing.html')
 
+@app.route('/healthz')
+def healthz():
+    """Liveness check for the process manager / load balancer."""
+    return jsonify({'ok': True})
+
 @app.route('/landing')
 def landing():
     return render_template('landing.html')
@@ -806,9 +811,8 @@ def progress(session_id):
                         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
     def generate():
-        # Wait a moment for session to be created (handles race condition)
+        # Wait a moment for the queue to appear (a job is registered an instant before its queue is readable)
         q = None
-        import time
         for attempt in range(10):  # Try up to 10 times (1 second total)
             q = progress_queues.get(session_id)  # Use .get() - it won't remove from dict
             if q:
@@ -821,51 +825,20 @@ def progress(session_id):
             return
         
         print(f"SSE connection established for session {session_id}")
-        import time
         last_ping = time.time()
         empty_queue_count = 0
         
-        while True:
-            try:
-                # Use a shorter timeout and send keep-alive pings
+        # Only an empty queue is handled inside the loop. A client disconnect arrives as GeneratorExit at a
+        # yield and must propagate (the queue is kept, so the browser's automatic reconnect resumes the stream).
+        try:
+            while True:
                 try:
                     progress_data = q.get(timeout=5)  # 5 second timeout
-                    empty_queue_count = 0  # Reset counter
-                    if progress_data.get('stage') == 'done':
-                        add_job_notes(progress_data, session_id)
-                    
-                    # Log what we're sending
-                    stage = progress_data.get('stage', 'unknown')
-                    print(f"Sending progress update: stage={stage}, percentage={progress_data.get('percentage', 0)}")
-                    
-                    # Serialize the data - handle large analysis objects
-                    try:
-                        json_data = json.dumps(progress_data, default=str)
-                        yield f"data: {json_data}\n\n"
-                        last_ping = time.time()
-                    except Exception as json_err:
-                        print(f"JSON serialization error: {json_err}")
-                        # Try sending without analysis if it's too large
-                        if 'analysis' in progress_data:
-                            print("Attempting to send without analysis data...")
-                            progress_data_no_analysis = {k: v for k, v in progress_data.items() if k != 'analysis'}
-                            json_data = json.dumps(progress_data_no_analysis, default=str)
-                            yield f"data: {json_data}\n\n"
-                            # Send analysis separately in chunks if needed
-                            if progress_data.get('stage') == 'done':
-                                print("Analysis data too large, will need alternative delivery method")
-                    
-                    # If done, wait a bit to ensure message is sent, then exit
-                    if progress_data.get('stage') in ['done', 'error']:
-                        print(f"Final stage reached: {stage}, closing connection")
-                        import time
-                        time.sleep(0.5)  # Give time for message to be sent
-                        break
-                except:
+                except Empty:
                     empty_queue_count += 1
                     # Send keep-alive ping every 15 seconds
                     if time.time() - last_ping > 15:
-                        yield f": keep-alive\n\n"
+                        yield ": keep-alive\n\n"
                         last_ping = time.time()
                         print(f"Keep-alive sent for session {session_id}")
                     
@@ -874,11 +847,40 @@ def progress(session_id):
                         print(f"Queue empty for too long, closing connection for session {session_id}")
                         break
                     continue
-                    
-            except Exception as e:
-                print(f"SSE error: {e}")
-                print(traceback.format_exc())
-                break
+                
+                empty_queue_count = 0  # Reset counter
+                if progress_data.get('stage') == 'done':
+                    add_job_notes(progress_data, session_id)
+                
+                # Log what we're sending
+                stage = progress_data.get('stage', 'unknown')
+                print(f"Sending progress update: stage={stage}, percentage={progress_data.get('percentage', 0)}")
+                
+                # Serialize the data - handle large analysis objects
+                try:
+                    json_data = json.dumps(progress_data, default=str)
+                    yield f"data: {json_data}\n\n"
+                    last_ping = time.time()
+                except Exception as json_err:
+                    print(f"JSON serialization error: {json_err}")
+                    # Try sending without analysis if it's too large
+                    if 'analysis' in progress_data:
+                        print("Attempting to send without analysis data...")
+                        progress_data_no_analysis = {k: v for k, v in progress_data.items() if k != 'analysis'}
+                        json_data = json.dumps(progress_data_no_analysis, default=str)
+                        yield f"data: {json_data}\n\n"
+                        # Send analysis separately in chunks if needed
+                        if progress_data.get('stage') == 'done':
+                            print("Analysis data too large, will need alternative delivery method")
+                
+                # If done, wait a bit to ensure message is sent, then exit
+                if progress_data.get('stage') in ['done', 'error']:
+                    print(f"Final stage reached: {stage}, closing connection")
+                    time.sleep(0.5)  # Give time for message to be sent
+                    break
+        except Exception as e:
+            print(f"SSE error: {e}")
+            print(traceback.format_exc())
         
         # Clean up the queue
         if session_id in progress_queues:
@@ -7256,9 +7258,10 @@ def generate_readiness_report(output_path, state, transformation_log=None):
 
 
 if __name__ == '__main__':
+    # Local development server. Deployments use gunicorn (see Procfile): ONE worker with threads, because all job
+    # state lives in this process's memory.
     # Only enable debug in development
-    import os
     debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
-    # Use port 5002 to avoid conflict with macOS AirPlay Receiver on port 5000
-    app.run(debug=debug_mode, host='127.0.0.1', port=5002, threaded=True)
-
+    # Port 5002 by default to avoid the macOS AirPlay Receiver on 5000; HOST stays local unless you set it.
+    app.run(debug=debug_mode, host=os.environ.get('HOST', '127.0.0.1'), port=int(os.environ.get('PORT', 5002)),
+            threaded=True)
