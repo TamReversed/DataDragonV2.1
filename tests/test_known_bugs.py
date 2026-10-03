@@ -223,7 +223,6 @@ def test_blank_not_written_as_nan(client, tmp_path):
 
 # ---------------------------------------------------------------- G: security
 
-@bug("G-01")
 def test_calc_formula_cannot_reach_os(client):
     resp, _ = post_form(client, "/calculated-columns", {"file": GOLDEN_XLSX},
                         {"formula": "pd.io.common.os.getcwd()", "new_column_name": "x", "preview_only": "true"})

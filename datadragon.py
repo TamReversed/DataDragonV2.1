@@ -18,6 +18,8 @@ import re
 import uuid
 from itertools import combinations
 
+from datadragon_formula import FormulaError, evaluate_formula as safe_evaluate_formula
+
 # PDF Report Generation
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
@@ -5950,108 +5952,11 @@ def calculated_columns():
 
 
 def evaluate_formula(df, formula):
-    """
-    Evaluate a formula with column references and functions.
-    Supports: [ColumnName] references, text functions, math operations, conditionals.
-    """
-    import re
-    from datetime import datetime
-
-    # Replace column references [ColumnName] with df access
-    def replace_column_refs(match):
-        col_name = match.group(1)
-        if col_name not in df.columns:
-            raise ValueError(f'Column "{col_name}" not found')
-        return f'__df__["{col_name}"]'
-
-    # First, protect string literals by replacing them temporarily
-    string_literals = []
-    def save_string(match):
-        string_literals.append(match.group(0))
-        return f'__STRING_{len(string_literals)-1}__'
-
-    # Save double and single quoted strings
-    formula_work = re.sub(r'"[^"]*"', save_string, formula)
-    formula_work = re.sub(r"'[^']*'", save_string, formula_work)
-
-    # Replace column references
-    formula_work = re.sub(r'\[([^\]]+)\]', replace_column_refs, formula_work)
-
-    # Restore string literals
-    for i, s in enumerate(string_literals):
-        formula_work = formula_work.replace(f'__STRING_{i}__', s)
-
-    # Helper to convert value to Series
-    def to_series(val):
-        if isinstance(val, pd.Series):
-            return val
-        return pd.Series([val] * len(df))
-
-    # Helper to convert to string Series
-    def to_str_series(val):
-        if isinstance(val, pd.Series):
-            return val.astype(str)
-        return pd.Series([str(val)] * len(df))
-
-    # Map of supported functions to pandas equivalents
-    function_map = {
-        # Text functions
-        'CONCAT': lambda *args: pd.concat([to_str_series(arg) for arg in args], axis=1).agg(''.join, axis=1),
-        'UPPER': lambda x: to_str_series(x).str.upper(),
-        'LOWER': lambda x: to_str_series(x).str.lower(),
-        'TRIM': lambda x: to_str_series(x).str.strip(),
-        'LEFT': lambda x, n: to_str_series(x).str[:int(n)],
-        'RIGHT': lambda x, n: to_str_series(x).str[-int(n):],
-        'LEN': lambda x: to_str_series(x).str.len(),
-        'REPLACE': lambda x, old, new: to_str_series(x).str.replace(str(old), str(new), regex=False),
-
-        # Math functions
-        'ROUND': lambda x, decimals=0: pd.to_numeric(to_series(x), errors='coerce').round(int(decimals)),
-        'ABS': lambda x: pd.to_numeric(to_series(x), errors='coerce').abs(),
-        'CEILING': lambda x: pd.to_numeric(to_series(x), errors='coerce').apply(lambda v: np.ceil(v) if pd.notna(v) else v),
-        'FLOOR': lambda x: pd.to_numeric(to_series(x), errors='coerce').apply(lambda v: np.floor(v) if pd.notna(v) else v),
-
-        # Date functions
-        'YEAR': lambda x: pd.to_datetime(to_series(x), errors='coerce').dt.year,
-        'MONTH': lambda x: pd.to_datetime(to_series(x), errors='coerce').dt.month,
-        'DAY': lambda x: pd.to_datetime(to_series(x), errors='coerce').dt.day,
-        'TODAY': lambda: pd.Series([datetime.now().strftime('%Y-%m-%d')] * len(df)),
-
-        # Conditional functions
-        'ISNULL': lambda x: to_series(x).isna(),
-        'COALESCE': lambda *args: pd.concat([to_series(arg) for arg in args], axis=1).bfill(axis=1).iloc[:, 0],
-    }
-
-    # Custom IF function handler
-    def handle_if(condition, true_val, false_val):
-        """Handle IF(condition, true_value, false_value)"""
-        cond = to_series(condition)
-        return pd.Series(np.where(cond, true_val, false_val))
-
-    function_map['IF'] = handle_if
-
-    # Build safe namespace
-    safe_namespace = {
-        '__df__': df,
-        'pd': pd,
-        'np': np,
-        **function_map
-    }
-
-    # Handle string concatenation with + operator between columns and strings
-    # Convert string operations to work with pandas Series
-
+    """Evaluate a Calculated Columns formula (see datadragon_formula.py: parsed, never run as code)."""
     try:
-        result = eval(formula_work, {"__builtins__": {}}, safe_namespace)
-
-        # Ensure result is a Series
-        if isinstance(result, pd.DataFrame):
-            result = result.iloc[:, 0]
-        elif not isinstance(result, pd.Series):
-            result = pd.Series([result] * len(df))
-
-        return result
-
+        return safe_evaluate_formula(df, formula)
+    except FormulaError:
+        raise
     except Exception as e:
         raise ValueError(f'Formula evaluation failed: {str(e)}')
 

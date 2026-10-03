@@ -18,7 +18,7 @@ Status: `todo` · `doing` · `done` · `blocked`
 | T0.7 CI + agent docs | done | CI YAML parses (ruby YAML); locally: pytest green (59 passed, 1 skipped, 28 xfailed with slow excluded), pyflakes 34 warnings / 1 undefined name, pip-audit reports Flask/Werkzeug CVEs (both non-gating for now) |
 
 ## Phase 1 — P0 fixes
-T1.1 todo · T1.2 todo · T1.3 todo · T1.4 todo · T1.5 todo · T1.6 todo · T1.7 todo · T1.8 todo · T1.9 todo · T1.10 todo · T1.11 todo · T1.12 todo
+T1.1 done (`datadragon_formula.py`: AST allow-list; `eval`/`exec`/`compile(` grep = 0; G-01 xfail flipped; 60 new formula tests; calc snapshots unchanged) · T1.2 todo · T1.3 todo · T1.4 todo · T1.5 todo · T1.6 todo · T1.7 todo · T1.8 todo · T1.9 todo · T1.10 todo · T1.11 todo · T1.12 todo
 
 ## Phase 2 — P1
 T2.1 todo · T2.2 todo · T2.3 todo · T2.4 todo · T2.5 todo · T2.6 todo · T2.7 todo · T2.8 todo · T2.9 todo · T2.10 todo · T2.11 todo · T2.12 todo · T2.13 todo · T2.14 todo
