@@ -237,7 +237,6 @@ def _run_cached(client, tag):
     return payload
 
 
-@bug("G-02")
 def test_cache_isolated_between_clients(client):
     _run_cached(client, "A")
     cache_id = client.get("/get-cached-files").get_json()["files"][0]["cache_id"]
@@ -246,7 +245,6 @@ def test_cache_isolated_between_clients(client):
     assert other.get(f"/download-cached-file/{cache_id}").status_code == 404
 
 
-@bug("G-03")
 def test_download_requires_owner(client):
     payload = _run_cached(client, "A")
     other = datadragon.app.test_client()

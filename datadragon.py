@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, send_file, jsonify, Response, stream_with_context, after_this_request
+from flask import Flask, render_template, request, send_file, jsonify, Response, stream_with_context, after_this_request, session
 import pandas as pd
 import numpy as np
 import os
@@ -30,7 +30,10 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = secrets.token_hex(32)  # Generate secure secret key
+_configured_secret = os.environ.get('DATADRAGON_SECRET_KEY')
+app.config['SECRET_KEY'] = _configured_secret or secrets.token_hex(32)
+if not _configured_secret:
+    app.logger.warning('DATADRAGON_SECRET_KEY is not set: using a random key, browser sessions reset on restart.')
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=1)
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -53,6 +56,68 @@ def reject_cross_origin_writes():
     if source_host != request.host:
         return jsonify({'error': 'Cross-origin request blocked'}), 403
     return None
+
+# =============================================================================
+# OWNERSHIP - every job, cached file and download belongs to one browser (signed session cookie)
+# =============================================================================
+class OwnerRegistry:
+    """Thread-safe map: key -> (owner, created_at)."""
+
+    def __init__(self):
+        self._items = {}
+        self._lock = threading.Lock()
+
+    def bind(self, key, owner):
+        with self._lock:
+            self._items[key] = (owner, time.time())
+
+    def owner_of(self, key):
+        with self._lock:
+            item = self._items.get(key)
+        return item[0] if item else None
+
+    def expire(self, ttl_seconds):
+        cutoff = time.time() - ttl_seconds
+        with self._lock:
+            for key in [k for k, (_, created) in self._items.items() if created < cutoff]:
+                del self._items[key]
+
+
+job_registry = OwnerRegistry()    # progress/session ids -> owner
+file_registry = OwnerRegistry()   # downloadable output filenames -> owner
+OWNER_TTL_SECONDS = 2 * 3600
+DOWNLOAD_URL_RE = re.compile(r'/download/([A-Za-z0-9._-]+)')
+
+
+def current_owner():
+    """Opaque id of this browser, kept in the signed session cookie."""
+    owner = session.get('owner')
+    if not owner:
+        owner = secrets.token_urlsafe(16)
+        session['owner'] = owner
+    return owner
+
+
+@app.before_request
+def assign_owner():
+    current_owner()
+
+
+def register_job(session_id, progress_queue, owner=None):
+    """Create the progress channel for a job and bind it to its owner."""
+    progress_queues[session_id] = progress_queue
+    job_registry.bind(session_id, owner or current_owner())
+
+
+def bind_file(filename, owner=None):
+    """Allow only `owner` to download output file `filename`."""
+    file_registry.bind(filename, owner or current_owner())
+
+
+def cleanup_owner_registries():
+    job_registry.expire(OWNER_TTL_SECONDS)
+    file_registry.expire(OWNER_TTL_SECONDS)
+
 
 # Store progress queues for active sessions
 progress_queues = {}
@@ -117,6 +182,7 @@ def cleanup_thread():
         cleanup_old_analysis_results()
         cleanup_session_cache()
         cleanup_pipeline_sessions()
+        cleanup_owner_registries()
 
 cleanup_thread_instance = threading.Thread(target=cleanup_thread, daemon=True)
 cleanup_thread_instance.start()
@@ -127,16 +193,19 @@ cleanup_thread_instance.start()
 # Global file cache with unique IDs - accessible across all sessions
 file_cache = {}  # cache_id -> {'name': str, 'path': str, 'timestamp': float, 'rows': int, 'cols': int, 'source_tool': str}
 
-def cache_session_file(session_id, filename, file_path, rows, cols, source_tool='Unknown'):
+def cache_session_file(session_id, filename, file_path, rows, cols, source_tool='Unknown', owner=None):
     """Cache a processed file for potential use in another tool. Returns cache_id."""
     import hashlib
     # Generate unique cache ID from filename + timestamp
     cache_id = hashlib.md5(f"{filename}{time.time()}{os.urandom(8).hex()}".encode()).hexdigest()[:12]
 
-    # Keep only last 10 files total (simple global cache)
-    if len(file_cache) >= 10:
-        # Remove oldest file
-        oldest_id = min(file_cache.keys(), key=lambda k: file_cache[k]['timestamp'])
+    owner = owner or current_owner()
+
+    # Keep only the 10 most recent files per owner
+    owned_ids = [k for k, v in file_cache.items() if v.get('owner') == owner]
+    if len(owned_ids) >= 10:
+        # Remove this owner's oldest file
+        oldest_id = min(owned_ids, key=lambda k: file_cache[k]['timestamp'])
         oldest = file_cache.pop(oldest_id)
         if os.path.exists(oldest.get('path', '')):
             try:
@@ -150,17 +219,23 @@ def cache_session_file(session_id, filename, file_path, rows, cols, source_tool=
         'timestamp': time.time(),
         'rows': rows,
         'cols': cols,
-        'source_tool': source_tool
+        'source_tool': source_tool,
+        'owner': owner
     }
+    bind_file(os.path.basename(file_path), owner)
     return cache_id
 
 def get_cached_files(session_id=None):
-    """Get list of all cached files (session_id kept for backwards compatibility)"""
-    return list(file_cache.values())
+    """Get the current browser's cached files (session_id kept for backwards compatibility)"""
+    owner = current_owner()
+    return [v for v in file_cache.values() if v.get('owner') == owner]
 
 def get_cached_file_by_id(cache_id):
-    """Get a cached file by its cache ID"""
-    return file_cache.get(cache_id)
+    """Get a cached file by its cache ID, but only if it belongs to the current browser"""
+    info = file_cache.get(cache_id)
+    if info is None or info.get('owner') != current_owner():
+        return None
+    return info
 
 def cleanup_session_cache():
     """Remove cached files older than 1 hour"""
@@ -184,8 +259,9 @@ def cleanup_session_cache():
 # =============================================================================
 class PipelineState:
     """Stores state for a Data Readiness Pipeline session"""
-    def __init__(self, session_id, file_path, filename):
+    def __init__(self, session_id, file_path, filename, owner=None):
         self.session_id = session_id
+        self.owner = owner
         self.file_path = file_path
         self.filename = filename
         self.created_at = time.time()
@@ -224,6 +300,14 @@ class PipelineState:
 
 # Pipeline session storage
 pipeline_sessions = {}  # session_id -> PipelineState
+
+def owned_pipeline_state(session_id):
+    """The pipeline session, but only for the browser that started it."""
+    state = pipeline_sessions.get(session_id)
+    if state is None or state.owner != current_owner():
+        return None
+    return state
+
 
 def cleanup_pipeline_sessions():
     """Remove pipeline sessions older than 2 hours"""
@@ -615,6 +699,12 @@ def data_scrubber():
 @app.route('/progress/<session_id>')
 def progress(session_id):
     """Server-Sent Events endpoint for progress updates"""
+    owner = current_owner()
+    if job_registry.owner_of(session_id) != owner:
+        # Same answer as an unknown session: do not reveal that someone else's job exists.
+        return Response(f"data: {json.dumps({'error': 'Session not found'})}\n\n", mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
     def generate():
         # Wait a moment for session to be created (handles race condition)
         q = None
@@ -649,6 +739,8 @@ def progress(session_id):
                     # Serialize the data - handle large analysis objects
                     try:
                         json_data = json.dumps(progress_data, default=str)
+                        for name in DOWNLOAD_URL_RE.findall(json_data):
+                            bind_file(name, owner)  # the owner learns the link here, so the file becomes theirs
                         yield f"data: {json_data}\n\n"
                         last_ping = time.time()
                     except Exception as json_err:
@@ -818,8 +910,7 @@ def upload_file():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=process_file_async,
@@ -845,6 +936,10 @@ def download_file(filename):
     safe_filename = secure_filename(filename)
     if safe_filename != filename:
         return jsonify({'error': 'Invalid filename'}), 400
+
+    # Files nobody has claimed (or that belong to another browser) look like missing files.
+    if file_registry.owner_of(safe_filename) != current_owner():
+        return jsonify({'error': 'File not found'}), 404
     
     file_path = os.path.join(app.config['OUTPUT_FOLDER'], safe_filename)
     
@@ -928,6 +1023,9 @@ def fetch_analysis(session_id):
         if not session_id or len(session_id) < 10:
             return jsonify({'error': 'Invalid session ID'}), 400
         
+        if job_registry.owner_of(session_id) != current_owner():
+            return jsonify({'error': 'Analysis results not found or expired'}), 404
+
         if session_id not in analysis_results:
             print(f"Analysis results not found for session: {session_id}")
             return jsonify({'error': 'Analysis results not found or expired'}), 404
@@ -1583,8 +1681,7 @@ def analyze_file():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=analyze_file_async,
@@ -2229,7 +2326,10 @@ def get_cached_files_endpoint():
 
         # Format for frontend display with cache IDs
         files = []
-        for cache_id, f in file_cache.items():
+        owner = current_owner()
+        for cache_id, f in list(file_cache.items()):
+            if f.get('owner') != owner:
+                continue
             if os.path.exists(f.get('path', '')):
                 # Format timestamp for display
                 from datetime import datetime
@@ -2279,7 +2379,6 @@ def use_cached_file():
         return jsonify({
             'success': True,
             'filename': file_info['name'],
-            'path': file_info['path'],
             'preview': preview
         })
 
@@ -2355,8 +2454,7 @@ def scrub_data():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=scrub_file_async,
@@ -2598,8 +2696,7 @@ def find_duplicates():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=find_duplicates_async,
@@ -3193,8 +3290,7 @@ def find_unique_identifier():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=find_unique_identifier_async,
@@ -3494,8 +3590,7 @@ def merge_data():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=merge_files_async,
@@ -3839,8 +3934,7 @@ def compare_data():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=compare_files_async,
@@ -4339,8 +4433,7 @@ def generate_pivot():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=generate_pivot_async,
@@ -4627,8 +4720,7 @@ def validate_data():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=validate_data_async,
@@ -4985,8 +5077,7 @@ def normalize_columns():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=normalize_columns_async,
@@ -5149,8 +5240,7 @@ def convert_pdf_to_word():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=convert_pdf_to_word_async,
@@ -5397,8 +5487,7 @@ def compare_columns():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=compare_columns_async,
@@ -5546,8 +5635,7 @@ def transpose_data():
         
         # Create progress queue for this session
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-        
+        register_job(session_id, progress_queue)
         # Start processing in background thread
         thread = threading.Thread(
             target=transpose_file_async,
@@ -6244,7 +6332,8 @@ def pipeline_start():
         file.save(upload_path)
 
         # Create pipeline state
-        state = PipelineState(session_id, upload_path, filename)
+        state = PipelineState(session_id, upload_path, filename, owner=current_owner())
+        job_registry.bind(session_id, state.owner)
 
         # Load DataFrame into memory
         state.df = read_data_file(upload_path)
@@ -6288,10 +6377,9 @@ def pipeline_start():
 @app.route('/pipeline/<session_id>/state', methods=['GET'])
 def pipeline_get_state(session_id):
     """Get current pipeline state for resume/refresh"""
-    if session_id not in pipeline_sessions:
+    state = owned_pipeline_state(session_id)
+    if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
-
-    state = pipeline_sessions[session_id]
     return jsonify({
         'success': True,
         'state': state.to_dict(),
@@ -6305,16 +6393,14 @@ def pipeline_get_state(session_id):
 @app.route('/pipeline/<session_id>/analyze', methods=['POST'])
 def pipeline_analyze(session_id):
     """Stage 1: Run shape analysis on the uploaded data"""
-    if session_id not in pipeline_sessions:
+    state = owned_pipeline_state(session_id)
+    if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
-
-    state = pipeline_sessions[session_id]
 
     try:
         # Create progress queue for SSE
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-
+        register_job(session_id, progress_queue)
         # Run analysis in background thread
         def run_analysis():
             try:
@@ -6392,10 +6478,9 @@ def pipeline_analyze(session_id):
 @app.route('/pipeline/<session_id>/gaps', methods=['GET'])
 def pipeline_get_gaps(session_id):
     """Stage 2: Get gap assessment data from Stage 1 analysis"""
-    if session_id not in pipeline_sessions:
+    state = owned_pipeline_state(session_id)
+    if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
-
-    state = pipeline_sessions[session_id]
 
     if state.stage_data[1] is None:
         return jsonify({'error': 'Stage 1 (Shape Analysis) must be completed first'}), 400
@@ -6414,10 +6499,9 @@ def pipeline_get_gaps(session_id):
 @app.route('/pipeline/<session_id>/gaps/triage', methods=['POST'])
 def pipeline_triage_gaps(session_id):
     """Stage 2: Save user's gap triage decisions"""
-    if session_id not in pipeline_sessions:
+    state = owned_pipeline_state(session_id)
+    if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
-
-    state = pipeline_sessions[session_id]
 
     try:
         triage_decisions = request.get_json()
@@ -6446,10 +6530,9 @@ def pipeline_triage_gaps(session_id):
 @app.route('/pipeline/<session_id>/keys', methods=['POST'])
 def pipeline_find_keys(session_id):
     """Stage 3: Find natural key candidates using Apriori algorithm"""
-    if session_id not in pipeline_sessions:
+    state = owned_pipeline_state(session_id)
+    if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
-
-    state = pipeline_sessions[session_id]
 
     try:
         data = request.get_json() or {}
@@ -6460,8 +6543,7 @@ def pipeline_find_keys(session_id):
 
         # Create progress queue
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-
+        register_job(session_id, progress_queue)
         def run_key_discovery():
             try:
                 def send_progress(stage, pct, msg, current=0, total=0):
@@ -6633,10 +6715,9 @@ def pipeline_find_keys(session_id):
 @app.route('/pipeline/<session_id>/keys/confirm', methods=['POST'])
 def pipeline_confirm_keys(session_id):
     """Stage 3: Save user's key selection"""
-    if session_id not in pipeline_sessions:
+    state = owned_pipeline_state(session_id)
+    if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
-
-    state = pipeline_sessions[session_id]
 
     try:
         data = request.get_json()
@@ -6661,10 +6742,9 @@ def pipeline_confirm_keys(session_id):
 @app.route('/pipeline/<session_id>/transformations', methods=['GET'])
 def pipeline_get_transformations(session_id):
     """Stage 4: Get transformation recommendations based on analysis"""
-    if session_id not in pipeline_sessions:
+    state = owned_pipeline_state(session_id)
+    if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
-
-    state = pipeline_sessions[session_id]
 
     if state.stage_data[1] is None:
         return jsonify({'error': 'Stage 1 must be completed first'}), 400
@@ -6785,10 +6865,9 @@ def pipeline_get_transformations(session_id):
 @app.route('/pipeline/<session_id>/transformations/select', methods=['POST'])
 def pipeline_select_transformations(session_id):
     """Stage 4: Save user's transformation selections"""
-    if session_id not in pipeline_sessions:
+    state = owned_pipeline_state(session_id)
+    if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
-
-    state = pipeline_sessions[session_id]
 
     try:
         selections = request.get_json()
@@ -6816,15 +6895,13 @@ def pipeline_select_transformations(session_id):
 @app.route('/pipeline/<session_id>/execute', methods=['POST'])
 def pipeline_execute(session_id):
     """Stage 5: Execute selected transformations and generate report"""
-    if session_id not in pipeline_sessions:
+    state = owned_pipeline_state(session_id)
+    if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
-
-    state = pipeline_sessions[session_id]
 
     try:
         progress_queue = Queue()
-        progress_queues[session_id] = progress_queue
-
+        register_job(session_id, progress_queue)
         def run_execute():
             try:
                 send_progress = lambda pct, msg: progress_queue.put({
@@ -6909,7 +6986,8 @@ def pipeline_execute(session_id):
                     zip_path,
                     len(result_df),
                     len(result_df.columns),
-                    'Data Readiness Pipeline'
+                    'Data Readiness Pipeline',
+                    owner=state.owner
                 )
 
                 progress_queue.put({
