@@ -133,3 +133,11 @@ def test_pipeline_report_shows_keys_and_transformations_literally(client, hostil
     squashed = re.sub(r"\s+", "", pdf_text(pdf))        # glyph runs come back space-separated
     assert "a<b+x&y" in squashed                         # the selected key, shown literally
     assert "<I>Evil</I>" in squashed                     # a transformation name with markup in it is text, not markup
+
+
+def test_numeric_chart_is_a_box_strip_built_without_markup(client):
+    """C-01: no bar chart of quantile values; the strip is built with DOM calls so column names stay text."""
+    html = client.get("/column-analyzer").get_data(as_text=True)
+    body = html[html.index("function createNumericChart"):html.index("function createCategoricalChart")]
+    assert "type: 'bar'" not in body and "new Chart(" not in body
+    assert "createElementNS" in body and "innerHTML" not in body

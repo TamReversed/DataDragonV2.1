@@ -2253,86 +2253,64 @@
     }
 
     function createNumericChart(colName, colInfo) {
+        // Box / range strip on a linear axis from min to max: the box spans Q1-Q3, the tick is the median and the
+        // whiskers reach the minimum and maximum. (A bar chart of five quantile values would suggest quantities.)
         const canvasId = `numericChart_${colName.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        const ctx = document.getElementById(canvasId);
-        if (!ctx || !colInfo.statistics) return;
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !colInfo.statistics) return;
 
-        const stats = colInfo.statistics;
+        const st = colInfo.statistics;
+        const values = [st.min, st.q25, st.median, st.q75, st.max];
+        if (values.some(v => v === null || v === undefined || !isFinite(v))) {
+            canvas.replaceWith(Object.assign(document.createElement('div'), {
+                className: 'top-values-title', textContent: 'No distribution summary available'
+            }));
+            return;
+        }
 
-        const data = [
-            stats.min,
-            stats.q25,
-            stats.median,
-            stats.q75,
-            stats.max
-        ];
-        const labels = ['Min', 'Q25', 'Median', 'Q75', 'Max'];
+        const W = 640, H = 150, padL = 36, padR = 36, mid = 56, boxH = 34;
+        const lo = st.min, hi = st.max;
+        const x = v => hi === lo ? W / 2 : padL + (v - lo) / (hi - lo) * (W - padL - padR);
+        const names = ['Min', 'Q1', 'Median', 'Q3', 'Max'];
+        const description = 'Distribution of ' + colName + ': ' +
+            values.map((v, i) => names[i] + ' ' + formatNumber(v)).join(', ');
 
-        const chart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: colName,
-                    data: data,
-                    backgroundColor: [
-                        'rgba(168, 85, 247, 0.6)',
-                        'rgba(59, 130, 246, 0.6)',
-                        'rgba(168, 85, 247, 0.8)',
-                        'rgba(59, 130, 246, 0.6)',
-                        'rgba(168, 85, 247, 0.6)'
-                    ],
-                    borderColor: [
-                        'rgba(168, 85, 247, 1)',
-                        'rgba(59, 130, 246, 1)',
-                        'rgba(168, 85, 247, 1)',
-                        'rgba(59, 130, 246, 1)',
-                        'rgba(168, 85, 247, 1)'
-                    ],
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return formatNumber(context.parsed.y);
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: false,
-                        ticks: {
-                            callback: function(value) {
-                                return formatNumber(value);
-                            },
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    },
-                    x: {
-                        ticks: {
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    }
-                }
-            }
-        });
+        // Built with DOM calls (textContent / setAttribute), so column names can never become markup
+        const NS = 'http://www.w3.org/2000/svg';
+        const el = (tag, attrs, text) => {
+            const node = document.createElementNS(NS, tag);
+            Object.entries(attrs || {}).forEach(([k, v]) => node.setAttribute(k, String(v)));
+            if (text !== undefined) node.textContent = text;
+            return node;
+        };
+        const line = (x1, x2, y1, y2, stroke, width) =>
+            el('line', { x1, x2, y1, y2, stroke, 'stroke-width': width });
+        const label = (v, px, py, anchor, bold) => {
+            const attrs = { x: px, y: py, 'text-anchor': anchor, 'font-size': 12, fill: 'currentColor' };
+            if (bold) attrs['font-weight'] = 700;
+            return el('text', attrs, formatNumber(v));
+        };
 
-        chartInstances.push(chart);
+        const svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': description });
+        svg.style.cssText = 'width:100%;height:100%;color:var(--text-secondary);overflow:visible';
+        svg.appendChild(el('title', {}, description));
+        const purple = 'rgba(168,85,247,0.9)';
+        svg.appendChild(line(x(lo), x(hi), mid, mid, purple, 2));
+        svg.appendChild(line(x(lo), x(lo), mid - 10, mid + 10, purple, 2));
+        svg.appendChild(line(x(hi), x(hi), mid - 10, mid + 10, purple, 2));
+        svg.appendChild(el('rect', {
+            x: x(st.q25), y: mid - boxH / 2, width: Math.max(x(st.q75) - x(st.q25), 2), height: boxH,
+            fill: 'rgba(59,130,246,0.45)', stroke: 'rgba(59,130,246,1)', 'stroke-width': 1.5, rx: 3
+        }));
+        svg.appendChild(line(x(st.median), x(st.median), mid - boxH / 2 - 4, mid + boxH / 2 + 4, '#fff', 3));
+        svg.appendChild(label(st.median, x(st.median), mid - boxH / 2 - 10, 'middle', true));
+        svg.appendChild(label(st.q25, x(st.q25), mid + boxH / 2 + 18, 'middle', false));
+        svg.appendChild(label(st.q75, x(st.q75), mid + boxH / 2 + 18, 'middle', false));
+        svg.appendChild(label(lo, x(lo), mid + boxH / 2 + 38, hi === lo ? 'middle' : 'start', false));
+        if (hi !== lo) svg.appendChild(label(hi, x(hi), mid + boxH / 2 + 38, 'end', false));
+        svg.appendChild(el('text', { x: W / 2, y: H - 2, 'text-anchor': 'middle', 'font-size': 11, fill: 'currentColor', opacity: 0.7 },
+            'Box = middle half of the values (Q1 to Q3), white line = median, whiskers = minimum and maximum'));
+        canvas.replaceWith(svg);
     }
 
     function createCategoricalChart(colName, colInfo) {
