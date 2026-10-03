@@ -41,6 +41,8 @@ M-1 todo (not approved) · M-2 todo (not approved)
 - Tools are driven through their HTTP routes (`post_job` / `post_form` in `tests/helpers.py`) rather than calling `*_async` functions directly, except `analyze_dataframe`, which is called directly.
 - CI: the pyflakes and pip-audit steps are `continue-on-error` for now (repo has 1 undefined name and 14 CVEs, so gating would be red from day one). Flip to gating in T2.6/T4.1 (pyflakes) and T2.1 (pip-audit).
 - Extra step T0.0 (committing the plan on its own).
+- Benchmark scripts differ from the plan text: `gen_synthetic.py` uses `numpy.random.default_rng(42)` (not `random.Random(0)`); `dup_lowcard` = first_name+last_name+category, `dup_highcard` = first_name+last_name+invoice_date, `pivot` = rows region+category / column status, `validate` = required+range+numeric rules (the plan's column choices were not specified precisely enough to reproduce the audit numbers). 10k `split40k` yields a single chunk. All documented in `docs/BASELINES.md`.
+- `make_golden.py` is idempotent only through skip-if-cell-contents-equal: xlsx bytes differ run to run (zip timestamps), csv files are byte-identical.
 - `.venv/` was already ignored as `.venv`; added `.venv/` as well.
 
 **Audit findings that did NOT reproduce exactly as reported (audit ran on pandas 3.0.6; repo is now pinned to 2.3.3)**
@@ -54,4 +56,8 @@ M-1 todo (not approved) · M-2 todo (not approved)
 - Normalizer snapshot shows `BigId` coming out as `#VALUE!` (error cell) and `EuroNum` as 25. Locked in as current behaviour.
 - `tests/golden/snapshot.py` once dropped any key named `id` (case-insensitive), which silently deleted columns named `ID` from snapshots. Fixed before the commit.
 - Known-bug test for `.xls` is skipped (no `xlwt`; not adding it as a dependency, per plan).
+- Re-measured baselines (pandas 2.3.3) differ slightly from the audit (pandas 3.0.6): compare 335 s (audit 391), dup_highcard 40 s (49), validate 500k 41.3 s / 3.67 GB (46.7 / 3.55), pivot 500k 89 s / 6.0 GB (93 / 5.8). REVIEW_PLAN.md task targets and the section 7 table were updated to the re-measured values; audit evidence sections are unchanged.
+- Known and already planned: `calc_preview` snapshot serialises a NaN as invalid JSON (A-18, fixed in T3.2); snapshot scrubbing drops any key matching `url|path|session|timestamp|elapsed|duration|created|_at$|filename|output_file`, so a real field with such a name would be excluded from snapshots (revisit if a tool adds one).
+- First CI run is unverified: `pdf2docx` + Python 3.14 on ubuntu could fail at install (installs fine locally on macOS). The 3.12 job is independent (`fail-fast: false`). Nothing is pushed, so CI has not run.
+- Independent Phase 0 review: no blockers (28 xfails fail for intended reasons, 4 concurrency xfails stable over 6 runs, clean clone gives identical counts).
 - Test suite takes ~45 s, of which ~21 s is the ReDoS test (marked `slow`; CI excludes it).

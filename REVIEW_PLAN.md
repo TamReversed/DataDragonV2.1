@@ -581,7 +581,7 @@ Answer inline. If a decision is left blank, execution proceeds with **the recomm
   | `test_read_preserves_leading_zeros` | A-01 | Split output cell for `Zip` = `'00123'`, data_type `'s'` |
   | `test_merge_null_keys_do_not_match` | A-02 | Inner join of `merge_left`/`merge_right` has 3 rows (1↔1, 2↔2 ×2), none with null key |
   | `test_merge_stats_non_negative` | A-03 | All unmatched counts ≥ 0; same-name key left join reports unmatched correctly |
-  | `test_compare_int_float_keys` | A-04 | `common=2, added=1, removed=0` |
+  | `test_compare_int_float_composite_keys` | A-04 | Two key columns, one blank in file 2: `common=2, added=1, removed=0` (the single-key path already matches `1 == 1.0`; renamed in Phase 0) |
   | `test_compare_null_key_not_added_and_removed` | A-04 | Null key not in both lists |
   | `test_compare_duplicate_keys_reported` | A-04 | Duplicate key surfaced as warning or changed row |
   | `test_duplicates_no_separator_collision` | A-05 | `x|||y`/`z` vs `x`/`y|||z` are not duplicates |
@@ -741,14 +741,14 @@ Answer inline. If a decision is left blank, execution proceeds with **the recomm
   - Build the changed-rows output vectorised.
 - Verify:
   - The three compare xfail-flips pass.
-  - `$PY scripts/bench.py /tmp/syn_100000.csv compare1key` takes **< 15 s** (baseline 391 s). Record the result in `docs/BASELINES.md`.
+  - `$PY scripts/bench.py /tmp/syn_100000.csv compare1key` takes **< 15 s** (baseline 335 s re-measured on pandas 2.3.3; audit: 391 s). Record the result in `docs/BASELINES.md`.
 - Size L.
 - Commit: `fix: vectorised compare with correct null/duplicate key handling (A-04, E-01)`
 
 **T1.8 · Duplicate finder rewrite** — A-05, E-02
 - Read: L2362-2538.
 - Change: `mask = df.duplicated(cols, keep=False)`, then `groups = df[mask].groupby(cols, dropna=False, sort=False)`. Keep the output columns identical. Add an option `treat_blank_as_value` (default True, today's behaviour) and label it in the UI (`templates/duplicate_finder.html`).
-- Verify: xfail-flip `test_duplicates_no_separator_collision` passes. `bench dup_highcard` at 100k runs **< 5 s** (baseline 49 s).
+- Verify: xfail-flip `test_duplicates_no_separator_collision` passes. `bench dup_highcard` at 100k runs **< 5 s** (baseline 40 s re-measured; audit: 49 s).
 - Size M.
 - Commit: `fix: exact duplicate grouping without signature collisions (A-05, E-02)`
 
@@ -916,7 +916,7 @@ Answer inline. If a decision is left blank, execution proceeds with **the recomm
   - pattern: bounded `regex.fullmatch` (T2.4)
   - length: `str.len`
 - Report `errors_total` (sum of failures), `invalid_rows` and spreadsheet row = `index+2`. Output limited to the first 10,000 invalid rows, with a note when truncated.
-- Verify: the two validation xfail-flips pass. `bench validate` at 500k **< 10 s and < 1.2 GB** (baseline 46.7 s / 3.55 GB).
+- Verify: the two validation xfail-flips pass. `bench validate` at 500k **< 10 s and < 1.2 GB** (baseline 41.3 s / 3.67 GB re-measured; audit: 46.7 s / 3.55 GB).
 - Size M.
 - Commit: `fix: vectorised validation with correct ranges, fullmatch and error counts (A-10, E-04)`
 
@@ -943,7 +943,7 @@ Answer inline. If a decision is left blank, execution proceeds with **the recomm
   - Pivot styling happens through xlsxwriter before close (from T2.3), with no `load_workbook` and column widths taken from the first 1,000 rows.
   - Natural key: factor L2946-3009 and the pipeline copy into `find_minimal_keys(df, cols, max_size=5, max_candidates=20000, time_budget_s=30)`. It drops columns with `nunique <= 1`, holds non-unique subsets in a `set` of frozensets, screens on a 50k-row sample before confirming on the full data, and returns `truncated: true` when a cap is hit.
 - Verify:
-  - `bench pivot` at 500k **< 20 s / < 1.5 GB** (baseline 93 s / 5.8 GB).
+  - `bench pivot` at 500k **< 20 s / < 1.5 GB** (baseline 89 s / 6.0 GB re-measured; audit: 93 s / 5.8 GB).
   - `bench keyworst` 20 columns × 20k completes **< 10 s** or reports `truncated`.
   - Golden key results unchanged.
 - Size M.
@@ -1176,11 +1176,11 @@ Capture "before" values in T0.6 (pandas 2.x after the pin) and "after" values at
 | pip-audit vulns | `pip-audit -r requirements.txt` | 14 | 0 |
 | pyflakes warnings | `pyflakes datadragon.py \| wc -l` | 34 (1 undefined name) | 0 |
 | `eval`/`exec` in code | `grep -cE "\beval\(\|\bexec\(" *.py` | 1 | 0 |
-| Compare, 100k rows, 1 key | `scripts/bench.py … compare1key` | 391 s | < 15 s |
-| Duplicates, 100k high-cardinality | `… dup_highcard` | 49 s | < 5 s |
-| Pivot, 500k | `… pivot` | 93 s / 5.8 GB | < 20 s / < 1.5 GB |
-| Validate, 500k | `… validate` | 46.7 s / 3.55 GB | < 10 s / < 1.2 GB |
-| Key search worst case (20 cols × 20k) | `… keyworst` | 11.8 s, unbounded at 30 cols | < 10 s or `truncated` reported |
+| Compare, 100k rows, 1 key | `scripts/bench.py … compare1key` | 335 s (audit 391 s) | < 15 s |
+| Duplicates, 100k high-cardinality | `… dup_highcard` | 40 s (audit 49 s) | < 5 s |
+| Pivot, 500k | `… pivot` | 89 s / 6.0 GB (audit 93 s / 5.8 GB) | < 20 s / < 1.5 GB |
+| Validate, 500k | `… validate` | 41.3 s / 3.67 GB (audit 46.7 s / 3.55 GB) | < 10 s / < 1.2 GB |
+| Key search worst case (20 cols × 20k) | `… keyworst` | 11.0 s (audit 11.8 s), unbounded at 30 cols | < 10 s or `truncated` reported |
 | xlsx write, 100k | `… write_xlsx` | 6.9 s | ≤ 4 s (xlsxwriter) |
 | Concurrent same-second jobs | `test_concurrent_split_isolated` | fails | passes |
 | gunicorn gthread 8× concurrent progress | `scripts/smoke_progress.py` | 6/8 failed (`-w 4`) | 8/8 |
