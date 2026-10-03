@@ -59,7 +59,7 @@
     "n:0.5",
     "b:False",
     "s:'Bob'",
-    "s:'nan'",
+    "n:None",
     "n:None",
     "s:'x|||y'"
    ],

@@ -6180,9 +6180,10 @@ def column_operations():
                 if col not in df.columns:
                     return jsonify({'error': f'Column "{col}" not found'}), 400
 
-            # Reorder (only include columns in the order list)
-            df = df[column_order]
-            operation_summary = f"Reordered {len(column_order)} columns"
+            # Listed columns first (each once); columns not listed keep their original order after them
+            listed = list(dict.fromkeys(column_order))
+            df = df[listed + [c for c in df.columns if c not in listed]]
+            operation_summary = f"Reordered {len(listed)} columns"
 
         elif operation == 'rename':
             # Rename columns
@@ -6199,6 +6200,13 @@ def column_operations():
             for old_name in renames.keys():
                 if old_name not in df.columns:
                     return jsonify({'error': f'Column "{old_name}" not found'}), 400
+
+            new_names = [renames.get(c, c) for c in df.columns]
+            if any(not str(n).strip() for n in new_names):
+                return jsonify({'error': 'A column name cannot be empty'}), 400
+            clashes = sorted({str(n) for n in new_names if new_names.count(n) > 1})
+            if clashes:
+                return jsonify({'error': f'Renaming would give more than one column the name: {", ".join(clashes)}'}), 400
 
             df = df.rename(columns=renames)
             operation_summary = f"Renamed {len(renames)} column(s)"
@@ -6261,7 +6269,10 @@ def column_operations():
                 new_names = []
 
             # Split the column
-            split_df = df[column_to_split].astype(str).str.split(delimiter, expand=True)
+            # The delimiter is literal text (not a regex); blank cells stay blank in every part
+            cell_text = df[column_to_split].map(
+                lambda v: None if pd.isna(v) else (v if isinstance(v, str) else _comparable_text(v)))
+            split_df = cell_text.str.split(delimiter, expand=True, regex=False)
             num_parts = split_df.shape[1]
 
             # Generate column names if not enough provided
@@ -6313,7 +6324,12 @@ def column_operations():
                     return jsonify({'error': f'Column "{col}" not found'}), 400
 
             # Merge columns
-            df[new_column_name] = df[columns_to_merge].astype(str).agg(separator.join, axis=1)
+            # A blank part is empty text, never the word 'nan'/'None'
+            parts = pd.DataFrame({
+                i: df[col].map(lambda v: '' if pd.isna(v) else (v if isinstance(v, str) else _comparable_text(v)))
+                for i, col in enumerate(columns_to_merge)
+            })
+            df[new_column_name] = parts.agg(separator.join, axis=1)
 
             # Move new column to after the last merged column
             first_col_idx = min(df.columns.get_loc(col) for col in columns_to_merge)

@@ -39,9 +39,13 @@ def build_function_map(df):
         return pd.Series([val] * len(df))
 
     def to_str_series(val):
+        """Text of each value; a blank cell is empty text (never the word 'None'/'nan')."""
         if isinstance(val, pd.Series):
-            return val.astype(str)
-        return pd.Series([str(val)] * len(df))
+            return val.astype(object).where(val.notna(), '').astype(str)
+        return pd.Series(['' if val is None or (isinstance(val, float) and val != val) else str(val)] * len(df))
+
+    def count(n):
+        return max(int(n), 0)
 
     def handle_if(condition, true_val, false_val):
         cond = to_series(condition)
@@ -53,8 +57,8 @@ def build_function_map(df):
         'UPPER': lambda x: to_str_series(x).str.upper(),
         'LOWER': lambda x: to_str_series(x).str.lower(),
         'TRIM': lambda x: to_str_series(x).str.strip(),
-        'LEFT': lambda x, n: to_str_series(x).str[:int(n)],
-        'RIGHT': lambda x, n: to_str_series(x).str[-int(n):],
+        'LEFT': lambda x, n: to_str_series(x).str[:count(n)],
+        'RIGHT': lambda x, n: to_str_series(x).map(lambda t: t[len(t) - min(count(n), len(t)):]),
         'LEN': lambda x: to_str_series(x).str.len(),
         'REPLACE': lambda x, old, new: to_str_series(x).str.replace(str(old), str(new), regex=False),
 

