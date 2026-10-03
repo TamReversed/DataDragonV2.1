@@ -856,10 +856,17 @@
       "current": "object",
       "detected": "Date",
       "explanation": "Stored as text but contains dates - will convert to proper date format for sorting/filtering"
+     },
+     {
+      "column": "DateText",
+      "current": "object",
+      "detected": "Date",
+      "explanation": "Stored as text but contains dates - will convert to proper date format for sorting/filtering"
      }
     ],
     "columns": [
-     "Date"
+     "Date",
+     "DateText"
     ],
     "description": "Convert columns to their proper data types. This improves data quality, enables proper sorting, and allows mathematical operations.",
     "priority": "medium",

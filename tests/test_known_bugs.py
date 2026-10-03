@@ -178,7 +178,6 @@ def test_validation_pattern_fullmatch(client, tmp_path):
     assert final["summary"]["invalid_rows"] == 1  # 9 digits is not a 5-digit zip
 
 
-@bug("A-11")
 def test_semantic_id_not_postal(dd):
     df = pd.DataFrame({"ID": [f"PR-{i:05d}" for i in range(50)], "n": range(50)})
     cols = dd.analyze_dataframe(df)["columns"]

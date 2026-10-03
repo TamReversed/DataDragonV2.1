@@ -1326,255 +1326,162 @@ def fetch_analysis(session_id):
         print(traceback.format_exc())
         return jsonify({'error': f'Failed to serialize analysis: {str(e)}'}), 500
 
+_DATE_FORMATS = (
+    '%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d', '%d-%m-%Y', '%m-%d-%Y', '%Y.%m.%d', '%d.%m.%Y', '%m.%d.%Y',
+    '%Y-%m-%d %H:%M:%S', '%m/%d/%Y %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d %b %Y', '%d %B %Y', '%b %d, %Y', '%B %d, %Y',
+)
+_PHONE_PATTERNS = (
+    r'\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',      # US: (XXX) XXX-XXXX, XXX-XXX-XXXX, 10 digits
+    r'\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{6,12}',                 # international with country code
+)
+_CURRENCY_PATTERNS = (
+    r'[$\u20ac\u00a3\u00a5]\s?[\d,]+(?:\.\d+)?',                # $123.45
+    r'[\d,]+(?:\.\d+)?\s?(?:USD|EUR|GBP|JPY|CAD|AUD)',           # 123.45 USD
+    r'(?:USD|EUR|GBP|JPY|CAD|AUD)',                               # a column of currency codes
+)
+_POSTAL_PATTERNS = (
+    r'\d{5}(?:-\d{4})?',                                          # US ZIP
+    r'[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}',                         # UK
+    r'[A-Z]\d[A-Z]\s?\d[A-Z]\d',                                 # Canada
+)
+_PERCENT_NAME_HINT = re.compile(r'pct|percent|%|rate|ratio|share|fraction|proportion', re.I)
+_BOOLEAN_WORDS = re.compile(r'(?:true|false|yes|no|y|n|on|off)', re.I)
+
+
+def _luhn_valid(digits):
+    total, flip = 0, False
+    for ch in reversed(digits):
+        d = int(ch)
+        if flip:
+            d = d * 2 - 9 if d * 2 > 9 else d * 2
+        total += d
+        flip = not flip
+    return total % 10 == 0
+
+
 def detect_semantic_type(col_data, col_name=''):
     """
-    Detect semantic type of a column by analyzing its content.
-    Returns dict with detected_type, confidence, sample_values, and format_info.
+    Detect the semantic type of a column from its content.
+
+    Every candidate type is scored as the SHARE of sampled values that fit it (one combined test per type, so
+    patterns that overlap can never add up past 100%). A type wins when at least 80% of the values fit; when several
+    do, the most specific one wins (see `priority`). Returns detected_type, confidence (0-100), sample_values and
+    format_info.
     """
-    # Get non-null values for analysis
     non_null_data = col_data.dropna()
     if len(non_null_data) == 0:
-        return {
-            'detected_type': 'Unknown',
-            'confidence': 0,
-            'sample_values': [],
-            'format_info': None
-        }
-    
+        return {'detected_type': 'Unknown', 'confidence': 0, 'sample_values': [], 'format_info': None}
+
     # Sample size limit for performance (analyze up to 1000 values)
-    sample_size = min(1000, len(non_null_data))
-    sample_data = non_null_data.head(sample_size) if sample_size < len(non_null_data) else non_null_data
-    total_non_null = len(non_null_data)
-    
-    # Convert to string for pattern matching
-    str_data = sample_data.astype(str)
-    
-    # Date Detection - try multiple formats
-    date_formats = [
-        '%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d',
-        '%d-%m-%Y', '%m-%d-%Y', '%Y.%m.%d', '%d.%m.%Y',
-        '%m.%d.%Y', '%Y-%m-%d %H:%M:%S', '%m/%d/%Y %H:%M:%S',
-        '%Y-%m-%dT%H:%M:%S', '%d %b %Y', '%d %B %Y',
-        '%b %d, %Y', '%B %d, %Y'
-    ]
-    
-    date_matches = 0
-    detected_date_format = None
-    
-    # Try pandas to_datetime first (most flexible)
-    try:
-        parsed_dates = pd.to_datetime(str_data, errors='coerce', infer_datetime_format=True)
-        date_matches = parsed_dates.notna().sum()
-        if date_matches > 0:
-            # Try to identify the format
-            for fmt in date_formats:
-                try:
-                    test_parsed = pd.to_datetime(str_data.head(10), format=fmt, errors='coerce')
-                    if test_parsed.notna().sum() >= 8:  # 80% match
-                        detected_date_format = fmt
-                        break
-                except:
-                    continue
-    except:
-        pass
-    
-    date_confidence = (date_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # Email Detection
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    email_matches = str_data.str.match(email_pattern, na=False).sum()
-    email_confidence = (email_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # Phone Number Detection (US and international formats)
-    # Skip phone detection for numeric columns to avoid false positives
-    phone_confidence = 0
-    if not pd.api.types.is_numeric_dtype(col_data):
-        phone_patterns = [
-            r'^\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}$',  # US format: (XXX) XXX-XXXX or XXX-XXX-XXXX
-            r'^\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{6,12}$',  # International with country code: +XX XXX XXXXXX
-            r'^\d{3}-\d{3}-\d{4}$',  # XXX-XXX-XXXX (exact format)
-            r'^\(\d{3}\)\s?\d{3}-\d{4}$',  # (XXX) XXX-XXXX
-            r'^\d{10}$'  # 10 digits only (US phone without formatting)
-        ]
-        phone_matches = 0
-        for pattern in phone_patterns:
-            phone_matches += str_data.str.match(pattern, na=False).sum()
-        phone_confidence = (phone_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # URL Detection
-    url_pattern = r'^https?://[^\s/$.?#].[^\s]*$|^www\.[^\s/$.?#].[^\s]*$'
-    url_matches = str_data.str.match(url_pattern, na=False).sum()
-    url_confidence = (url_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # Currency Detection
-    currency_patterns = [
-        r'^\$[\d,]+\.?\d*$',  # $123.45
-        r'^[\d,]+\.?\d*\s?(USD|EUR|GBP|JPY|CAD|AUD)$',  # 123.45 USD
-        r'^USD|EUR|GBP|JPY|CAD|AUD$'  # Currency codes only
-    ]
-    currency_matches = 0
-    currency_symbol = None
-    for pattern in currency_patterns:
-        matches = str_data.str.match(pattern, na=False)
-        currency_matches += matches.sum()
-        if matches.sum() > 0 and currency_symbol is None:
-            # Extract currency symbol - use .loc to safely index with boolean Series
-            try:
-                matching_values = str_data.loc[matches]
-                if len(matching_values) > 0:
-                    sample = str(matching_values.iloc[0])
-                    if '$' in sample:
-                        currency_symbol = '$'
-                    elif 'USD' in sample:
-                        currency_symbol = 'USD'
-                    elif 'EUR' in sample:
-                        currency_symbol = 'EUR'
-            except:
-                pass  # If indexing fails, skip symbol extraction
-    currency_confidence = (currency_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # Percentage Detection
-    percent_pattern = r'^\d+\.?\d*\s?%$|^0\.\d+$'  # 50% or 0.5 (if numeric and between 0-1)
-    percent_matches = str_data.str.match(percent_pattern, na=False).sum()
-    # Also check if numeric values are between 0-1 (likely percentages)
-    if pd.api.types.is_numeric_dtype(col_data):
-        # sample_data is already numeric if col_data is numeric, so use it directly
-        try:
-            numeric_values = pd.to_numeric(sample_data, errors='coerce').dropna()
-            if len(numeric_values) > 0:
-                if (numeric_values >= 0).all() and (numeric_values <= 1).all() and numeric_values.mean() < 0.5:
-                    percent_matches += len(numeric_values)
-        except:
-            pass  # If conversion fails, just skip this check
-    percent_confidence = (percent_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # Boolean Detection (True/False, Yes/No, 1/0, Y/N)
-    bool_patterns = [
-        r'^(true|false|yes|no|y|n|1|0|on|off)$'
-    ]
-    bool_matches = 0
-    for pattern in bool_patterns:
-        # Use contains with case=False instead of inline (?i) flag
-        bool_matches += str_data.str.contains(pattern, case=False, na=False, regex=True).sum()
-    bool_confidence = (bool_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # IP Address Detection
-    ipv4_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
-    ipv6_pattern = r'^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::1$|^::$'
-    ipv4_matches = str_data.str.match(ipv4_pattern, na=False).sum()
-    ipv6_matches = str_data.str.match(ipv6_pattern, na=False).sum()
-    ip_confidence = ((ipv4_matches + ipv6_matches) / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # Postal Code Detection
-    zip_pattern = r'^\d{5}(-\d{4})?$'  # US ZIP
-    postal_pattern = r'^[A-Z0-9\s-]{3,10}$'  # International (basic)
-    zip_matches = str_data.str.match(zip_pattern, na=False).sum()
-    postal_matches = str_data.str.match(postal_pattern, na=False).sum()
-    postal_confidence = ((zip_matches + postal_matches) / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # UUID Detection
-    uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-    uuid_matches = str_data.str.match(uuid_pattern, na=False, case=False).sum()
-    uuid_confidence = (uuid_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # ID/Serial Detection (sequential patterns, alphanumeric IDs)
-    # Check if values follow a pattern like PR-00001, INV-123, etc.
-    id_pattern = r'^[A-Z]{2,}-?\d+$|^[A-Z]+\d+$|^\d+$'
-    id_matches = str_data.str.match(id_pattern, na=False).sum()
-    # Also check if all values are unique and follow a pattern
-    if id_matches > 0 and col_data.nunique() == len(col_data):
-        id_confidence = (id_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
+    sample_data = non_null_data.head(1000)
+    n = len(sample_data)
+    str_data = sample_data.astype(str).str.strip()
+    is_numeric = pd.api.types.is_numeric_dtype(col_data) and not pd.api.types.is_bool_dtype(col_data)
+
+    def share(mask):
+        return min(100.0, float(mask.sum()) / n * 100)
+
+    def matches(patterns, case=True):
+        mask = pd.Series(False, index=str_data.index)
+        for pattern in patterns:
+            mask |= str_data.str.fullmatch(pattern, case=case, na=False)
+        return mask
+
+    scores, formats = {}, {}
+
+    # Boolean: words (yes/no/true/false...), or numbers that are only 0 and 1
+    if is_numeric:
+        values = pd.to_numeric(sample_data, errors='coerce')
+        scores['Boolean'] = share(values.isin([0, 1])) if values.nunique() == 2 else 0.0
     else:
-        id_confidence = (id_matches / len(sample_data)) * 50 if len(sample_data) > 0 else 0  # Lower confidence if not unique
-    
-    # Credit Card Detection (basic pattern, not Luhn validation for performance)
-    cc_pattern = r'^\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}$'
-    cc_matches = str_data.str.match(cc_pattern, na=False).sum()
-    cc_confidence = (cc_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # SSN Detection (US format)
-    ssn_pattern = r'^\d{3}-\d{2}-\d{4}$'
-    ssn_matches = str_data.str.match(ssn_pattern, na=False).sum()
-    ssn_confidence = (ssn_matches / len(sample_data)) * 100 if len(sample_data) > 0 else 0
-    
-    # Collect all confidences and find the best match (threshold: 80%)
-    type_scores = {
-        'Date': date_confidence,
-        'Email': email_confidence,
-        'Phone Number': phone_confidence,
-        'URL': url_confidence,
-        'Currency': currency_confidence,
-        'Percentage': percent_confidence,
-        'Boolean': bool_confidence,
-        'IP Address': ip_confidence,
-        'Postal Code': postal_confidence,
-        'UUID': uuid_confidence,
-        'ID/Serial': id_confidence,
-        'Credit Card': cc_confidence,
-        'SSN': ssn_confidence
-    }
-    
-    # If column is numeric, prioritize numeric types and suppress non-numeric types
-    if pd.api.types.is_numeric_dtype(col_data):
-        # Suppress phone, URL, email, postal code, UUID, SSN for numeric columns
-        type_scores['Phone Number'] = 0
-        type_scores['URL'] = 0
-        type_scores['Email'] = 0
-        type_scores['Postal Code'] = 0
-        type_scores['UUID'] = 0
-        type_scores['SSN'] = 0
-        type_scores['ID/Serial'] = 0
-    
-    # Find the best match above threshold
+        words = str_data.str.fullmatch(_BOOLEAN_WORDS.pattern, case=False, na=False)
+        digits = str_data.isin(['0', '1']) & (str_data.nunique() == 2)
+        scores['Boolean'] = share(words | digits)
+
+    if not is_numeric:
+        # Dates: explicit formats only (pandas' free-form parser accepts bare numbers as timestamps)
+        date_mask = pd.Series(False, index=str_data.index)
+        best_format, best_share = None, 0.0
+        for fmt in _DATE_FORMATS:
+            parsed = pd.to_datetime(str_data, format=fmt, errors='coerce').notna()
+            date_mask |= parsed
+            if share(parsed) > best_share:
+                best_format, best_share = fmt, share(parsed)
+        scores['Date'] = share(date_mask)
+        if best_share >= 80:
+            formats['Date'] = f"Format: {best_format}"
+
+        scores['Email'] = share(matches([r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}']))
+        scores['URL'] = share(matches([r'https?://[^\s/$.?#].[^\s]*', r'www\.[^\s/$.?#].[^\s]*']))
+        ipv4 = matches([r'(?:\d{1,3}\.){3}\d{1,3}'])
+        ipv6 = matches([r'(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}', r'::1', r'::'])
+        scores['IP Address'] = share(ipv4 | ipv6)
+        formats['IP Address'] = 'IPv4' if ipv4.sum() >= ipv6.sum() else 'IPv6'
+        scores['UUID'] = share(matches([r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'], case=False))
+        scores['SSN'] = share(matches([r'\d{3}-\d{2}-\d{4}']))
+        # A credit card number is 16 digits that also pass the Luhn checksum (a plain 16-digit id usually does not)
+        card_shape = matches([r'\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}'])
+        luhn_ok = str_data[card_shape].map(lambda v: _luhn_valid(re.sub(r'\D', '', v)))
+        scores['Credit Card'] = float(luhn_ok.sum()) / n * 100
+        scores['Phone Number'] = share(matches(_PHONE_PATTERNS))
+        currency = matches(_CURRENCY_PATTERNS)
+        scores['Currency'] = share(currency)
+        if currency.any():
+            first = str_data[currency].iloc[0]
+            symbol = next((c for c in '$\u20ac\u00a3\u00a5' if c in first), None) or \
+                next((code for code in ('USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD') if code in first), None)
+            if symbol:
+                formats['Currency'] = f"Symbol: {symbol}"
+        scores['Postal Code'] = share(matches(_POSTAL_PATTERNS))
+        # Percentages are written with a % sign
+        scores['Percentage'] = share(matches([r'\d+(?:\.\d+)?\s?%']))
+        # IDs / serial numbers: PR-00001, INV123, 000123 ... but only when (nearly) every value is different
+        id_share = share(matches([r'[A-Z]{2,}-?\d+', r'[A-Z]+\d+', r'\d+']))
+        scores['ID/Serial'] = id_share if non_null_data.nunique() >= 0.9 * len(non_null_data) else min(id_share, 50.0)
+
+    # A fraction between 0 and 1 is only called a percentage when the column's name says so (or it has % signs)
+    if is_numeric and _PERCENT_NAME_HINT.search(str(col_name)):
+        values = pd.to_numeric(sample_data, errors='coerce').dropna()
+        if len(values) and values.between(0, 1).all():
+            scores['Percentage'] = 100.0
+    elif not is_numeric and scores.get('Percentage', 0) < 80 and _PERCENT_NAME_HINT.search(str(col_name)):
+        fractions = pd.to_numeric(sample_data, errors='coerce')
+        percent_signs = str_data.str.fullmatch(r'\d+(?:\.\d+)?\s?%', na=False)
+        if (fractions.between(0, 1) | percent_signs).all():
+            scores['Percentage'] = 100.0
+
+    # Most specific first; a general type never beats a specific one just because its pattern is looser
+    priority = ('Boolean', 'Date', 'Email', 'URL', 'IP Address', 'UUID', 'SSN', 'Credit Card', 'Phone Number',
+                'Currency', 'Percentage', 'Postal Code', 'ID/Serial')
     threshold = 80.0
-    best_type = max(type_scores.items(), key=lambda x: x[1])
-    
-    if best_type[1] >= threshold:
-        detected_type = best_type[0]
-        confidence = round(best_type[1], 1)
-        
-        # Get sample values
-        sample_values = sample_data.head(3).tolist()
-        sample_values = [str(v) for v in sample_values]
-        
-        # Format info
-        format_info = None
-        if detected_type == 'Date' and detected_date_format:
-            format_info = f"Format: {detected_date_format}"
-        elif detected_type == 'Currency' and currency_symbol:
-            format_info = f"Symbol: {currency_symbol}"
-        elif detected_type == 'IP Address':
-            if ipv4_matches > ipv6_matches:
-                format_info = "IPv4"
-            else:
-                format_info = "IPv6"
-        
-        return {
-            'detected_type': detected_type,
-            'confidence': confidence,
-            'sample_values': sample_values,
-            'format_info': format_info
-        }
+    for detected_type in priority:
+        if scores.get(detected_type, 0) >= threshold:
+            return {
+                'detected_type': detected_type,
+                'confidence': round(scores[detected_type], 1),
+                'sample_values': [str(v) for v in sample_data.head(3).tolist()],
+                'format_info': formats.get(detected_type),
+            }
+
+    # No strong match: a generic type from the column's own dtype
+    pandas_type = str(col_data.dtype)
+    if 'int' in pandas_type:
+        detected_type = 'Integer'
+    elif 'float' in pandas_type:
+        detected_type = 'Float'
+    elif 'bool' in pandas_type:
+        detected_type = 'Boolean'
+    elif 'datetime' in pandas_type:
+        detected_type = 'Date'
     else:
-        # No strong match, return generic type based on pandas dtype
-        pandas_type = str(col_data.dtype)
-        if 'int' in pandas_type:
-            detected_type = 'Integer'
-        elif 'float' in pandas_type:
-            detected_type = 'Float'
-        elif 'bool' in pandas_type:
-            detected_type = 'Boolean'
-        elif 'datetime' in pandas_type:
-            detected_type = 'Date'
-        else:
-            detected_type = 'Text'
-        
-        return {
-            'detected_type': detected_type,
-            'confidence': 100.0,  # 100% confidence for pandas-detected types
-            'sample_values': sample_data.head(3).astype(str).tolist(),
-            'format_info': None
-        }
+        detected_type = 'Text'
+    return {
+        'detected_type': detected_type,
+        'confidence': 100.0,  # 100% confidence for pandas-detected types
+        'sample_values': sample_data.head(3).astype(str).tolist(),
+        'format_info': None,
+    }
+
 
 def analyze_dataframe(df, progress_queue=None, session_id=None):
     """

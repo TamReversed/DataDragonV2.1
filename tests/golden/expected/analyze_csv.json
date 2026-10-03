@@ -67,7 +67,7 @@
    "unique_count": 38
   },
   "BigId": {
-   "detected_type": "Credit Card",
+   "detected_type": "Integer",
    "dtype": "int64",
    "format_info": null,
    "is_numeric": true,
@@ -141,10 +141,15 @@
    "unique_count": 39
   },
   "DateText": {
-   "detected_type": "Text",
+   "date_range": {
+    "max": "2024-01-02 00:00:00",
+    "min": "2024-01-02 00:00:00"
+   },
+   "detected_type": "Date",
    "dtype": "object",
    "format_info": null,
    "is_categorical": true,
+   "is_datetime": true,
    "is_numeric": false,
    "memory_bytes": 2360,
    "non_null_count": 40,
@@ -257,7 +262,7 @@
    "unique_count": 2
   },
   "ID": {
-   "detected_type": "Postal Code",
+   "detected_type": "ID/Serial",
    "dtype": "object",
    "format_info": null,
    "is_categorical": true,
@@ -507,14 +512,13 @@
  "overview": {
   "detected_types_count": {
    "Boolean": 1,
-   "Credit Card": 1,
-   "Date": 1,
+   "Date": 2,
    "Email": 1,
    "Float": 2,
-   "Integer": 1,
+   "ID/Serial": 1,
+   "Integer": 2,
    "Percentage": 1,
-   "Postal Code": 1,
-   "Text": 5
+   "Text": 4
   },
   "dtypes_count": {
    "bool": 1,
@@ -526,7 +530,7 @@
   "has_duplicates": true,
   "memory_usage_bytes": 22068,
   "memory_usage_mb": 0.02,
-  "reclassified_columns": 4,
+  "reclassified_columns": 5,
   "shape": {
    "columns": 14,
    "rows": 40
