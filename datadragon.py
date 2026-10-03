@@ -5,7 +5,7 @@ import os
 import zipfile
 from werkzeug.utils import secure_filename
 import shutil
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import traceback
 import json
 from queue import Queue, Empty
@@ -115,6 +115,12 @@ def register_job(session_id, progress_queue, owner=None):
     """Create the progress channel for a job and bind it to its owner."""
     progress_queues[session_id] = progress_queue
     progress_queue_created[session_id] = time.time()
+    original_put = progress_queue.put
+
+    def put_and_touch(item, *args, **kwargs):
+        progress_queue_created[session_id] = time.time()    # the job is alive: the channel is not abandoned
+        return original_put(item, *args, **kwargs)
+    progress_queue.put = put_and_touch
     job_registry.bind(session_id, owner or current_owner())
 
 
@@ -323,12 +329,7 @@ def cache_session_file(session_id, filename, file_path, rows, cols, source_tool=
     if len(owned_ids) >= 10:
         # Remove this owner's oldest file
         oldest_id = min(owned_ids, key=lambda k: file_cache[k]['timestamp'])
-        oldest = file_cache.pop(oldest_id)
-        if os.path.exists(oldest.get('path', '')):
-            try:
-                os.remove(oldest['path'])
-            except:
-                pass
+        file_cache.pop(oldest_id)   # only the cache entry: the result stays downloadable until the retention sweep
 
     file_cache[cache_id] = {
         'name': filename,
@@ -379,6 +380,7 @@ class PipelineState:
         self.created_at = time.time()
         self.last_activity = self.created_at
         self.current_stage = 1
+        self.generation = 0   # bumped whenever stages are invalidated; a running job from an older generation must not store results
         self.df = None  # DataFrame loaded in memory during session
         self.row_count = 0
         self.col_count = 0
@@ -441,6 +443,7 @@ def make_room_for_pipeline(owner):
 
 def invalidate_pipeline_stages(state, from_stage):
     """Re-running a stage makes everything computed or decided after it stale: forget it."""
+    state.generation += 1
     for stage in range(from_stage, 6):
         state.stage_data[stage] = None
         if stage in state.user_decisions:
@@ -660,18 +663,21 @@ _FORMULA_START = re.compile(r'^[=+\-@\t\r]')
 def sanitize_csv(df):
     """Copy of df for CSV export where text starting with = + - @ (or a tab/CR) gets a leading apostrophe so a
     spreadsheet opening the CSV cannot run it as a formula. Numbers, including negatives, are left alone."""
+    def neutralise(value):
+        if isinstance(value, str) and _FORMULA_START.match(value):
+            try:
+                float(value)
+                return value          # a plain number such as -5 or +3.2
+            except ValueError:
+                return "'" + value
+        return value
+
     out = df.copy()
-    for col in out.columns:
-        if out[col].dtype == object:
-            def neutralise(value):
-                if isinstance(value, str) and _FORMULA_START.match(value):
-                    try:
-                        float(value)
-                        return value          # a plain number such as -5 or +3.2
-                    except ValueError:
-                        return "'" + value
-                return value
-            out[col] = out[col].map(neutralise)
+    for position in range(out.shape[1]):
+        column = out.iloc[:, position]
+        if not pd.api.types.is_numeric_dtype(column) and not pd.api.types.is_datetime64_any_dtype(column):
+            out.isetitem(position, column.astype(object).map(neutralise))      # object, string and category columns
+    out.columns = [neutralise(c) for c in out.columns]                          # header cells are text too
     return out
 
 
@@ -2957,11 +2963,17 @@ def find_minimal_keys(df, columns, max_size=5, max_keys=10, max_candidates=20000
     deadline = time.monotonic() + time_budget_s
     say = progress or (lambda *a, **k: None)
     n_rows = len(df)
-    usable = [c for c in dict.fromkeys(columns) if n_rows <= 1 or df[c].nunique(dropna=False) > 1]
-    codes, card = {}, {}
-    for c in usable:
-        codes[c], uniques = pd.factorize(df[c], use_na_sentinel=False)
-        card[c] = len(uniques)
+    codes, card, usable = {}, {}, []
+    truncated, reason = False, ''
+    for c in dict.fromkeys(columns):
+        if time.monotonic() > deadline:       # a very wide file: stop preparing columns and say so
+            truncated, reason = True, f'time budget of {time_budget_s} seconds reached'
+            break
+        coded, uniques = pd.factorize(df[c], use_na_sentinel=False)
+        if n_rows > 1 and len(uniques) <= 1:
+            continue                           # a constant column can never be part of a minimal key
+        codes[c], card[c] = coded, len(uniques)
+        usable.append(c)
     sample = min(n_rows, sample_rows)
 
     def combined(cols, rows):
@@ -2977,7 +2989,6 @@ def find_minimal_keys(df, columns, max_size=5, max_keys=10, max_candidates=20000
         return combined(cols, n_rows) == n_rows
 
     found, non_unique, tested = [], set(), 0
-    truncated, reason = False, ''
     n = len(usable)
     say('level1', 10, f'Level 1: Testing {n} single columns...', 0, n)
     for idx, col in enumerate(usable):
@@ -3049,7 +3060,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         
         # Step 1: Filter out fully duplicate rows
         send_progress('filtering', 0, 100, 'Identifying fully duplicate rows...', 15)
-        duplicate_count = df.duplicated().sum()
+        duplicate_count = int(df.duplicated().sum())
         
         keyed = df
         if duplicate_count > 0:
@@ -3101,15 +3112,19 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
 
         # Use first minimal combination to create unique IDs
         primary_combo = minimal_combinations[0]
-        df['Unique_ID'] = df[primary_combo].apply(
+        # New columns never overwrite the user's own columns of the same name
+        id_col = _free_name('Unique_ID', df.columns)
+        dup_col = _free_name('_is_duplicate', list(df.columns) + [id_col])
+        original_columns = list(df.columns)
+        df[id_col] = df[primary_combo].apply(
             lambda row: '|||'.join(str(v) if pd.notna(v) else '' for v in row),
             axis=1
         )
         # Every row is kept; exact repeats of an earlier row are flagged instead of silently dropped
-        df['_is_duplicate'] = df.drop(columns=['Unique_ID']).duplicated(keep='first')
+        df[dup_col] = df[original_columns].duplicated(keep='first')
 
         # Sample of unique IDs for PDF report
-        sample_df = df[primary_combo + ['Unique_ID']].head(100).copy()
+        sample_df = df[primary_combo + [id_col]].head(100).copy()
 
         # Get source filename for report
         source_filename = os.path.basename(upload_path)
@@ -3168,7 +3183,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
             zipf.write(pdf_path, f"{output_basename}_report.pdf")
             zipf.write(excel_path, f"{output_basename}_data.{'csv' if data_too_big else 'xlsx'}")
             if data_too_big:
-                zipf.writestr(f"{output_basename}_key_candidates.csv", alternatives_df.to_csv(index=False))
+                zipf.writestr(f"{output_basename}_key_candidates.csv", sanitize_csv(alternatives_df).to_csv(index=False))
 
         # Clean up individual files (keep only ZIP)
         os.remove(pdf_path)
@@ -4212,9 +4227,16 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
                 is_total_row = margins_added and r == n_rows
                 for c, value in enumerate(row):
                     if c < row_header_cols:
+                        is_when = isinstance(value, (datetime, date))
                         style = fmt(bg_color='#B4C6E7' if is_total_row else '#D9E1F2', bold=True,
-                                    font_size=11 if is_total_row else 10, align='left', valign='vcenter', **border)
-                        sheet.write(r, c, value, style) if value is not None else sheet.write_blank(r, c, None, style)
+                                    font_size=11 if is_total_row else 10, align='left', valign='vcenter',
+                                    **({'num_format': 'yyyy-mm-dd hh:mm:ss'} if is_when else {}), **border)
+                        if value is None:
+                            sheet.write_blank(r, c, None, style)
+                        elif is_when:
+                            sheet.write_datetime(r, c, value, style)
+                        else:
+                            sheet.write(r, c, value, style)
                         continue
                     total = is_total_row or c in total_cols
                     base = dict(valign='vcenter', **border)
@@ -4226,8 +4248,12 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
                             base.update(bg_color='#F2F2F2')
                     if value is None:
                         sheet.write_blank(r, c, None, fmt(align='center', **base))
+                    elif isinstance(value, float) and value in (float('inf'), float('-inf')):
+                        sheet.write_string(r, c, 'inf' if value > 0 else '-inf', fmt(align='right', **base))
                     elif isinstance(value, (int, float)) and not isinstance(value, bool):
                         sheet.write_number(r, c, value, fmt(align='right', num_format=number_format, **base))
+                    elif isinstance(value, (datetime, date)):
+                        sheet.write_datetime(r, c, value, fmt(align='left', num_format='yyyy-mm-dd hh:mm:ss', **base))
                     else:
                         sheet.write(r, c, value, fmt(align='left', **base))
 
@@ -6095,6 +6121,9 @@ def column_operations():
             except:
                 return jsonify({'error': 'Invalid column order format'}), 400
 
+            if not isinstance(column_order, list) or not all(isinstance(c, str) for c in column_order):
+                return jsonify({'error': 'Invalid column order format'}), 400
+
             # Validate all columns exist
             for col in column_order:
                 if col not in df.columns:
@@ -6113,6 +6142,8 @@ def column_operations():
             except:
                 return jsonify({'error': 'Invalid renames format'}), 400
 
+            if not isinstance(renames, dict) or not all(isinstance(v, str) for v in renames.values()):
+                return jsonify({'error': 'Invalid renames format: expected {"old name": "new name"}'}), 400
             if not renames:
                 return jsonify({'error': 'No columns selected for renaming'}), 400
 
@@ -6139,6 +6170,8 @@ def column_operations():
             except:
                 return jsonify({'error': 'Invalid columns format'}), 400
 
+            if not isinstance(columns_to_delete, list) or not all(isinstance(c, str) for c in columns_to_delete):
+                return jsonify({'error': 'Invalid columns format'}), 400
             if not columns_to_delete:
                 return jsonify({'error': 'No columns selected for deletion'}), 400
 
@@ -6193,7 +6226,8 @@ def column_operations():
             cell_text = df[column_to_split].map(
                 lambda v: None if pd.isna(v) else (v if isinstance(v, str) else _comparable_text(v)))
             split_df = cell_text.str.split(delimiter, expand=True, regex=False)
-            num_parts = split_df.shape[1]
+            num_parts = max(split_df.shape[1], 1)          # a file with no rows still gets one (empty) part
+            split_df = split_df.reindex(columns=range(num_parts))
 
             # Generate column names if not enough provided
             if len(new_names) < num_parts:
@@ -6231,6 +6265,8 @@ def column_operations():
             except:
                 return jsonify({'error': 'Invalid columns format'}), 400
 
+            if not isinstance(columns_to_merge, list) or not all(isinstance(c, str) for c in columns_to_merge):
+                return jsonify({'error': 'Invalid columns format'}), 400
             if not columns_to_merge or len(columns_to_merge) < 2:
                 return jsonify({'error': 'Select at least 2 columns to merge'}), 400
             if not new_column_name:
@@ -6249,7 +6285,7 @@ def column_operations():
                 i: df[col].map(lambda v: '' if pd.isna(v) else (v if isinstance(v, str) else _comparable_text(v)))
                 for i, col in enumerate(columns_to_merge)
             })
-            df[new_column_name] = parts.agg(separator.join, axis=1)
+            df[new_column_name] = parts.agg(separator.join, axis=1) if len(parts) else pd.Series([], dtype=object)
 
             # Move new column to after the last merged column
             first_col_idx = min(df.columns.get_loc(col) for col in columns_to_merge)
@@ -6335,7 +6371,10 @@ def pipeline_start():
         job_registry.bind(session_id, state.owner)
 
         # Load DataFrame into memory
-        state.df = read_data_file(upload_path)
+        try:
+            state.df = read_data_file(upload_path)
+        finally:
+            discard_upload(upload_path)    # the DataFrame has the data; the uploaded copy is not kept
         state.row_count = len(state.df)
         state.col_count = len(state.df.columns)
 
@@ -6536,12 +6575,13 @@ def pipeline_find_keys(session_id):
     try:
         data = request.get_json() or {}
         selected_columns = data.get('selected_columns', list(state.df.columns))
-        allow_null_keys = bool(data.get('allow_null_keys', False))
+        allow_null_keys = str(data.get('allow_null_keys', False)).lower() in ('1', 'true', 'yes', 'on')
 
         if not selected_columns:
             return jsonify({'error': 'Please select at least one column'}), 400
 
         invalidate_pipeline_stages(state, 3)   # new key candidates: the chosen key and later stages are stale
+        key_generation = state.generation
 
         # Create progress queue
         progress_queue = Queue()
@@ -6593,8 +6633,8 @@ def pipeline_find_keys(session_id):
                 if duplicate_count:
                     send_progress('filtering', 8, f'{duplicate_count:,} exact duplicate rows found - no column '
                                   'combination can be unique on the full data. Searching again without them.')
-                    minimal_combinations = search(full_df, 10, 50)          # empty by construction; kept honest
-                    after_dedup = search(full_df.drop_duplicates(keep='first'), 50, 92)
+                    minimal_combinations = []      # exact duplicate rows make every column combination non-unique
+                    after_dedup = search(full_df.drop_duplicates(keep='first'), 10, 92)
                 else:
                     send_progress('filtering', 8, f'No duplicate rows found. Analyzing {total_rows:,} rows.')
                     minimal_combinations = search(full_df, 10, 92)
@@ -6612,6 +6652,8 @@ def pipeline_find_keys(session_id):
                     'rows_analyzed': total_rows,
                     'duplicate_rows': duplicate_count,
                 }
+                if state.generation != key_generation:
+                    return          # the stages were re-run meanwhile: these results are stale, do not store them
                 state.stage_data[3] = key_results
 
                 # Send single done message with results included

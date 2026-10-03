@@ -1066,7 +1066,7 @@
 
                 <p style="margin-bottom: 10px; margin-top: 15px; font-weight: 600; color: var(--accent-purple);">Excel Data File</p>
                 <ul class="help-list">
-                    <li><strong>Data with Unique IDs:</strong> Complete dataset with pre-computed <em>Unique_ID</em> column</li>
+                    <li><strong>Data with Unique IDs:</strong> Complete dataset (every row) with a pre-computed <em>Unique_ID</em> column and an <em>_is_duplicate</em> flag</li>
                     <li><strong>Key Candidates:</strong> List of all valid minimal key combinations</li>
                 </ul>
 
@@ -1504,7 +1504,7 @@
                 <span class="summary-value">${(progressData.original_rows || 0).toLocaleString()}</span>
             </div>
             <div class="summary-item">
-                <span class="summary-label">Duplicate Records Excluded:</span>
+                <span class="summary-label">Exact Duplicate Rows (excluded from the key search, flagged in the export):</span>
                 <span class="summary-value">${(progressData.duplicate_rows_removed || 0).toLocaleString()}</span>
             </div>
             <div class="summary-item">

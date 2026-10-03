@@ -20,7 +20,7 @@ SAFE_NAME = re.compile(r'^(i|j|k|n|idx|index|count|total|percentage|pct|num\w*|\
 SAFE_NUMERIC = re.compile(
     r'^(?:formatFileSize|formatTime|formatDuration)\(.*\)$|'
     r'^[\w.?\[\]]*\b(?:cols|rows|cache_id|sessionId|session_id|cached_at|minutes|seconds|secs|total|current|'
-    r'percentage|priority|columns|memory_usage_mb|null_percentage|min_length|max_length|error_rate|duplicatePct|'
+    r'percentage|priority|memory_usage_mb|null_percentage|min_length|max_length|error_rate|duplicatePct|'
     r'sizeMB|reclassified_columns|alternatives_count|minimal_columns_count|selected_columns_count|'
     r'total_duplicates|total_ids_to_remove|rule\.id|state\.sessionId)\b(?:\s*\|\|\s*\d+)?$|'
     r'^(?:idx|i|j|index)\s*[+-]\s*\d+$|^(?:minutes|seconds|secs|eta)$|^colName\.replace\(/\[\^a-zA-Z0-9\]/g, \'_\'\)$')
@@ -68,7 +68,7 @@ def interpolations(text, first_line=1):
 
 def is_fragment(expr):
     """An expression that assembles markup out of nested templates (its own ${...} are checked on their own)."""
-    return '`' in expr or bool(re.search(r"\.join\(", expr))
+    return '`' in expr
 
 
 def is_safe(expr, after):

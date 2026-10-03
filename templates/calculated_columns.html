@@ -773,7 +773,7 @@
 
         selectedFile = fileInput.files[0];
         const sizeMB = (selectedFile.size / (1024 * 1024)).toFixed(2);
-        fileSizeInfo.textContent = `${escapeHtml(selectedFile.name)} (${sizeMB} MB)`;
+        fileSizeInfo.textContent = selectedFile.name + ' (' + sizeMB + ' MB)';
         uploadArea.classList.add('has-file');
 
         // Load preview
@@ -951,7 +951,7 @@
 
             // Show results
             resultsSection.classList.add('show');
-            resultSummary.textContent = `Created column "${escapeHtml(data.new_column)}" with ${data.rows.toLocaleString()} values`;
+            resultSummary.textContent = 'Created column "' + data.new_column + '" with ' + data.rows.toLocaleString() + ' values';
             downloadBtn.href = data.download_url;
 
             optionsSection.classList.remove('show');

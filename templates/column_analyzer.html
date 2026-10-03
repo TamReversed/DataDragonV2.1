@@ -1863,7 +1863,7 @@
 
         let summary = '<p>';
 
-        summary += `This dataset contains <strong>${overview.shape.rows.toLocaleString()} rows</strong> across <strong>${overview.shape.columns} columns</strong>, `;
+        summary += `This dataset contains <strong>${overview.shape.rows.toLocaleString()} rows</strong> across <strong>${Number(overview.shape.columns)} columns</strong>, `;
         summary += `occupying approximately <strong>${overview.memory_usage_mb} MB</strong> of memory. `;
 
         const typeBreakdown = [];
@@ -1873,7 +1873,7 @@
         if (booleanCols > 0) typeBreakdown.push(`${booleanCols /* safe: number, css class/colour or HTML assembled from escaped parts */} boolean`);
 
         if (typeBreakdown.length > 0) {
-            summary += `The dataset consists of ${typeBreakdown.join(', ')} column${typeBreakdown.length > 1 ? 's' : ''}. `;
+            summary += `The dataset consists of ${typeBreakdown.join(', ') /* safe: only counts and fixed words */} column${typeBreakdown.length > 1 ? 's' : ''}. `;
         }
 
         if (overview.detected_types_count) {
@@ -1922,7 +1922,7 @@
 
         const completeCols = columns.filter(col => col.null_count === 0).length;
         const completenessPct = ((completeCols / overview.shape.columns) * 100).toFixed(1);
-        summary += `Overall, <strong>${completeCols /* safe: number, css class/colour or HTML assembled from escaped parts */} of ${overview.shape.columns} columns (${completenessPct /* safe: number, css class/colour or HTML assembled from escaped parts */}%)</strong> are completely populated with no missing values. `;
+        summary += `Overall, <strong>${completeCols /* safe: number, css class/colour or HTML assembled from escaped parts */} of ${Number(overview.shape.columns)} columns (${completenessPct /* safe: number, css class/colour or HTML assembled from escaped parts */}%)</strong> are completely populated with no missing values. `;
 
         summary += '</p>';
 
@@ -1962,7 +1962,7 @@
             </div>
             <div class="overview-card">
                 <div class="overview-card-label">Total Columns</div>
-                <div class="overview-card-value">${overview.shape.columns}</div>
+                <div class="overview-card-value">${Number(overview.shape.columns)}</div>
             </div>
             <div class="overview-card">
                 <div class="overview-card-label">Memory Usage</div>

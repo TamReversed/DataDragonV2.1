@@ -2193,7 +2193,7 @@
 
             // Show file badge
             document.getElementById('fileBadge').classList.add('visible');
-            document.getElementById('fileNameDisplay').textContent = `${escapeHtml(data.filename)} (${data.rows.toLocaleString()} rows)`;
+            document.getElementById('fileNameDisplay').textContent = data.filename + ' (' + data.rows.toLocaleString() + ' rows)';
 
             // Mark upload zone as complete
             document.getElementById('uploadZone').classList.add('uploaded');
@@ -2201,7 +2201,7 @@
             // Show upload success info
             document.getElementById('uploadSuccess').classList.remove('hidden');
             document.getElementById('uploadFilename').textContent = data.filename;
-            document.getElementById('uploadStats').textContent = `${data.rows.toLocaleString()} rows × ${data.columns} columns`;
+            document.getElementById('uploadStats').textContent = `${data.rows.toLocaleString()} rows × ${Number(data.columns)} columns`;
 
             // Show continue button
             document.getElementById('stage1Buttons').classList.remove('hidden');
@@ -3237,8 +3237,8 @@
 
         content.innerHTML = `
             <div>File: ${escapeHtml(state.filename)}</div>
-            <div>Key: ${state.selectedKey.join(' + ') || 'None selected'}</div>
-            <div style="margin-top:var(--space-3);">${transforms.length ? transforms.join('') : 'No transformations selected'}</div>
+            <div>Key: ${escapeHtml(state.selectedKey.join(' + ') || 'None selected')}</div>
+            <div style="margin-top:var(--space-3);">${transforms.length ? transforms.join('') : 'No transformations selected' /* safe: items are built from escaped parts */}</div>
         `;
     }
 

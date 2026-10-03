@@ -278,7 +278,7 @@
                 <li><strong>Analysis:</strong> All calculations happen in memory</li>
                 <li><strong>Results:</strong> Analysis results are sent to your browser</li>
                 <li><strong>Cleanup:</strong> The upload is deleted as soon as its job has loaded or finished with it; a sweeper removes any leftover after 30 minutes</li>
-                <li><strong>Memory:</strong> DataFrames are released when the job ends</li>
+                <li><strong>Memory:</strong> DataFrames are released when the job ends (Data Readiness Pipeline sessions stay in memory until you finish or they expire after 2 idle hours)</li>
             </ol>
         </div>
     </div>
@@ -290,7 +290,7 @@
             <p>
                 DataDragon does not send your data to external services (the pages load some JavaScript
                 libraries from public CDNs, which is code only, never your data). Uploaded files are deleted
-                once they are loaded. Result files can be downloaded repeatedly for 30 minutes and are then
+                as soon as their data is loaded (the longer-running tools remove the upload when the job finishes). Result files can be downloaded repeatedly for 30 minutes and are then
                 deleted whether or not you downloaded them. While they exist, files sit unencrypted on the
                 disk of the machine running DataDragon, and cell values are not written to its logs.
             </p>

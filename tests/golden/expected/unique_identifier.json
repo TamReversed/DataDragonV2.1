@@ -10,7 +10,7 @@
   ],
   "alternatives_count": 2,
   "current": 100,
-  "duplicate_rows_removed": "1",
+  "duplicate_rows_removed": 1,
   "message": "Analysis complete",
   "minimal_columns": [
    "ID"
@@ -18,7 +18,7 @@
   "minimal_columns_count": 1,
   "original_rows": 40,
   "percentage": 100,
-  "rows_after_filtering": "39",
+  "rows_after_filtering": 39,
   "selected_columns_count": 2,
   "sheet_names": [
    "Main",

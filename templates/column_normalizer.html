@@ -1270,7 +1270,7 @@
                         <option value="percentage">Percentage</option>
                     </select>
                 </div>
-                <button type="button" class="examples-toggle" onclick="toggleExamples(${idx})" aria-label="Show or hide example values">
+                <button type="button" class="examples-toggle" onclick="toggleExamples(${idx})" aria-label="Show or hide example values" aria-expanded="false">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                     </svg>
@@ -1289,7 +1289,7 @@
                 sampleValues.forEach(val => {
                     const exampleEl = document.createElement('div');
                     exampleEl.className = 'example-value';
-                    exampleEl.textContent = escapeHtml(String(val));
+                    exampleEl.textContent = String(val);
                     examplesGrid.appendChild(exampleEl);
                 });
             } else {
@@ -1309,6 +1309,8 @@
         const row = document.getElementById(`column-row-${idx}`);
         row.classList.toggle('collapsed');
         row.classList.toggle('expanded');
+        const button = row.querySelector('.examples-toggle');
+        if (button) button.setAttribute('aria-expanded', row.classList.contains('expanded') ? 'true' : 'false');
     };
 
     function resetProgress() {
