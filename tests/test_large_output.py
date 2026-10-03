@@ -73,3 +73,16 @@ def test_unique_id_data_goes_into_the_zip_as_csv(client, tmp_path, small_excel):
 
 def test_splitter_chunk_size_is_below_the_excel_limit():
     assert 1000000 < datadragon.EXCEL_MAX_ROWS - 1   # the route caps chunk_size at 1,000,000
+
+
+def test_pivot_is_styled_while_written(client, tmp_path):
+    import openpyxl
+    path = make_csv(tmp_path / "s.csv", "g,h,n\n" + "\n".join(f"{i % 3},{'a' if i % 2 else 'b'},{i}" for i in range(12)) + "\n")
+    final, _ = post_job(client, "/generate-pivot", {"file": path},
+                        {"rows[]": ["g"], "columns[]": ["h"], "values[]": ["n"], "aggfunc": "sum"})
+    assert final["stage"] == "done", final
+    ws = openpyxl.load_workbook(output_path(final))["Pivot Table"]
+    assert ws.freeze_panes == "B2"
+    assert ws["A1"].fill.fgColor.rgb.endswith("2F5597") and ws["B1"].fill.fgColor.rgb.endswith("4472C4")
+    assert ws["A2"].font.b and ws["B2"].number_format == "#,##0.00"
+    assert ws.row_dimensions[1].height == 25

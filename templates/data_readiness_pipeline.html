@@ -3008,6 +3008,9 @@
             note += `<div class="warning-box">No column combination is unique on all rows: ${dupRows.toLocaleString()} rows are exact duplicates. `
                   + 'These candidates are unique only after those duplicates are removed.</div>';
         }
+        if (results && results.truncated) {
+            note += `<div class="warning-box">The key search stopped early (${escapeHtml(results.truncated_reason)}), so there may be more keys.</div>`;
+        }
         if (skipped.length) {
             note += `<div class="warning-box">Skipped columns with blank values: ${escapeHtml(skipped.join(', '))}</div>`;
         }

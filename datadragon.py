@@ -2941,6 +2941,92 @@ def generate_natural_key_report(output_path, original_rows, duplicate_count, row
     doc.build(story)
 
 
+def find_minimal_keys(df, columns, max_size=5, max_keys=10, max_candidates=20000, time_budget_s=30,
+                      sample_rows=50000, progress=None):
+    """Minimal column combinations that identify every row of ``df`` (Apriori search).
+
+    Only combinations whose every smaller subset is NOT unique are tried, so every key found is minimal.
+    Each column is turned into integer codes once; a candidate's codes are combined with numpy instead of calling
+    ``duplicated()`` on a frame. Large frames are screened on their first ``sample_rows`` rows: a repeat there is
+    a repeat everywhere, and only a combination that passes the screen is confirmed on all rows.
+
+    Returns {'keys': [[col, ...], ...], 'truncated': bool, 'reason': str}. ``truncated`` is True when the search
+    stopped at ``max_candidates`` tested combinations or ``time_budget_s`` seconds, so a missing key does not
+    prove there is none. ``progress(stage, pct, message, current, total)`` gets pct 0-100 for this search.
+    """
+    deadline = time.monotonic() + time_budget_s
+    say = progress or (lambda *a, **k: None)
+    n_rows = len(df)
+    usable = [c for c in dict.fromkeys(columns) if n_rows <= 1 or df[c].nunique(dropna=False) > 1]
+    codes, card = {}, {}
+    for c in usable:
+        codes[c], uniques = pd.factorize(df[c], use_na_sentinel=False)
+        card[c] = len(uniques)
+    sample = min(n_rows, sample_rows)
+
+    def combined(cols, rows):
+        acc, size = codes[cols[0]][:rows], card[cols[0]]
+        for c in cols[1:]:
+            acc, uniq = pd.factorize(acc * card[c] + codes[c][:rows])
+            size = len(uniq)
+        return size
+
+    def is_unique(cols):
+        if sample < n_rows and combined(cols, sample) != sample:
+            return False          # a repeat inside the sample is a repeat in the full data
+        return combined(cols, n_rows) == n_rows
+
+    found, non_unique, tested = [], set(), 0
+    truncated, reason = False, ''
+    n = len(usable)
+    say('level1', 10, f'Level 1: Testing {n} single columns...', 0, n)
+    for idx, col in enumerate(usable):
+        tested += 1
+        if is_unique([col]):
+            found.append([col])
+            say('level1', 10 + int((idx + 1) / max(n, 1) * 15), f'Found unique key: {col}', idx + 1, n)
+        else:
+            non_unique.add(frozenset([col]))
+            if (idx + 1) % 3 == 0 or idx == n - 1:
+                say('level1', 10 + int((idx + 1) / max(n, 1) * 15),
+                    f'Level 1: Tested {idx + 1}/{n} columns. Found {len(found)} key(s).', idx + 1, n)
+
+    top = min(n, max_size)
+    level_range = 65 / max(top - 1, 1)
+    for k in range(2, top + 1):
+        if not non_unique or len(found) >= max_keys or truncated:
+            break
+        start = 25 + int((k - 2) * level_range)
+        end = 25 + int((k - 1) * level_range)
+        say(f'level{k}', start, f'Level {k}: Generating {k}-column candidates using Apriori pruning...')
+        pool = sorted({c for combo in non_unique for c in combo})
+        next_non_unique, examined = set(), 0
+        for combo in combinations(pool, k):
+            examined += 1
+            if examined % 256 == 0 and time.monotonic() > deadline:
+                truncated, reason = True, f'time budget of {time_budget_s} seconds reached'
+                break
+            if not all(frozenset(sub) in non_unique for sub in combinations(combo, k - 1)):
+                continue                       # a smaller part is already a key (or was never non-unique)
+            if len(found) >= max_keys:
+                break
+            if tested >= max_candidates:
+                truncated, reason = True, f'candidate limit of {max_candidates:,} reached'
+                break
+            tested += 1
+            cols = list(combo)
+            if is_unique(cols):
+                found.append(cols)
+                say(f'level{k}', start + 2, f'Found key: {" + ".join(cols)}')
+            else:
+                next_non_unique.add(frozenset(cols))
+            if tested % 50 == 0:
+                say(f'level{k}', min(end, start + 2 + (tested % 1000) // 50), f'Level {k}: tested {tested:,} combinations. '
+                    f'Found {len(found)} key(s).')
+        non_unique = next_non_unique
+    return {'keys': found, 'truncated': truncated, 'reason': reason}
+
+
 def find_unique_identifier_async(upload_path, selected_columns, progress_queue, session_id, allow_null_keys=False):
     """Find minimal set of columns that create unique identifiers in background thread with progress tracking"""
     try:
@@ -2994,96 +3080,18 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         # This algorithm ensures we find truly MINIMAL keys by only expanding non-unique combinations
         send_progress('analyzing', 0, 100, f'Analyzing {len(selected_columns)} selected columns using Apriori algorithm...', 25)
 
-        minimal_combinations = []
-        non_unique_combinations = []  # Stores sets of columns that are NOT unique
-        n = len(selected_columns)
-        max_size = min(n, 5)  # Limit composite key size for performance
-        max_keys = 10  # Maximum number of minimal keys to find
+        def search_progress(stage, pct, message, current=0, total=0):
+            send_progress('analyzing', pct, 100, message, 30 + int(pct * 0.4))
 
-        # Level 1: Check single columns
-        send_progress('analyzing', 10, 100, 'Level 1: Checking single columns...', 30)
-        for idx, col in enumerate(selected_columns):
-            # Check if this single column creates unique identifiers
-            is_unique = keyed[[col]].duplicated().sum() == 0
+        search = find_minimal_keys(keyed, selected_columns, progress=search_progress)
+        minimal_combinations = search['keys']
+        if search['truncated']:
+            note_warning(session_id, f"The key search stopped early ({search['reason']}), so there may be more keys.")
 
-            if is_unique:
-                minimal_combinations.append([col])
-            else:
-                non_unique_combinations.append(frozenset([col]))
-
-            if (idx + 1) % 10 == 0 or idx == len(selected_columns) - 1:
-                send_progress('analyzing', 10 + int((idx + 1) / len(selected_columns) * 10), 100,
-                            f'Checked {idx + 1}/{len(selected_columns)} single columns...',
-                            30 + int((idx + 1) / len(selected_columns) * 5))
-
-        # Levels 2+: Use Apriori pruning to find minimal composite keys
-        # Only expand combinations that were proven NON-UNIQUE in the previous level
-        for k in range(2, max_size + 1):
-            if not non_unique_combinations:
-                send_progress('analyzing', 50, 100, 'No more non-unique combinations to expand. Algorithm complete.', 55)
-                break
-
-            if len(minimal_combinations) >= max_keys:
-                send_progress('analyzing', 50, 100, f'Found {len(minimal_combinations)} minimal keys. Stopping search.', 55)
-                break
-
-            send_progress('analyzing', 20 + int((k - 2) * 15), 100,
-                        f'Level {k}: Generating candidates using Apriori pruning...',
-                        40 + int((k - 2) * 10))
-
-            # Generate candidate combinations using Apriori principle:
-            # A candidate of size k is valid ONLY IF all its (k-1) subsets are in non_unique_combinations
-            # This ensures we never check supersets of already-found keys (which wouldn't be minimal)
-            pool_cols = set()
-            for combo in non_unique_combinations:
-                pool_cols.update(combo)
-
-            valid_candidates = []
-            for combo in combinations(sorted(pool_cols), k):
-                combo_set = frozenset(combo)
-
-                # Apriori pruning: Check if ALL (k-1) subsets are in non_unique_combinations
-                # If any subset is NOT in non_unique, it means that subset is either:
-                # a) A known key (so we skip - superset wouldn't be minimal)
-                # b) Was never processed (shouldn't happen in correct flow)
-                all_subsets_non_unique = True
-                for subset in combinations(combo, k - 1):
-                    if frozenset(subset) not in non_unique_combinations:
-                        all_subsets_non_unique = False
-                        break
-
-                if all_subsets_non_unique:
-                    valid_candidates.append(list(combo))
-
-            send_progress('analyzing', 25 + int((k - 2) * 15), 100,
-                        f'Level {k}: Testing {len(valid_candidates)} pruned candidates...',
-                        45 + int((k - 2) * 10))
-
-            # Reset non_unique for the next level
-            next_level_non_unique = []
-
-            for combo_idx, candidate in enumerate(valid_candidates):
-                if len(minimal_combinations) >= max_keys:
-                    break
-
-                # Check uniqueness using duplicated() - efficient vectorized operation
-                is_unique = keyed[candidate].duplicated().sum() == 0
-
-                if is_unique:
-                    minimal_combinations.append(candidate)
-                else:
-                    next_level_non_unique.append(frozenset(candidate))
-
-                # Progress update
-                if (combo_idx + 1) % 25 == 0 or combo_idx == len(valid_candidates) - 1:
-                    progress_pct = 25 + int((k - 2) * 15) + int((combo_idx + 1) / max(len(valid_candidates), 1) * 10)
-                    send_progress('analyzing', progress_pct, 100,
-                                f'Level {k}: Tested {combo_idx + 1}/{len(valid_candidates)} candidates, found {len(minimal_combinations)} keys...',
-                                45 + int((k - 2) * 10) + int((combo_idx + 1) / max(len(valid_candidates), 1) * 5))
-
-            non_unique_combinations = next_level_non_unique
-        
         if not minimal_combinations:
+            if search['truncated']:
+                raise ValueError(f"No key was found before the search stopped ({search['reason']}). "
+                                 "Select fewer columns, or include a column that is already close to unique.")
             raise ValueError("No combination of selected columns can create unique identifiers for all rows.")
         
         send_progress('analyzing', 100, 100, f'Found {len(minimal_combinations)} minimal key candidate(s)', 70)
@@ -4165,221 +4173,89 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         output_filename = f"pivot_{timestamp}"
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        # Write to Excel with error handling
-        with excel_writer(output_path) as writer:
-            # Write pivot table with proper structure
-            try:
-                # Verify columns are not MultiIndex before writing
-                if isinstance(pivot_df_reset.columns, pd.MultiIndex):
-                    print("Warning: Columns are still MultiIndex after flattening, trying to flatten again")
-                    pivot_df_reset = flatten_columns(pivot_df_reset)
-                
-                pivot_df_reset.to_excel(writer, sheet_name='Pivot Table', index=False)
-            except Exception as e:
-                # If still fails, write with index=True and we'll fix it after
-                print(f"Warning: Could not write with index=False: {e}")
-                try:
-                    pivot_df_reset.to_excel(writer, sheet_name='Pivot Table', index=True)
-                except Exception as e2:
-                    # Last resort: write as is
-                    print(f"Error writing pivot table: {e2}")
-                    # Create a copy and ensure it's flat
-                    pivot_flat = pivot_df_reset.copy()
-                    pivot_flat.columns = [str(col) for col in pivot_flat.columns]
-                    pivot_flat.to_excel(writer, sheet_name='Pivot Table', index=True)
-            
-            # Write summary and source data (these shouldn't have MultiIndex issues)
-            try:
-                summary_df.to_excel(writer, sheet_name='Summary', index=False)
-            except Exception as e:
-                print(f"Warning writing summary: {e}")
-                summary_df_flat = flatten_columns(summary_df.copy())
-                summary_df_flat.to_excel(writer, sheet_name='Summary', index=False)
-            
+        # The workbook is written once, already styled, straight through xlsxwriter (no re-opening it to style cells)
+        import xlsxwriter
+        if isinstance(pivot_df_reset.columns, pd.MultiIndex):
+            pivot_df_reset = flatten_columns(pivot_df_reset)
+        row_header_cols = len(rows) if rows else 0
+        n_rows, n_cols = pivot_df_reset.shape
+        if sheet_too_big(pivot_df_reset):
+            raise ValueError(f"The pivot table has {n_rows:,} rows x {n_cols:,} columns, which is more than an Excel "
+                             "sheet can hold. Use fewer or coarser row/column fields.")
+
+        workbook = xlsxwriter.Workbook(output_path, {'strings_to_formulas': False, 'strings_to_urls': False,
+                                                     'default_date_format': 'yyyy-mm-dd hh:mm:ss'})
+        try:
+            border = {'border': 1, 'border_color': '#4472C4'}
+            number_format = '#,##0' if aggfunc in ('count', 'nunique') else '#,##0.00'
+            formats = {}
+
+            def fmt(**props):
+                key = tuple(sorted(props.items()))
+                if key not in formats:
+                    formats[key] = workbook.add_format(props)
+                return formats[key]
+
+            head_row = dict(bold=True, font_color='#FFFFFF', font_size=11, align='center', valign='vcenter', text_wrap=True)
+            sheet = workbook.add_worksheet('Pivot Table')
+            sheet.set_row(0, 25)
+            for c, name in enumerate(pivot_df_reset.columns):
+                sheet.write_string(0, c, str(name), fmt(bg_color='#2F5597' if c < row_header_cols else '#4472C4', **head_row))
+            send_progress('saving', 0, max(n_rows, 1), 'Writing and formatting the pivot table...', 62)
+
+            total_cols = {row_header_cols + pos for pos in total_column_positions}
+            cells = pivot_df_reset.astype(object).where(pivot_df_reset.notna(), None)
+            for r, row in enumerate(cells.itertuples(index=False, name=None), 1):
+                if r % 2000 == 0:
+                    send_progress('saving', r, n_rows, f'Formatting: {r:,}/{n_rows:,} rows...',
+                                  62 + int(r / max(n_rows, 1) * 28))
+                is_total_row = margins_added and r == n_rows
+                for c, value in enumerate(row):
+                    if c < row_header_cols:
+                        style = fmt(bg_color='#B4C6E7' if is_total_row else '#D9E1F2', bold=True,
+                                    font_size=11 if is_total_row else 10, align='left', valign='vcenter', **border)
+                        sheet.write(r, c, value, style) if value is not None else sheet.write_blank(r, c, None, style)
+                        continue
+                    total = is_total_row or c in total_cols
+                    base = dict(valign='vcenter', **border)
+                    if total:
+                        base.update(bg_color='#B4C6E7', bold=True, font_size=11)
+                    else:
+                        base.update(font_size=10)
+                        if r % 2 == 0:
+                            base.update(bg_color='#F2F2F2')
+                    if value is None:
+                        sheet.write_blank(r, c, None, fmt(align='center', **base))
+                    elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                        sheet.write_number(r, c, value, fmt(align='right', num_format=number_format, **base))
+                    else:
+                        sheet.write(r, c, value, fmt(align='left', **base))
+
+            sheet.freeze_panes(1, row_header_cols)
+            # Column widths from the header and the first 1,000 rows
+            send_progress('saving', 0, max(n_cols, 1), 'Adjusting column widths...', 92)
+            sample = pivot_df_reset.head(1000)
+            for c, name in enumerate(pivot_df_reset.columns):
+                longest = max([len(str(name))] + [len(str(v)) for v in sample.iloc[:, c].dropna()])
+                sheet.set_column(c, c, min(max(longest + 2, 12), 50))
+
+            def plain_sheet(name, frame):
+                ws_ = workbook.add_worksheet(name)
+                head = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'top'})
+                ws_.write_row(0, 0, [str(c) for c in frame.columns], head)
+                body = frame.astype(object).where(frame.notna(), None)
+                for r_, row_ in enumerate(body.itertuples(index=False, name=None), 1):
+                    ws_.write_row(r_, 0, row_)
+
+            plain_sheet('Summary', summary_df)
             if len(df) > PIVOT_SOURCE_SHEET_LIMIT:
                 note_warning(session_id, f"The Source Data sheet was left out because the file has more than "
                                          f"{PIVOT_SOURCE_SHEET_LIMIT:,} rows.")
             else:
-                try:
-                    df.to_excel(writer, sheet_name='Source Data', index=False)
-                except Exception as e:
-                    print(f"Warning writing source data: {e}")
-                    df_flat = flatten_columns(df.copy())
-                    df_flat.to_excel(writer, sheet_name='Source Data', index=False)
-        
-        # Apply formatting to make it look like a real pivot table
-        from openpyxl import load_workbook
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-        
-        wb = load_workbook(output_path)
-        
-        # Check if Pivot Table sheet exists (might have been written with different name)
-        if 'Pivot Table' not in wb.sheetnames:
-            # If sheet doesn't exist, something went wrong
-            raise ValueError("Pivot Table sheet was not created successfully")
-        
-        ws = wb['Pivot Table']
-        
-        # Remove index column if it exists (if we wrote with index=True as fallback)
-        if ws.max_row > 0 and ws.max_column > 0:
-            # Check if first column looks like an index (unnamed or numbered)
-            first_col_header = ws.cell(row=1, column=1).value
-            if first_col_header is None or (isinstance(first_col_header, str) and first_col_header.startswith('Unnamed')):
-                ws.delete_cols(1)
-        
-        # Calculate row header columns (index columns) - adjust if we deleted an index column
-        row_header_cols = len(rows) if rows else 0
-        
-        # Format header row with different colors for row headers vs data
-        header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
-        header_font = Font(bold=True, color='FFFFFF', size=11)
-        
-        # Row header column headers (if any)
-        for col_idx in range(1, row_header_cols + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.fill = PatternFill(start_color='2F5597', end_color='2F5597', fill_type='solid')  # Darker blue for row headers
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        
-        # Data column headers
-        for col_idx in range(row_header_cols + 1, ws.max_column + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        
-        # Pre-create style objects to avoid creating them in loops (performance optimization)
-        index_fill = PatternFill(start_color='D9E1F2', end_color='D9E1F2', fill_type='solid')
-        total_fill = PatternFill(start_color='B4C6E7', end_color='B4C6E7', fill_type='solid')
-        data_fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
-        border_style = Border(
-            left=Side(style='thin', color='4472C4'),
-            right=Side(style='thin', color='4472C4'),
-            top=Side(style='thin', color='4472C4'),
-            bottom=Side(style='thin', color='4472C4')
-        )
-        font_bold_11 = Font(bold=True, size=11)
-        font_bold_10 = Font(bold=True, size=10)
-        font_normal_10 = Font(size=10)
-        align_left = Alignment(horizontal='left', vertical='center')
-        align_right = Alignment(horizontal='right', vertical='center')
-        align_center = Alignment(horizontal='center', vertical='center')
-        
-        total_rows = ws.max_row - 1  # Exclude header row
-        if total_rows > 0:
-            # Format row header columns - with progress updates
-            send_progress('saving', 0, total_rows * 2, 'Formatting row headers...', 62)
-            
-            for idx, row_idx in enumerate(range(2, ws.max_row + 1), 1):
-                # Send progress every 100 rows or on last row
-                if idx % 100 == 0 or idx == total_rows:
-                    progress_pct = 60 + int((idx / total_rows) * 12)  # 60% to 72%
-                    send_progress('saving', idx, total_rows * 2, f'Formatting row headers: {idx}/{total_rows}...', progress_pct)
-                
-                # The margin row is the last row (found by position, not by a label that data could also use)
-                is_total_row = margins_added and row_idx == ws.max_row
-                
-                for col_idx in range(1, row_header_cols + 1):
-                    cell = ws.cell(row=row_idx, column=col_idx)
-                    if is_total_row:
-                        cell.fill = total_fill
-                        cell.font = font_bold_11
-                    else:
-                        cell.fill = index_fill
-                        cell.font = font_bold_10
-                    cell.alignment = align_left
-                    cell.border = border_style
-            
-            # Format data columns - with progress updates
-            send_progress('saving', total_rows, total_rows * 2, 'Formatting data columns...', 72)
-            
-            # Pre-cache column header values to avoid repeated lookups
-            column_headers = {col_idx: (col_idx - row_header_cols - 1) in total_column_positions
-                              for col_idx in range(row_header_cols + 1, ws.max_column + 1)}
-            number_format = '#,##0' if aggfunc in ('count', 'nunique') else '#,##0.00'
-            
-            for idx, row_idx in enumerate(range(2, ws.max_row + 1), 1):
-                # Send progress every 100 rows or on last row
-                if idx % 100 == 0 or idx == total_rows:
-                    progress_pct = 72 + int((idx / total_rows) * 18)  # 72% to 90%
-                    send_progress('saving', total_rows + idx, total_rows * 2, f'Formatting data columns: {idx}/{total_rows}...', progress_pct)
-                
-                is_total_row = margins_added and row_idx == ws.max_row
-                
-                for col_idx in range(row_header_cols + 1, ws.max_column + 1):
-                    cell = ws.cell(row=row_idx, column=col_idx)
-                    is_total_col = column_headers.get(col_idx, False)
-                    
-                    if is_total_row or is_total_col:
-                        cell.fill = total_fill
-                        cell.font = font_bold_11
-                    elif row_idx % 2 == 0:  # Zebra striping
-                        cell.fill = data_fill
-                        cell.font = font_normal_10
-                    else:
-                        cell.font = font_normal_10
-                    
-                    # Format numeric cells
-                    try:
-                        val = float(cell.value) if cell.value is not None else None
-                        if val is not None:
-                            cell.number_format = number_format  # thousands separator; whole numbers for counts
-                            cell.alignment = align_right
-                        else:
-                            cell.alignment = align_center
-                    except:
-                        cell.alignment = align_left
-                    
-                    cell.border = border_style
-            
-            send_progress('saving', total_rows * 2, total_rows * 2, 'Formatting complete...', 90)
-        
-        # Freeze panes at first data row and column
-        if row_header_cols > 0:
-            ws.freeze_panes = ws.cell(row=2, column=row_header_cols + 1)
-        else:
-            ws.freeze_panes = ws.cell(row=2, column=1)
-        
-        # Auto-adjust column widths
-        send_progress('saving', 0, ws.max_column, 'Adjusting column widths...', 90)
-        from openpyxl.utils import get_column_letter
-        
-        for col_idx, column in enumerate(ws.columns, 1):
-            # Send progress every 10 columns
-            if col_idx % 10 == 0 or col_idx == ws.max_column:
-                progress_pct = 90 + int((col_idx / ws.max_column) * 5)  # 90% to 95%
-                send_progress('saving', col_idx, ws.max_column, f'Adjusting column widths: {col_idx}/{ws.max_column}...', progress_pct)
-            
-            max_length = 0
-            # Find first non-merged cell or use column index to get letter
-            column_letter = None
-            for cell in column:
-                if hasattr(cell, 'column_letter'):
-                    column_letter = cell.column_letter
-                    break
-            # If no regular cell found, use column index
-            if not column_letter:
-                column_letter = get_column_letter(col_idx)
-            
-            for cell in column:
-                try:
-                    # Skip merged cells
-                    if not hasattr(cell, 'value'):
-                        continue
-                    if cell.value:
-                        length = len(str(cell.value))
-                        if length > max_length:
-                            max_length = length
-                except:
-                    pass
-            adjusted_width = min(max(max_length + 2, 12), 50)  # Min width 12, max 50
-            ws.column_dimensions[column_letter].width = adjusted_width
-        
-        # Set row height for header
-        ws.row_dimensions[1].height = 25
-        
-        send_progress('saving', ws.max_column, ws.max_column, 'Saving file...', 95)
-        wb.save(output_path)
+                plain_sheet('Source Data', df)
+            send_progress('saving', max(n_cols, 1), max(n_cols, 1), 'Saving file...', 95)
+        finally:
+            workbook.close()
         
         download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
@@ -6703,76 +6579,16 @@ def pipeline_find_keys(session_id):
                     send_progress('filtering', 7, f'Skipping {len(null_columns)} column(s) with blank values: '
                                   + ', '.join(null_columns))
 
+                truncated_reasons = []
+
                 def search(frame, lo, hi):
-                    """Apriori search for minimal unique column combinations; progress is scaled into lo..hi."""
+                    """Minimal-key search on ``frame``; progress is scaled into lo..hi."""
                     def report(stage, pct, msg, current=0, total=0):
                         send_progress(stage, lo + int(pct / 100 * (hi - lo)), msg, current, total)
-
-                    found = []
-                    non_unique = []
-                    n = len(candidate_columns)
-                    max_size = min(n, 5)
-                    max_keys = 10
-
-                    # Level 1 gets 10-25%, remaining levels share 25-90%
-                    levels_remaining = max_size - 1
-                    level_range = 65 / max(levels_remaining, 1)
-
-                    report('level1', 10, f'Level 1: Testing {n} single columns...', 0, n)
-                    for idx, col in enumerate(candidate_columns):
-                        is_unique = not frame[col].duplicated().any()
-                        if is_unique:
-                            found.append([col])
-                        else:
-                            non_unique.append(frozenset([col]))
-                        pct = 10 + int((idx + 1) / n * 15)
-                        if is_unique:
-                            report('level1', pct, f'Found unique key: {col}', idx + 1, n)
-                        elif (idx + 1) % 3 == 0 or idx == n - 1:
-                            report('level1', pct, f'Level 1: Tested {idx + 1}/{n} columns. Found {len(found)} key(s).',
-                                   idx + 1, n)
-
-                    for k in range(2, max_size + 1):
-                        level_start = 25 + int((k - 2) * level_range)
-                        level_end = 25 + int((k - 1) * level_range)
-                        if not non_unique or len(found) >= max_keys:
-                            break
-
-                        report(f'level{k}', level_start,
-                               f'Level {k}: Generating {k}-column candidates using Apriori pruning...')
-                        pool_cols = set()
-                        for combo in non_unique:
-                            pool_cols.update(combo)
-
-                        valid_candidates = []
-                        for combo in combinations(sorted(pool_cols), k):
-                            if all(frozenset(subset) in non_unique for subset in combinations(combo, k - 1)):
-                                valid_candidates.append(list(combo))
-                        if not valid_candidates:
-                            report(f'level{k}', level_end, f'Level {k}: No valid candidates after pruning.')
-                            continue
-
-                        report(f'level{k}', level_start + 2,
-                               f'Level {k}: Testing {len(valid_candidates)} candidate combinations...',
-                               0, len(valid_candidates))
-                        next_level_non_unique = []
-                        for idx, candidate in enumerate(valid_candidates):
-                            if len(found) >= max_keys:
-                                break
-                            if not frame[candidate].duplicated().any():
-                                found.append(candidate)
-                            else:
-                                next_level_non_unique.append(frozenset(candidate))
-                            pct = level_start + 2 + int((idx + 1) / len(valid_candidates) * (level_end - level_start - 2))
-                            if found and found[-1] == candidate:
-                                report(f'level{k}', pct, f'Found key: {" + ".join(candidate)}',
-                                       idx + 1, len(valid_candidates))
-                            elif (idx + 1) % 5 == 0 or idx == len(valid_candidates) - 1:
-                                report(f'level{k}', pct,
-                                       f'Level {k}: Tested {idx + 1}/{len(valid_candidates)} combinations. '
-                                       f'Found {len(found)} key(s).', idx + 1, len(valid_candidates))
-                        non_unique = next_level_non_unique
-                    return found
+                    result = find_minimal_keys(frame, candidate_columns, progress=report)
+                    if result['truncated']:
+                        truncated_reasons.append(result['reason'])
+                    return result['keys']
 
                 if duplicate_count:
                     send_progress('filtering', 8, f'{duplicate_count:,} exact duplicate rows found - no column '
@@ -6791,6 +6607,8 @@ def pipeline_find_keys(session_id):
                     'minimal_combinations_after_dedup': after_dedup,
                     'selected_columns': selected_columns,
                     'excluded_null_columns': null_columns,
+                    'truncated': bool(truncated_reasons),
+                    'truncated_reason': truncated_reasons[0] if truncated_reasons else '',
                     'rows_analyzed': total_rows,
                     'duplicate_rows': duplicate_count,
                 }

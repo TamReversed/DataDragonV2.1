@@ -18,7 +18,7 @@ import time
 from queue import Queue
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CASES = ['read', 'write_xlsx', 'analyze', 'dup_lowcard', 'dup_highcard', 'uniqueid12', 'pivot', 'validate',
+CASES = ['read', 'write_xlsx', 'analyze', 'dup_lowcard', 'dup_highcard', 'uniqueid12', 'pivot', 'pivot_hi', 'validate',
          'compare1key', 'split40k', 'keyworst']
 
 
@@ -78,6 +78,9 @@ def worker(case, src):
         elif case == 'pivot':
             t = time.perf_counter()
             d.generate_pivot_async(cp(), ['region', 'category'], ['status'], ['amount'], 'sum', None, q, 's')
+        elif case == 'pivot_hi':   # high-cardinality row field: a big pivot table to style
+            t = time.perf_counter()
+            d.generate_pivot_async(cp(), ['zip'], ['status'], ['amount'], 'sum', None, q, 's')
         elif case == 'validate':
             rules = [{'column': 'email', 'type': 'required'},
                      {'column': 'amount', 'type': 'range', 'value': {'min': 0, 'max': 40000}},

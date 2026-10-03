@@ -73,3 +73,6 @@ Same machine, data and harness as above (`scripts/bench.py`, CSV inputs from `sc
 | `write_xlsx` 100k | 6.54 s / 758 MB (pandas, openpyxl engine) | **3.37 s / 447 MB** (direct xlsxwriter in `write_excel`) | T2.3 | <= 4 s |
 | `split40k` 100k (xlsx in, xlsx out) | 12.62 s / 387 MB | 9.88 s / 324 MB | T2.3 | |
 | `validate` 500k | 41.3 s / 3.67 GB | **1.84 s / 499 MB** (Valid Records sheet omitted above 100k valid rows) | T2.9 | < 10 s, < 1.2 GB |
+| `pivot` 500k (region x category) | 89 s / 5.99 GB | **0.78 s / 493 MB** (Source Data sheet skipped above 100k rows, T2.11) | T2.11/T2.12 | < 20 s, < 1.5 GB |
+| `pivot_hi` 500k (98k-row result: `zip` x `status`) | > 400 s (killed) | **3.1 s / 604 MB** (styled while writing, no `load_workbook`) | T2.12 | |
+| `keyworst` 20 cols x 20k rows | 27.8 s on this machine / 153 MB | **3.4 s / 145 MB** (integer codes; stops at 20,000 candidates and says so) | T2.12 | < 10 s or `truncated` |
