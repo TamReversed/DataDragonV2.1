@@ -44,3 +44,54 @@ def output_path(final):
     """Resolve a final message's download_url to a file under OUTPUT_FOLDER."""
     url = final["download_url"]
     return os.path.join(datadragon.app.config["OUTPUT_FOLDER"], url.rsplit("/", 1)[-1])
+
+
+def post_form(client, url, files=None, data=None):
+    """POST to a synchronous route. Returns (response, json_payload)."""
+    datadragon.rate_limit_store.clear()
+    form = dict(data or {})
+    handles = []
+    try:
+        for field, path in (files or {}).items():
+            fh = open(path, "rb")
+            handles.append(fh)
+            form[field] = (fh, os.path.basename(path))
+        resp = client.post(url, data=form, content_type="multipart/form-data")
+    finally:
+        for fh in handles:
+            fh.close()
+    return resp, resp.get_json(silent=True)
+
+
+def sync_output(payload):
+    """Resolve a synchronous route's 'filename' to a path under OUTPUT_FOLDER."""
+    return os.path.join(datadragon.app.config["OUTPUT_FOLDER"], payload["filename"])
+
+
+def drain_progress(client, session_id):
+    return sse_messages(client.get(f"/progress/{session_id}").get_data(as_text=True))
+
+
+def make_xlsx(path, header, rows, text_cols=()):
+    """Write an xlsx with exact control over cell types (text_cols are forced to text cells)."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(list(header))
+    for r in rows:
+        ws.append(list(r))
+    for row in ws.iter_rows(min_row=2):
+        for c in row:
+            if header[c.column - 1] in text_cols and c.value is not None:
+                c.value = str(c.value)
+                c.data_type = "s"
+            elif isinstance(c.value, str) and c.value.startswith("="):
+                c.data_type = "s"
+    wb.save(path)
+    return path
+
+
+def make_csv(path, text):
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    return path

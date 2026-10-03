@@ -1,0 +1,80 @@
+{
+ "final": {
+  "current": 100,
+  "message": "Complete!",
+  "percentage": 100,
+  "preview": {
+   "added": [],
+   "changed": [],
+   "removed": []
+  },
+  "stage": "done",
+  "summary": {
+   "added": 1,
+   "changed": 0,
+   "common": 2,
+   "file1_rows": 2,
+   "file2_rows": 3,
+   "removed": 0,
+   "unchanged": 2
+  },
+  "total": 100
+ },
+ "output": {
+  "Summary": [
+   [
+    "s:'Metric'",
+    "s:'Value'"
+   ],
+   [
+    "s:'File 1 Total Rows'",
+    "n:2"
+   ],
+   [
+    "s:'File 2 Total Rows'",
+    "n:3"
+   ],
+   [
+    "s:'Common Rows'",
+    "n:2"
+   ],
+   [
+    "s:'Added Rows (in File 2 only)'",
+    "n:1"
+   ],
+   [
+    "s:'Removed Rows (in File 1 only)'",
+    "n:0"
+   ],
+   [
+    "s:'Changed Rows'",
+    "n:0"
+   ],
+   [
+    "s:'Unchanged Rows'",
+    "n:2"
+   ]
+  ],
+  "Unchanged Rows": [
+   [
+    "s:'k1'",
+    "s:'v'"
+   ],
+   [
+    "n:1",
+    "s:'a'"
+   ],
+   [
+    "n:2",
+    "s:'b'"
+   ]
+  ]
+ },
+ "stages": [
+  "comparing",
+  "done",
+  "loading",
+  "preparing",
+  "saving"
+ ]
+}

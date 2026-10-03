@@ -1,0 +1,38 @@
+{
+ "final": {
+  "current": 2,
+  "message": "Complete!",
+  "original_columns": 2,
+  "original_rows": 2,
+  "percentage": 100,
+  "stage": "done",
+  "total": 2,
+  "transposed_columns": 3,
+  "transposed_rows": 2
+ },
+ "output": {
+  "Transposed Data": [
+   [
+    "s:'Original Column/Row'",
+    "n:0",
+    "n:1"
+   ],
+   [
+    "s:'k1'",
+    "n:1",
+    "n:2"
+   ],
+   [
+    "s:'v'",
+    "s:'a'",
+    "s:'b'"
+   ]
+  ]
+ },
+ "stages": [
+  "done",
+  "loading",
+  "processing",
+  "saving"
+ ]
+}

@@ -14,6 +14,12 @@ import pytest  # noqa: E402
 import datadragon  # noqa: E402
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--update-golden", action="store_true", default=False,
+        help="Rewrite golden snapshots. Only use with a justification listed in the commit message.")
+
+
 @pytest.fixture(scope="session")
 def dd():
     return datadragon
@@ -22,8 +28,10 @@ def dd():
 @pytest.fixture(autouse=True)
 def _reset_rate_limit():
     datadragon.rate_limit_store.clear()
+    datadragon.file_cache.clear()
     yield
     datadragon.rate_limit_store.clear()
+    datadragon.file_cache.clear()
 
 
 @pytest.fixture

