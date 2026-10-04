@@ -1056,3 +1056,41 @@ button.cached-file-item {
         box-shadow: none;
     }
 }
+
+/* ========================================= */
+/* Small screens: shared rules for forms,    */
+/* button rows and tables                    */
+/* ========================================= */
+
+.preview-table-wrapper,
+.results-table-container,
+.table-wrapper,
+.table-container {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+@media (max-width: 640px) {
+    .btn-group {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .btn-group .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .form-row,
+    .split-settings,
+    .columns-grid {
+        grid-template-columns: 1fr;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select,
+    textarea {
+        max-width: 100%;
+    }
+}

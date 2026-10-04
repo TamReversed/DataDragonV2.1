@@ -25,3 +25,8 @@ def test_preview_tables_share_height_and_overscroll_rules():
     for path in glob.glob("templates/*.html"):
         for block in re.findall(r"\.preview-table-wrapper \{[^}]*\}", open(path, encoding="utf-8").read()):
             assert "max-height: 360px" in block and "overscroll-behavior: auto" in block, path
+
+
+def test_main_css_has_the_shared_small_screen_rules():
+    css = open("static/css/main.css", encoding="utf-8").read()
+    assert "@media (max-width: 640px)" in css and ".btn-group {" in css and ".preview-table-wrapper," in css
