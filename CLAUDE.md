@@ -26,6 +26,7 @@
 - Every job/cache/download is owner-scoped via the signed session cookie; new endpoints must check ownership.
 - Never print or log cell values (PII). Use `log` (from `datadragon_logging`, JSON lines with the job id), never `print`.
 - Errors: raise `UserError("message for the user")` for bad input; any other exception reaches the browser only as `Processing failed (ref ...)` (details go to the log). Routes use `@api_errors`; background jobs use `@job_worker(...)` (see `datadragon.py` near `start_job`).
-- Each tool page is a Jinja template in `templates/` extending `base.html`; shared JS in `static/js/common.js`, charts in `static/js/charts.js`.
+- Each tool page is a Jinja template in `templates/` extending `base.html` (the shell: sidebar tree, theme switch); shared JS in `static/js/common.js`, charts in `static/js/charts.js`, shell behaviour in `static/js/shell.js`.
+- Design system "Ember & Ink": tokens in `static/css/tokens.css` (`--dd-*`, light and dark), components in `static/css/main.css`. Use the tokens, never literal colours; ember is only for the primary action and the mark. See `docs/redesign/design-system.md`. The tool list for the sidebar and hub is `templates/_tools.html`.
 - Do not push: `origin` is TamReversed/DataDragonV2.1; ask the owner.
 - Some notes above describe the target state (helpers introduced in Phases 1–3); check `PROGRESS.md` for what exists yet.

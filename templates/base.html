@@ -1,44 +1,92 @@
+{% from "_tools.html" import TOOL_GROUPS, TOOL_ALIASES %}
+{%- set current_path = TOOL_ALIASES.get(request.path, request.path) -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}DataDragon{% endblock %}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+        /* Apply a stored theme choice before the first paint */
+        try { var t = localStorage.getItem('dd-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}
+    </script>
+    <link rel="icon" href="{{ url_for('static', filename='images/brand/favicon.svg') }}" type="image/svg+xml">
+    <link rel="icon" href="{{ url_for('static', filename='images/brand/favicon-32.png') }}" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/brand/apple-touch-icon.png') }}">
+    <link rel="preload" href="{{ url_for('static', filename='fonts/fraunces-normal-latin.woff2') }}" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/a11y.css') }}">
     {% block head_extra %}{% endblock %}
     {% block styles %}{% endblock %}
 </head>
 <body>
-    <!-- Animated gradient background -->
-    <div class="gradient-bg" aria-hidden="true">
-        <div class="gradient-orb orb-1"></div>
-        <div class="gradient-orb orb-2"></div>
-        <div class="gradient-orb orb-3"></div>
-        <div class="gradient-orb orb-4"></div>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <!-- Decorative ink wash (dark theme) -->
+    <div class="page-wash" aria-hidden="true"></div>
+
+    <div class="shell">
+        <aside class="sidebar" id="sidebar">
+            <a class="brand" href="/" aria-label="DataDragon, all tools">
+                <svg viewBox="420 460 1200 1120" aria-hidden="true" focusable="false">{% include "brand/mark_paths.svg" %}</svg>
+                <span>Data<em>Dragon</em></span>
+            </a>
+            <button type="button" class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="sidebarBody">tools</button>
+
+            <div class="sidebar-body" id="sidebarBody">
+                <div class="tool-search" role="search">
+                    <label for="toolSearch" class="visually-hidden">Search tools</label>
+                    <input type="search" id="toolSearch" placeholder="search tools" autocomplete="off">
+                    <kbd aria-hidden="true">/</kbd>
+                    <div class="tool-search-status" id="toolSearchStatus" role="status" aria-live="polite"></div>
+                </div>
+
+                <nav class="tool-tree" aria-label="Tools">
+                    {% for group, tools in TOOL_GROUPS %}
+                    <details open>
+                        <summary>{{ group }}</summary>
+                        <ul>
+                            {% for href, name, description in tools %}
+                            <li data-keywords="{{ description }}"><a href="{{ href }}"{% if href == current_path %} aria-current="page"{% endif %}>{{ name }}</a></li>
+                            {% endfor %}
+                        </ul>
+                    </details>
+                    {% endfor %}
+                </nav>
+
+                <div class="sidebar-foot">
+                    <a href="/security-info"{% if current_path == '/security-info' %} aria-current="page"{% endif %}>security &amp; privacy</a>
+                    <button type="button" class="theme-toggle" id="themeToggle">dark mode</button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content {% block content_class %}{% endblock %}" id="main" tabindex="-1">
+            {% block header %}
+            <div class="page-header">
+                {%- set ns = namespace(group=None) -%}
+                {%- for group, tools in TOOL_GROUPS -%}{%- for href, name, description in tools -%}
+                    {%- if href == current_path -%}{%- set ns.group = group -%}{%- endif -%}
+                {%- endfor -%}{%- endfor %}
+                <p class="crumb"><a href="/">tools</a>{% if ns.group %} / {{ ns.group }}{% endif %}</p>
+                <a href="/" class="back-link">Back to Tools</a>
+                {% block page_title %}{% endblock %}
+            </div>
+            {% endblock %}
+
+            {% block content %}{% endblock %}
+        </main>
     </div>
 
-    <!-- Grid overlay -->
-    <div class="grid-overlay" aria-hidden="true"></div>
+    <!-- Illustrations for state blocks (DD.showState) -->
+    <template id="ddState-empty">{% include "brand/empty_results.svg" %}</template>
+    <template id="ddState-done">{% include "brand/done.svg" %}</template>
+    <template id="ddState-error">{% include "brand/error.svg" %}</template>
+    <template id="ddState-upload">{% include "brand/empty_upload.svg" %}</template>
 
-    <!-- Main content -->
-    <main class="main-content {% block content_class %}{% endblock %}">
-        {% block header %}
-        <div class="page-header">
-            <a href="/" class="back-link">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-                </svg>
-                Back to Tools
-            </a>
-            {% block page_title %}{% endblock %}
-        </div>
-        {% endblock %}
-
-        {% block content %}{% endblock %}
-    </main>
-
+    <script src="{{ url_for('static', filename='js/shell.js') }}"></script>
     <script src="{{ url_for('static', filename='js/common.js') }}"></script>
     {% block scripts %}{% endblock %}
 </body>

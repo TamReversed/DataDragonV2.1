@@ -7,7 +7,6 @@
     /* Tool-specific styles */
     .operations-section {
         background: var(--bg-card);
-        backdrop-filter: blur(20px);
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-xl);
         padding: var(--space-6);
@@ -43,7 +42,7 @@
 
     .tab.active {
         border-color: var(--accent-purple);
-        background: rgba(168, 85, 247, 0.15);
+        background: var(--dd-selected);
         color: var(--accent-purple);
     }
 
@@ -102,7 +101,7 @@
 
     .column-item.drag-over {
         border-color: var(--accent-pink);
-        background: rgba(168, 85, 247, 0.1);
+        background: var(--dd-selected);
     }
 
     .drag-handle {
@@ -143,7 +142,7 @@
     }
 
     .rename-arrow {
-        color: var(--accent-purple);
+        color: var(--dd-ink);
         font-weight: bold;
     }
 
@@ -189,7 +188,7 @@
 
     .delete-item.selected {
         border-color: var(--accent-red);
-        background: rgba(239, 68, 68, 0.1);
+        background: var(--dd-bad-bg);
     }
 
     .delete-checkbox {
@@ -233,78 +232,17 @@
 
     .checkbox-item.selected {
         border-color: var(--accent-purple);
-        background: rgba(168, 85, 247, 0.1);
+        background: var(--dd-selected);
     }
 
     .checkbox-item input {
         accent-color: var(--accent-purple);
     }
 
-    /* Cached files section */
-    .cached-files-section {
-        background: rgba(168, 85, 247, 0.1);
-        border: 1px solid rgba(168, 85, 247, 0.3);
-        border-radius: var(--radius-lg);
-        padding: var(--space-4);
-        margin-bottom: var(--space-6);
-        display: none;
-    }
-
-    .cached-files-header {
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
-        margin-bottom: var(--space-3);
-        color: var(--accent-purple);
-        font-weight: 600;
-        font-size: 14px;
-    }
-
-    .cached-files-list {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-2);
-    }
-
-    .cached-file-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background: var(--bg-card);
-        padding: var(--space-3) var(--space-4);
-        border-radius: var(--radius-md);
-        border: 1px solid var(--border-subtle);
-        cursor: pointer;
-        transition: all var(--transition-base);
-    }
-
-    .cached-file-item:hover {
-        border-color: var(--accent-purple);
-    }
-
-    .cached-file-name {
-        font-weight: 600;
-        font-size: 14px;
-        color: var(--text-primary);
-    }
-
-    .cached-file-meta {
-        font-size: 12px;
-        color: var(--text-muted);
-    }
-
-    .cached-file-source {
-        font-size: 11px;
-        background: rgba(168, 85, 247, 0.15);
-        color: var(--accent-purple);
-        padding: 4px 8px;
-        border-radius: var(--radius-sm);
-    }
-
     /* Results */
     .results {
-        background: rgba(16, 185, 129, 0.1);
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        background: var(--dd-ok-bg);
+        border: 1px solid var(--dd-ok);
         border-radius: var(--radius-lg);
         padding: var(--space-6);
         display: none;
@@ -328,8 +266,12 @@
 {% endblock %}
 
 {% block page_title %}
-<h1 class="page-title">Column Operations</h1>
-<p class="page-subtitle">Restructure your data: reorder columns, rename headers, delete unwanted columns, split or merge columns.</p>
+<div class="header-row">
+    <div>
+        <h1 class="page-title">Column <em>Operations</em></h1>
+        <p class="page-subtitle">Restructure your data: reorder columns, rename headers, delete unwanted columns, split or merge columns.</p>
+    </div>
+</div>
 {% endblock %}
 
 {% block content %}
@@ -338,17 +280,15 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;">
             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
         </svg>
-        <span>Use Previous Result</span>
+        <span>Earlier results: use one as the input</span>
     </div>
     <div class="cached-files-list" id="cachedFilesList"></div>
 </div>
 
 <div class="card">
     <div class="file-upload-zone" id="uploadArea">
-        <svg class="file-upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-        </svg>
-        <div class="file-upload-text">Click to Upload or Drag & Drop</div>
+        {% include "brand/empty_upload.svg" %}
+        <div class="file-upload-text">Drop a file here, or click to choose</div>
         <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files supported</div>
         <div id="fileSizeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
         <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" aria-label="Choose a file to upload">

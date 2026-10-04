@@ -32,10 +32,14 @@ def test_html2canvas_is_not_loaded_where_it_is_unused():
     assert "html2canvas" not in read("templates/column_analyzer.html")
 
 
-def test_palette_is_okabe_ito_and_exports_exist():
+def test_palette_comes_from_the_tokens_and_exports_exist():
     js = read("static/js/charts.js")
-    for color in ("#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#F0E442"):
-        assert color in js
+    assert "'--dd-viz-' + (i + 1)" in js and "dd:themechange" in js      # charts follow the theme
+    css = read("static/css/tokens.css")
+    for i in range(1, 9):
+        assert css.count(f"--dd-viz-{i}:") == 3, i                       # light, dark (system), dark (forced)
+    for color in ("#56B4E9", "#CC79A7", "#F0E442", "#009E73", "#E69F00"):  # Okabe-Ito hues in the dark theme
+        assert color in css
     for needed in ("horizontalBars", "doughnut", "addDownloadButton", "TOP_N = 25", "title: items => shown[items[0].dataIndex].label"):
         assert needed in js
 
@@ -59,10 +63,11 @@ def test_pipeline_charts_use_the_shared_helpers():
 
 def test_logo_is_served_in_right_sized_files_with_srcset():
     import os
-    for name, limit in (("datadragon-logo-128.png", 30_000), ("datadragon-logo-256.png", 30_000)):
-        assert os.path.getsize(f"static/images/{name}") < limit, name
-    assert os.path.exists("design/source/datadragon-logo.png")
+    for name, limit in (("datadragon-mark.svg", 20_000), ("datadragon-mark-dark.svg", 20_000), ("favicon.svg", 20_000),
+                        ("favicon-32.png", 5_000), ("apple-touch-icon.png", 20_000)):
+        assert os.path.getsize(f"static/images/brand/{name}") < limit, name
+    assert os.path.exists("design/source/brand/mark-a.svg")              # the master stays out of static/
     assert not os.path.exists("static/images/datadragon-logo.png")
-    for page in ("landing", "security_info"):
-        html = read(f"templates/{page}.html")
-        assert "datadragon-logo-128.png" in html and "datadragon-logo-256.png" in html and "srcset=" in html
+    base = read("templates/base.html")                                   # the mark is inline SVG, so it follows the theme
+    assert '{% include "brand/mark_paths.svg" %}' in base and "brand/favicon.svg" in base
+    assert "currentColor" in read("templates/brand/mark_paths.svg")

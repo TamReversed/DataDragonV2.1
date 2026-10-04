@@ -1,4 +1,4 @@
-"""WCAG 2.x contrast ratios for DataDragon's colour tokens (static/css/main.css).
+"""WCAG 2.x contrast ratios for DataDragon's colour tokens (static/css/tokens.css), in the light and dark themes.
 
 Usage: python scripts/contrast.py        (prints the table; exit 1 if a required pair is below its minimum)
 Semi-transparent text colours are composited over the page background, as a browser does.
@@ -7,7 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-CSS = Path(__file__).resolve().parent.parent / 'static' / 'css' / 'main.css'
+CSS = Path(__file__).resolve().parent.parent / 'static' / 'css' / 'main.css'      # the aliases; the values are in TOKENS
 
 
 def parse_color(text):
@@ -42,27 +42,38 @@ def ratio(fg, bg):
     return (l1 + 0.05) / (l2 + 0.05)
 
 
-def tokens():
-    css = CSS.read_text(encoding='utf-8')
-    root = css[css.index(':root'):css.index('}', css.index(':root'))]
-    return {name: value.strip() for name, value in re.findall(r'--([\w-]+):\s*([^;]+);', root)}
+TOKENS = CSS.parent / 'tokens.css'
+TEXT_TOKENS = ('ink', 'ink-2', 'ink-3', 'teal', 'ok', 'warn', 'bad')
+SURFACES = ('bg', 'surface', 'sunken', 'selected')
 
 
-def gradient_stops(value):
-    return [parse_color(c) for c in re.findall(r'#[0-9a-fA-F]{6}', value)]
+def theme_tokens(css, selector):
+    start = css.index(selector)
+    block = css[css.index('{', start):css.index('}', start)]
+    return {name: value.strip() for name, value in re.findall(r'--dd-([\w-]+):\s*(#[0-9a-fA-F]{6});', block)}
 
 
 def checks():
-    t = tokens()
-    page = parse_color(t['bg-primary'])
-    card = composite(parse_color('rgba(255,255,255,0.06)'), page)       # a hovered card is the lightest surface
+    css = TOKENS.read_text(encoding='utf-8')
+    light = theme_tokens(css, ':root {')
+    themes = {'light': light, 'dark': {**light, **theme_tokens(css, ':root[data-theme="dark"]')}}
     rows = []
-    for name in ('text-primary', 'text-secondary', 'text-muted'):
-        fg = parse_color(t[name])
-        rows.append((f'{name} on page', ratio(fg, page), 4.5))
-        rows.append((f'{name} on card', ratio(fg, card), 4.5))
-    for i, stop in enumerate(gradient_stops(t['gradient-button'])):
-        rows.append((f'white on button gradient stop {i + 1}', ratio((255, 255, 255, 1.0), stop), 4.5))
+    for theme, t in themes.items():
+        color = {name: parse_color(value) for name, value in t.items()}
+        for fg in TEXT_TOKENS:
+            for bg in SURFACES:
+                rows.append((f'{theme}: {fg} on {bg}', ratio(color[fg], color[bg]), 4.5))
+        rows.append((f'{theme}: on-primary on primary', ratio(color['on-primary'], color['primary']), 4.5))
+        rows.append((f'{theme}: on-primary on primary-hover', ratio(color['on-primary'], color['primary-hover']), 4.5))
+        for status in ('ok', 'warn', 'bad', 'info'):
+            rows.append((f'{theme}: {status} on {status}-bg', ratio(color[status], color[f'{status}-bg']), 4.5))
+            rows.append((f'{theme}: ink on {status}-bg', ratio(color['ink'], color[f'{status}-bg']), 4.5))
+        for bg in ('bg', 'surface'):                                   # borders of controls, focus ring, chart marks: 3:1
+            rows.append((f'{theme}: line on {bg}', ratio(color['line'], color[bg]), 3.0))
+            rows.append((f'{theme}: focus on {bg}', ratio(color['focus'], color[bg]), 3.0))
+        for i in range(1, 9):
+            rows.append((f'{theme}: viz-{i} on surface', ratio(color[f'viz-{i}'], color['surface']), 3.0))
+        rows.append((f'{theme}: viz-text on surface', ratio(color['viz-text'], color['surface']), 4.5))
     return rows
 
 

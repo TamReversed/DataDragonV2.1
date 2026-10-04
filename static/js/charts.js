@@ -1,27 +1,82 @@
-/* DataDragon chart system: one colour-blind-safe palette, shared defaults, readable bar charts and PNG export.
+/* DataDragon chart system: one colour-blind-safe palette (from the design tokens), shared defaults, readable bar
+ * charts and PNG export.
  *
  * Needs Chart.js (loaded by the page). Everything is built with DOM calls and Chart.js options, never with HTML
  * strings, so column names and values can't become markup.
  */
 const DDCharts = (() => {
-    // Okabe-Ito palette (distinguishable with the common kinds of colour blindness); black replaced by grey for dark pages
-    const palette = ['#0072B2', '#E69F00', '#009E73', '#CC79A7', '#56B4E9', '#D55E00', '#F0E442', '#999999'];
-    const TEXT = 'rgba(255, 255, 255, 0.8)';
-    const GRID = 'rgba(255, 255, 255, 0.1)';
+    // Colours come from the design tokens (static/css/tokens.css), so charts follow the light or dark theme.
+    // The series hues are the Okabe-Ito colour-blind-safe set; the fallbacks are the light theme.
+    const FALLBACK = ['#17605C', '#C4411B', '#0072B2', '#A8507F', '#8A6A00', '#2E7D4F', '#2B7FB8', '#6B6B6B'];
     const TOP_N = 25;
+
+    function token(name, fallback) {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return value || fallback;
+    }
+
+    function currentPalette() {
+        return FALLBACK.map((fallback, i) => token('--dd-viz-' + (i + 1), fallback));
+    }
+
+    function themeColors() {
+        return {
+            text: token('--dd-viz-text', '#44524E'),
+            grid: token('--dd-viz-grid', '#D9D1BF'),
+            surface: token('--dd-surface', '#FFFDF8'),
+            ink: token('--dd-ink', '#14211F'),
+            bg: token('--dd-bg', '#F6F1E7'),
+        };
+    }
+
+    // `palette` stays an array for the pages that index into it; it is refreshed when the theme changes
+    const palette = currentPalette();
 
     function applyDefaults() {
         if (!window.Chart) return;
-        Chart.defaults.color = TEXT;
-        Chart.defaults.borderColor = GRID;
-        Chart.defaults.font.family = "Inter, system-ui, sans-serif";
-        Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(18, 18, 26, 0.95)';
-        Chart.defaults.plugins.tooltip.titleColor = '#fff';
-        Chart.defaults.plugins.tooltip.bodyColor = 'rgba(255, 255, 255, 0.9)';
-        Chart.defaults.plugins.tooltip.padding = 12;
+        const c = themeColors();
+        Chart.defaults.color = c.text;
+        Chart.defaults.borderColor = c.grid;
+        Chart.defaults.font.family = "'Instrument Sans', system-ui, sans-serif";
+        Chart.defaults.plugins.tooltip.backgroundColor = c.ink;
+        Chart.defaults.plugins.tooltip.titleColor = c.bg;
+        Chart.defaults.plugins.tooltip.bodyColor = c.bg;
+        Chart.defaults.plugins.tooltip.padding = 10;
+        Chart.defaults.plugins.tooltip.cornerRadius = 4;
         Chart.defaults.maintainAspectRatio = false;
         Chart.defaults.responsive = true;
     }
+
+    /** Re-colour the charts already on the page after a theme switch. */
+    function retheme() {
+        const before = palette.slice();
+        const after = currentPalette();
+        after.forEach((color, i) => { palette[i] = color; });
+        if (!window.Chart) return;
+        applyDefaults();
+        const c = themeColors();
+        const swap = value => {
+            const i = typeof value === 'string' ? before.indexOf(value) : -1;
+            return i >= 0 ? after[i] : value;
+        };
+        Object.values(Chart.instances || {}).forEach(chart => {
+            chart.data.datasets.forEach(dataset => {
+                ['backgroundColor', 'borderColor'].forEach(key => {
+                    if (Array.isArray(dataset[key])) dataset[key] = dataset[key].map(swap);
+                    else if (dataset[key]) dataset[key] = swap(dataset[key]);
+                });
+                if (chart.config.type === 'doughnut') dataset.borderColor = c.surface;
+            });
+            Object.values(chart.options.scales || {}).forEach(scale => {
+                if (scale.grid) scale.grid.color = c.grid;
+                if (scale.ticks) scale.ticks.color = c.text;
+            });
+            const legend = chart.options.plugins && chart.options.plugins.legend;
+            if (legend && legend.labels) legend.labels.color = c.text;
+            chart.update('none');
+        });
+    }
+    document.addEventListener('dd:themechange', retheme);
 
     function shorten(text, max = 28) {
         const value = String(text);
@@ -67,7 +122,7 @@ const DDCharts = (() => {
             data: {
                 labels: shown.map(r => shorten(r.label)),
                 datasets: [{ label: options.datasetLabel || 'Value', data: shown.map(r => r.value), backgroundColor: colors,
-                             borderRadius: 3, borderSkipped: false }],
+                             borderRadius: 1, borderSkipped: false }],
             },
             options: {
                 indexAxis: 'y',
@@ -77,7 +132,7 @@ const DDCharts = (() => {
                         display: true,
                         labels: {
                             generateLabels: () => options.legend.map(item => ({ text: item.label, fillStyle: item.color,
-                                                                              strokeStyle: item.color, fontColor: TEXT })),
+                                                                              strokeStyle: item.color, fontColor: themeColors().text })),
                         },
                     } : { display: false },
                     tooltip: {
@@ -88,7 +143,7 @@ const DDCharts = (() => {
                     },
                 },
                 scales: {
-                    x: { beginAtZero: true, max: options.max, ticks: { callback: v => format(v) }, grid: { color: GRID } },
+                    x: { beginAtZero: true, max: options.max, ticks: { callback: v => format(v) }, grid: { color: themeColors().grid } },
                     y: { grid: { display: false }, ticks: { autoSkip: false } },
                 },
             },
@@ -113,13 +168,13 @@ const DDCharts = (() => {
             data: {
                 labels: options.labels,
                 datasets: [{ data: options.values, backgroundColor: options.labels.map((_, i) => palette[i % palette.length]),
-                             borderColor: 'rgba(18, 18, 26, 1)', borderWidth: 2 }],
+                             borderColor: themeColors().surface, borderWidth: 2 }],
             },
             options: {
                 cutout: '60%',
                 plugins: {
                     legend: { display: true, position: 'right',
-                              labels: { color: TEXT, font: { size: 12 }, padding: 12, usePointStyle: true, pointStyle: 'circle' } },
+                              labels: { color: themeColors().text, font: { size: 12 }, padding: 12, usePointStyle: true, pointStyle: 'rect' } },
                     tooltip: {
                         callbacks: {
                             label: item => item.label + ': ' + item.raw + ' (' + (total ? (item.raw / total * 100).toFixed(1) : 0) + '%)',
@@ -140,14 +195,14 @@ const DDCharts = (() => {
         link.remove();
     }
 
-    /** A chart as a PNG data URL on the page's dark background (a transparent PNG is unreadable in most viewers). */
+    /** A chart as a PNG data URL on the current surface colour (a transparent PNG is unreadable in most viewers). */
     function chartImage(chart) {
         const source = chart.canvas;
         const flat = document.createElement('canvas');
         flat.width = source.width;
         flat.height = source.height;
         const context = flat.getContext('2d');
-        context.fillStyle = '#12121a';
+        context.fillStyle = themeColors().surface;
         context.fillRect(0, 0, flat.width, flat.height);
         context.drawImage(source, 0, 0);
         return flat.toDataURL('image/png');
@@ -161,14 +216,14 @@ const DDCharts = (() => {
             clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
             clone.setAttribute('width', box.width);
             clone.setAttribute('height', box.height);
-            clone.style.color = '#cccccc';
+            clone.style.color = themeColors().text;
             const image = new Image();
             image.onload = () => {
                 const flat = document.createElement('canvas');
                 flat.width = box.width * scale;
                 flat.height = box.height * scale;
                 const context = flat.getContext('2d');
-                context.fillStyle = '#12121a';
+                context.fillStyle = themeColors().surface;
                 context.fillRect(0, 0, flat.width, flat.height);
                 context.drawImage(image, 0, 0, flat.width, flat.height);
                 resolve(flat.toDataURL('image/png'));
@@ -203,6 +258,11 @@ const DDCharts = (() => {
         const canvas = document.createElement('canvas');
         host.appendChild(canvas);
         document.body.appendChild(host);
+        const root = document.documentElement;
+        const theme = root.dataset.theme;
+        root.dataset.theme = 'light';                                   // a report is printed on white paper
+        const previous = palette.slice();
+        currentPalette().forEach((color, i) => { palette[i] = color; });
         try {
             const chart = build(canvas);
             const image = chartImage(chart);
@@ -211,8 +271,10 @@ const DDCharts = (() => {
             return { image, ...size };
         } finally {
             host.remove();
+            if (theme) root.dataset.theme = theme; else delete root.dataset.theme;
+            previous.forEach((color, i) => { palette[i] = color; });
         }
     }
 
-    return { offscreenImage, palette, applyDefaults, horizontalBars, doughnut, chartImage, svgImage, addDownloadButton, shorten };
+    return { offscreenImage, palette, colors: themeColors, retheme, applyDefaults, horizontalBars, doughnut, chartImage, svgImage, addDownloadButton, shorten };
 })();

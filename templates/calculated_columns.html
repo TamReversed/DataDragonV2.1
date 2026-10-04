@@ -4,159 +4,10 @@
 
 {% block styles %}
 <style>
-    /* Cached Files Section */
-    .cached-files-section {
-        background: rgba(168, 85, 247, 0.1);
-        border: 1px solid rgba(168, 85, 247, 0.3);
-        border-radius: var(--radius-lg);
-        padding: var(--space-4);
-        margin-bottom: var(--space-6);
-        display: none;
-    }
-
-    .cached-files-section.show {
-        display: block;
-    }
-
-    .cached-files-header {
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
-        margin-bottom: var(--space-3);
-        color: var(--accent-purple);
-        font-weight: 600;
-        font-size: 14px;
-    }
-
-    .cached-files-list {
-        display: flex;
-        flex-direction: column;
-        gap: var(--space-2);
-    }
-
-    .cached-file-item {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background: var(--bg-card);
-        padding: var(--space-3) var(--space-4);
-        border-radius: var(--radius-md);
-        border: 1px solid var(--border-subtle);
-        cursor: pointer;
-        transition: all var(--transition-base);
-    }
-
-    .cached-file-item:hover {
-        border-color: var(--accent-purple);
-    }
-
-    .cached-file-name {
-        font-weight: 600;
-        font-size: 14px;
-        color: var(--text-primary);
-    }
-
-    .cached-file-meta {
-        font-size: 12px;
-        color: var(--text-muted);
-        margin-top: 2px;
-    }
-
-    .cached-file-source {
-        font-size: 11px;
-        background: rgba(168, 85, 247, 0.15);
-        color: var(--accent-purple);
-        padding: 4px 8px;
-        border-radius: var(--radius-sm);
-    }
-
-    /* Data Preview Section */
-    .data-preview-section {
-        background: var(--bg-card);
-        backdrop-filter: blur(20px);
-        border: 1px solid var(--border-subtle);
-        border-radius: var(--radius-xl);
-        padding: var(--space-6);
-        margin-bottom: var(--space-6);
-        display: none;
-    }
-
-    .data-preview-section.show {
-        display: block;
-    }
-
-    .preview-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: var(--space-4);
-    }
-
-    .preview-title {
-        display: flex;
-        align-items: center;
-        gap: var(--space-2);
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .preview-title svg {
-        width: 20px;
-        height: 20px;
-        color: var(--accent-purple);
-    }
-
-    .preview-stats {
-        font-size: 13px;
-        color: var(--text-secondary);
-        background: var(--bg-tertiary);
-        padding: var(--space-1) var(--space-3);
-        border-radius: var(--radius-sm);
-    }
-
-    .preview-table-wrapper {
-        overflow-x: auto;
-        max-height: 360px;
-        border-radius: var(--radius-lg);
-        border: 1px solid var(--border-subtle);
-        overscroll-behavior: auto;
-    }
-
-    .preview-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 13px;
-    }
-
-    .preview-table th {
-        background: var(--gradient-purple-blue);
-        color: white;
-        padding: var(--space-3) var(--space-4);
-        text-align: left;
-        font-weight: 600;
-        position: sticky;
-        top: 0;
-        white-space: nowrap;
-    }
-
-    .preview-table td {
-        padding: var(--space-2) var(--space-4);
-        border-bottom: 1px solid var(--border-subtle);
-        max-width: 200px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--text-primary);
-    }
-
-    .preview-table tr:hover td {
-        background: var(--bg-card);
-    }
 
     /* Options Section */
     .options-section {
         background: var(--bg-card);
-        backdrop-filter: blur(20px);
         border: 1px solid var(--border-subtle);
         border-radius: var(--radius-xl);
         padding: var(--space-6);
@@ -177,7 +28,7 @@
 
     /* Formula input */
     .formula-input {
-        font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+        font-family: var(--dd-font-mono);
         min-height: 80px;
         resize: vertical;
     }
@@ -223,7 +74,7 @@
     }
 
     .column-chip:hover {
-        background: rgba(168, 85, 247, 0.15);
+        background: var(--dd-selected);
         border-color: var(--accent-purple);
         color: var(--accent-purple);
     }
@@ -295,16 +146,14 @@
     .function-category-title {
         font-size: 11px;
         font-weight: 700;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
         margin-bottom: var(--space-2);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
     }
 
     .function-item {
         padding: var(--space-1) var(--space-2);
         font-size: 12px;
-        font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+        font-family: var(--dd-font-mono);
         color: var(--text-primary);
         cursor: pointer;
         border-radius: var(--radius-sm);
@@ -313,7 +162,7 @@
     }
 
     .function-item:hover {
-        background: rgba(168, 85, 247, 0.15);
+        background: var(--dd-selected);
         color: var(--accent-purple);
     }
 
@@ -357,7 +206,7 @@
     }
 
     .preview-formula-table th {
-        background: rgba(16, 185, 129, 0.2);
+        background: var(--dd-ok-bg);
         padding: var(--space-3) var(--space-4);
         text-align: left;
         font-weight: 600;
@@ -371,7 +220,7 @@
     }
 
     .preview-formula-table .new-column {
-        background: rgba(16, 185, 129, 0.1);
+        background: var(--dd-ok-bg);
         color: var(--accent-green);
         font-weight: 500;
     }
@@ -385,8 +234,8 @@
 
     .btn-preview {
         padding: var(--space-3) var(--space-5);
-        background: rgba(16, 185, 129, 0.1);
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        background: var(--dd-ok-bg);
+        border: 1px solid var(--dd-ok);
         border-radius: var(--radius-md);
         color: var(--accent-green);
         font-size: 14px;
@@ -396,23 +245,13 @@
     }
 
     .btn-preview:hover:not(:disabled) {
-        background: rgba(16, 185, 129, 0.2);
-        border-color: rgba(16, 185, 129, 0.5);
+        background: var(--dd-ok-bg);
+        border-color: var(--dd-ok);
     }
 
     .btn-preview:disabled {
         opacity: 0.5;
         cursor: not-allowed;
-    }
-
-    /* Progress */
-    .progress-container {
-        display: none;
-        margin-top: var(--space-5);
-    }
-
-    .progress-container.show {
-        display: block;
     }
 
     .progress-text {
@@ -432,8 +271,8 @@
     }
 
     .success-box {
-        background: rgba(16, 185, 129, 0.1);
-        border: 1px solid rgba(16, 185, 129, 0.3);
+        background: var(--dd-ok-bg);
+        border: 1px solid var(--dd-ok);
         border-radius: var(--radius-lg);
         padding: var(--space-5);
         display: flex;
@@ -465,7 +304,7 @@
         gap: var(--space-2);
         padding: var(--space-3) var(--space-6);
         background: var(--gradient-cyan-green);
-        color: white;
+        color: var(--dd-ink-inverse);
         text-decoration: none;
         border-radius: var(--radius-md);
         font-weight: 600;
@@ -475,7 +314,7 @@
 
     .download-btn:hover {
         transform: translateY(-2px);
-        box-shadow: var(--shadow-md), 0 0 40px rgba(16, 185, 129, 0.3);
+        box-shadow: none;
     }
 
     .download-btn svg {
@@ -495,8 +334,12 @@
 {% endblock %}
 
 {% block page_title %}
-<h1 class="page-title">Calculated Columns</h1>
-<p class="page-subtitle">Create new columns using formulas with column references and functions. Build composite keys, concatenate fields, or derive calculated values.</p>
+<div class="header-row">
+    <div>
+        <h1 class="page-title">Calculated <em>Columns</em></h1>
+        <p class="page-subtitle">Create new columns using formulas with column references and functions. Build composite keys, concatenate fields, or derive calculated values.</p>
+    </div>
+</div>
 {% endblock %}
 
 {% block content %}
@@ -506,7 +349,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 18px; height: 18px;">
             <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
         </svg>
-        <span>Use Previous Result</span>
+        <span>Earlier results: use one as the input</span>
     </div>
     <div class="cached-files-list" id="cachedFilesList"></div>
 </div>
@@ -514,11 +357,9 @@
 <!-- Upload Area -->
 <div class="card mb-6">
     <div class="file-upload-zone" id="uploadArea">
-        <svg class="file-upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-        </svg>
-        <div class="file-upload-text">Drop your Excel or CSV file here</div>
-        <div class="file-upload-hint">or click to browse</div>
+        {% include "brand/empty_upload.svg" %}
+        <div class="file-upload-text">Drop a file here, or click to choose</div>
+        <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files</div>
         <div class="file-upload-hint mt-2" id="fileSizeInfo"></div>
         <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" aria-label="Choose a file to upload">
     </div>

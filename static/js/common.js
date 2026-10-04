@@ -220,21 +220,45 @@ const DD = (() => {
         };
     }
 
+    /* ---------- state blocks: "nothing found", "all done", "something went wrong" ---------- */
+    /**
+     * Replace the content of `container` with an illustration, a title and a line of text.
+     * kind: 'empty' | 'done' | 'error' | 'upload' (the illustrations are <template> elements in base.html).
+     */
+    function showState(container, kind, title, text) {
+        const block = document.createElement('div');
+        block.className = 'state';
+        const art = document.getElementById('ddState-' + kind);
+        if (art) block.appendChild(art.content.cloneNode(true));
+        const heading = document.createElement('p');
+        heading.className = 'state-title';
+        heading.textContent = title;
+        block.appendChild(heading);
+        if (text) {
+            const line = document.createElement('p');
+            line.className = 'state-text';
+            line.textContent = text;
+            block.appendChild(line);
+        }
+        container.replaceChildren(block);
+        return block;
+    }
+
     /* ---------- a small accessible dialog (use instead of alert/confirm) ---------- */
     function modal({ title, body, actions }) {
         const previous = document.activeElement;
         const overlay = document.createElement('div');
-        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;' +
-            'justify-content:center;z-index:10000;padding:16px';
+        overlay.style.cssText = 'position:fixed;inset:0;background:var(--dd-overlay,rgba(0,0,0,.6));display:flex;' +
+            'align-items:center;justify-content:center;z-index:10000;padding:16px';
         const dialog = document.createElement('div');
         dialog.setAttribute('role', 'dialog');
         dialog.setAttribute('aria-modal', 'true');
         dialog.setAttribute('aria-label', title);
-        dialog.style.cssText = 'max-width:520px;width:100%;background:var(--bg-secondary,#16161d);color:var(--text-primary,#fff);' +
-            'border:1px solid var(--border-subtle,#333);border-radius:12px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.5)';
+        dialog.style.cssText = 'max-width:520px;width:100%;background:var(--dd-surface,#fffdf8);color:var(--dd-ink,#14211f);' +
+            'border-radius:var(--dd-radius-lg,8px);padding:24px;box-shadow:var(--dd-shadow-float,0 12px 32px rgba(0,0,0,.3))';
         const heading = document.createElement('h2');
         heading.textContent = title;
-        heading.style.cssText = 'margin:0 0 12px;font-size:18px';
+        heading.style.cssText = 'margin:0 0 12px;font-size:1.5rem';
         const content = document.createElement('div');
         if (body instanceof Node) content.appendChild(body); else content.textContent = body || '';
         const bar = document.createElement('div');
@@ -314,5 +338,5 @@ const DD = (() => {
         requestAnimationFrame(() => { pending = false; enhanceAccessibility(); });
     }).observe(document.documentElement, { childList: true, subtree: true });
 
-    return { cachedSource, appendFile, initUpload, cachedFiles, startJob, modal, enhanceAccessibility };
+    return { cachedSource, appendFile, initUpload, cachedFiles, startJob, modal, showState, enhanceAccessibility };
 })();

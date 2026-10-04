@@ -74,7 +74,7 @@ gunicorn -k gthread -w 1 --threads 8 -t 0 -b 0.0.0.0:${PORT:-5002} datadragon:ap
 .venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py
 .venv/bin/pip-audit -r requirements.txt            # known vulnerabilities in the dependencies
 .venv/bin/python scripts/check_innerhtml.py        # file-derived text must be escaped in the page scripts
-.venv/bin/python scripts/contrast.py               # WCAG contrast of the colour tokens
+.venv/bin/python scripts/contrast.py               # WCAG contrast of the colour tokens, light and dark
 ```
 
 Golden snapshots (`tests/golden/`) pin the output of every tool; change them only on purpose
@@ -101,11 +101,12 @@ datadragon.py            Flask app: routes, jobs, tools
 datadragon_formula.py    Safe evaluator for Calculated Columns (no eval)
 datadragon_regex.py      Time-limited regular expressions for Find & Replace and Validation
 datadragon_logging.py    JSON-style logging with the job id
-templates/               One page per tool (base.html is the shared layout)
-static/                  css/ (main.css, a11y.css), js/ (common.js, charts.js), images/
+templates/               One page per tool; base.html is the shell (sidebar, theme), _tools.html the tool list,
+                         brand/ the inline SVG mark and illustrations
+static/                  css/ (tokens.css, main.css, a11y.css), js/ (shell.js, common.js, charts.js), images/brand/
 tests/                   pytest suite, golden snapshots, fixtures
 scripts/                 benchmarks, synthetic data, lint-style checks
-docs/                    benchmarks and screenshots
+docs/                    benchmarks and screenshots; docs/redesign/ holds the design system and its history
 design/source/           master artwork (not served)
 ```
 

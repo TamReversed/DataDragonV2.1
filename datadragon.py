@@ -1208,8 +1208,8 @@ CONTENT_SECURITY_POLICY = "; ".join([
     "default-src 'self'",
     # Inline scripts and styles are still used by every page (technical debt: move them to files, then drop 'unsafe-inline')
     "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",                          # the fonts are served from static/fonts
     "img-src 'self' data: blob:",
     "media-src 'self'",
     "connect-src 'self'",
@@ -1224,6 +1224,14 @@ CONTENT_SECURITY_POLICY = "; ".join([
 def file_too_large(error):
     limit_mb = app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
     return jsonify({'error': f'The upload is too large (the limit is {limit_mb} MB).'}), 413
+
+
+@app.errorhandler(404)
+def not_found(error):
+    """A page for people who followed a bad link; scripts and API calls keep the standard response."""
+    if request.method == 'GET' and request.accept_mimetypes.best == 'text/html':
+        return render_template('not_found.html'), 404
+    return error
 
 
 @app.after_request

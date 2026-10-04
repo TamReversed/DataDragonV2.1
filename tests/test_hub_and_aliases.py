@@ -18,7 +18,9 @@ def test_aliases_serve_the_same_pages(client):
 def test_landing_has_a_labelled_search_box_with_a_slash_shortcut(client):
     html = client.get("/").get_data(as_text=True)
     assert 'id="toolSearch"' in html and 'for="toolSearch"' in html and 'type="search"' in html
-    assert "event.key === '/'" in html and 'aria-live="polite"' in html and "[hidden] { display: none !important; }" in html
+    assert 'aria-live="polite"' in html and 'js/shell.js' in html
+    assert "event.key === '/'" in open("static/js/shell.js", encoding="utf-8").read()
+    assert "[hidden] { display: none !important; }" in open("static/css/main.css", encoding="utf-8").read()
 
 
 def test_preview_tables_share_height_and_overscroll_rules():
@@ -36,4 +38,6 @@ def test_landing_links_use_the_new_names_and_the_shortcut_respects_open_dialogs(
     html = client.get("/").get_data(as_text=True)
     assert 'href="/natural-key-finder"' in html and 'href="/data-anonymizer"' in html
     assert 'href="/data-scrubber"' not in html and 'href="/unique-identifier-finder"' not in html
-    assert "testFileModal').style.display === 'flex'" in html and "select, button, [role=dialog]" in html
+    shell = open("static/js/shell.js", encoding="utf-8").read()
+    assert "modal.style.display === 'flex'" in shell and "select, button, [role=dialog]" in shell
+    assert 'id="testFileModal"' in html and 'role="dialog"' in html
