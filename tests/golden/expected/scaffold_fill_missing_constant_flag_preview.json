@@ -1,0 +1,118 @@
+{
+ "json": {
+  "change": {
+   "cells_changed": 14,
+   "columns_added": [
+    "filled_columns"
+   ],
+   "columns_removed": [],
+   "reordered": false,
+   "rows_after": 40,
+   "rows_before": 40,
+   "rows_changed": 14,
+   "sample": [
+    {
+     "cells": [
+      {
+       "after": "?",
+       "before": null,
+       "column": "Region"
+      }
+     ],
+     "row": 4
+    },
+    {
+     "cells": [
+      {
+       "after": "?",
+       "before": null,
+       "column": "Region"
+      }
+     ],
+     "row": 7
+    },
+    {
+     "cells": [
+      {
+       "after": "?",
+       "before": null,
+       "column": "Region"
+      }
+     ],
+     "row": 10
+    },
+    {
+     "cells": [
+      {
+       "after": "?",
+       "before": null,
+       "column": "Amount"
+      }
+     ],
+     "row": 12
+    },
+    {
+     "cells": [
+      {
+       "after": "?",
+       "before": null,
+       "column": "Region"
+      }
+     ],
+     "row": 13
+    },
+    {
+     "cells": [
+      {
+       "after": "?",
+       "before": null,
+       "column": "Region"
+      }
+     ],
+     "row": 16
+    },
+    {
+     "cells": [
+      {
+       "after": "?",
+       "before": null,
+       "column": "Region"
+      }
+     ],
+     "row": 19
+    },
+    {
+     "cells": [
+      {
+       "after": "?",
+       "before": null,
+       "column": "Region"
+      }
+     ],
+     "row": 22
+    }
+   ]
+  },
+  "notes": [],
+  "success": true,
+  "summary": [
+   [
+    "Blank cells found",
+    14
+   ],
+   [
+    "Cells filled",
+    14
+   ],
+   [
+    "Filled in Region",
+    13
+   ],
+   [
+    "Filled in Amount",
+    1
+   ]
+  ]
+ },
+ "status": 200
+}

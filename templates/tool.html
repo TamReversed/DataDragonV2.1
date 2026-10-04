@@ -1,0 +1,108 @@
+{#- The page of a tool built on the scaffold (datadragon_tools.py). Everything tool-specific comes from `tool`. -#}
+{% extends "base.html" %}
+
+{% block title %}DataDragon - {{ tool.name }}{% endblock %}
+
+{% block page_title %}
+<div class="header-row">
+    <div>
+        <h1 class="page-title">{{ tool.title[0] }} <em>{{ tool.title[1] }}</em></h1>
+        <p class="page-subtitle">{{ tool.description }}</p>
+    </div>
+    {% if tool.how %}
+    <button class="help-btn" id="helpBtn" type="button" aria-haspopup="dialog">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+        </svg>
+        How it works
+    </button>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="cached-files-section" id="cachedFilesSection">
+    <div class="cached-files-header"><span>Earlier results: use one as the input</span></div>
+    <div class="cached-files-list" id="cachedFilesList"></div>
+</div>
+
+<div class="card mb-6">
+    <div class="file-upload-zone" id="uploadArea">
+        {% include "brand/empty_upload.svg" %}
+        <div class="file-upload-text">Drop a file here, or click to choose</div>
+        <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files</div>
+        <div id="fileSizeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
+        <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" aria-label="Choose a file to upload">
+    </div>
+</div>
+
+<div class="data-preview-section" id="dataPreviewSection">
+    <div class="preview-header">
+        <div class="preview-title"><span>Data preview</span></div>
+        <div class="preview-stats" id="previewStats"></div>
+    </div>
+    <div class="preview-table-wrapper">
+        <table class="preview-table" id="previewTable"><thead id="previewTableHead"></thead><tbody id="previewTableBody"></tbody></table>
+    </div>
+    <div class="preview-more-indicator" id="previewMoreIndicator"></div>
+</div>
+
+<form class="card tool-options" id="toolOptions" hidden novalidate>
+    <h2 class="card-title">Options</h2>
+    <div id="optionFields"></div>
+</form>
+
+<div class="btn-group mb-6" id="toolActions" hidden>
+    <button type="button" class="btn btn-primary" id="runBtn">{{ tool.action }}</button>
+    <button type="button" class="btn" id="previewBtn">Preview the changes</button>
+</div>
+
+<div class="error" id="error" role="alert"></div>
+
+<section class="card change-preview" id="changePreview" hidden aria-live="polite">
+    <h2 class="card-title">What will change</h2>
+    <div id="changeBody"></div>
+</section>
+
+<section class="results" id="results" aria-live="polite">
+    <div class="card">
+        <h2 class="card-title" id="resultTitle">Done</h2>
+        <dl class="tool-summary" id="resultSummary"></dl>
+        <div id="resultNotes"></div>
+        <div class="btn-group mt-4">
+            <a class="btn btn-primary" id="downloadBtn" href="#">Download the result</a>
+        </div>
+    </div>
+    <div class="card mt-4" id="resultPreviewCard">
+        <div class="preview-header">
+            <div class="preview-title"><span>Result preview</span></div>
+            <div class="preview-stats" id="resultStats"></div>
+        </div>
+        <div class="preview-table-wrapper">
+            <table class="preview-table"><thead id="resultHead"></thead><tbody id="resultBody"></tbody></table>
+        </div>
+    </div>
+</section>
+
+{% if tool.how %}
+<div class="help-modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-modal-content">
+        <div class="help-modal-header">
+            <h2 class="help-modal-title" id="helpTitle">How {{ tool.name }} works</h2>
+            <button type="button" class="help-modal-close" id="helpClose" aria-label="Close">&times;</button>
+        </div>
+        {% for heading, text in tool.how %}
+        <div class="help-section">
+            <h3 class="help-section-title">{{ heading }}</h3>
+            <div class="help-section-content">{{ text }}</div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="toolConfig">{{ tool_config | tojson }}</script>
+<script src="{{ url_for('static', filename='js/tool.js') }}"></script>
+{% endblock %}

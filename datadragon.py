@@ -40,6 +40,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.enums import TA_CENTER
 from xml.sax.saxutils import escape as pdf_text  # reportlab Paragraphs parse <...> as markup: escape file-derived text
 from datadragon_report import generate_readiness_report
+import datadragon_tools
 
 class CacheAwareRequest(Request):
     """A request whose ``files`` can also be filled from the owner's cached results.
@@ -851,7 +852,7 @@ def _git_commit():
 APP_COMMIT = _git_commit()
 
 
-def make_log(tool, rows_in=None, rows_out=None, params=None, job_id=None):
+def make_log(tool, rows_in=None, rows_out=None, params=None, job_id=None, step=None):
     """The record embedded in every output: what ran, with which code, when, with which settings, what went in and out.
     Callers pass the structure of the request (columns, operators, flags, counts), not literal search texts, filter
     values or rule values, which are often the very data being redacted. Parameters named like secrets are dropped."""
@@ -870,6 +871,8 @@ def make_log(tool, rows_in=None, rows_out=None, params=None, job_id=None):
         'Rows out': None if rows_out is None else int(rows_out),
         'Parameters': json.dumps(clean(params or {}), ensure_ascii=False, sort_keys=True),
         'Warnings': (notes or {}).get('warning', ''),
+        # The step as data (tool and settings), for tools built on the scaffold: what a recipe would replay
+        **({'Step': json.dumps(clean(step), ensure_ascii=False, sort_keys=True)} if step else {}),
     }
 
 
@@ -6423,6 +6426,88 @@ def pipeline_execute(session_id):
         'session_id': session_id,
         'message': 'Pipeline execution started'
     })
+
+# =============================================================================
+# SIMPLE TOOLS ON THE SCAFFOLD (datadragon_tools.py)
+# =============================================================================
+# Each registered tool gets a page, a "what would change" endpoint and a run endpoint. The tool itself is a
+# description plus one function on a DataFrame; everything around it (upload, options, output, log, cache) is here.
+
+def _load_tool_request(tool):
+    """The uploaded table and the checked options of a scaffold-tool request."""
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file (.xlsx, .xls, .csv)')
+    try:
+        raw = json.loads(request.form.get('options') or '{}')
+    except ValueError:
+        raise UserError('The options could not be read. Reload the page and try again.')
+    with temporary_upload(file, tool.slug) as path:
+        df = read_data_file(path)
+    try:
+        options = datadragon_tools.parse_options(tool, raw, df)
+    except datadragon_tools.ToolError as error:
+        raise UserError(str(error))
+    return secure_filename(file.filename), df, options
+
+
+def _run_tool(tool, df, options):
+    try:
+        return tool.run(df, options)
+    except datadragon_tools.ToolError as error:
+        raise UserError(str(error))
+
+
+def register_tool_routes(tool):
+    def page():
+        return render_template('tool.html', tool=tool, tool_config=datadragon_tools.describe(tool))
+
+    @rate_limit(max_requests=20, window=60)
+    @api_errors
+    def preview():
+        """What a run would change: counts and a few changed rows. Nothing is written."""
+        _, df, options = _load_tool_request(tool)
+        result = _run_tool(tool, df, options)
+        return jsonify({'success': True, 'change': make_json_serializable(datadragon_tools.describe_change(df, result.df)),
+                        'summary': make_json_serializable([[label, value] for label, value in result.summary]),
+                        'notes': result.notes})
+
+    @rate_limit(max_requests=20, window=60)
+    @api_errors
+    def run():
+        filename, df, options = _load_tool_request(tool)
+        result = _run_tool(tool, df, options)
+        job_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+        job_registry.bind(job_id, current_owner())
+        log = make_log(tool.name, len(df), len(result.df), result.details, job_id,
+                       step=datadragon_tools.step_record(tool, options))
+        path = job_output_path(job_id, f"{short_stem(filename)}_{tool.suffix}_{job_id}.xlsx")
+        if result.extra_sheets:
+            output_path = write_sheets(path, [(tool.sheet_name, result.df)] + result.extra_sheets, job_id, log=log)
+        else:
+            output_path = save_table(result.df, path, job_id, log=log)
+        output_filename = os.path.basename(output_path)
+        if output_filename.endswith(('.xlsx', '.csv')):            # a zip of CSVs cannot be the input of the next tool
+            cache_session_file(job_id, output_filename, output_path, len(result.df), len(result.df.columns), tool.name)
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'download_url': job_download_url(job_id, output_filename),
+            **job_notes.get(job_id, {}),
+            'summary': make_json_serializable([[label, value] for label, value in result.summary]),
+            'notes': result.notes,
+            'preview': {'columns': [str(c) for c in result.df.columns], 'rows': df_preview_text(result.df),
+                        'total_rows': len(result.df)},
+            'extra_sheets': [name for name, _ in result.extra_sheets],
+        })
+
+    name = tool.slug.replace('-', '_')
+    app.add_url_rule(f'/{tool.slug}', f'tool_page_{name}', page)
+    app.add_url_rule(f'/{tool.slug}/preview', f'tool_preview_{name}', preview, methods=['POST'])
+    app.add_url_rule(f'/{tool.slug}', f'tool_run_{name}', run, methods=['POST'])
+
+
+for _tool in datadragon_tools.TOOLS.values():
+    register_tool_routes(_tool)
+
 
 if __name__ == '__main__':
     # Local development server. Deployments use gunicorn (see Procfile): ONE worker with threads, because all job
