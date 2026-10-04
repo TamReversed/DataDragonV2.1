@@ -321,33 +321,40 @@
         <div class="config-title">Join Configuration</div>
         <div class="config-row">
             <div class="config-item">
-                <label class="config-label">Left File Key Column *</label>
+                <label class="config-label" for="leftKey">Left File Key Column *</label>
                 <p class="config-description">Column to use for joining from left file</p>
                 <select id="leftKey" class="form-select" required>
                     <option value="">-- Select Column --</option>
                 </select>
             </div>
             <div class="config-item">
-                <label class="config-label">Right File Key Column *</label>
+                <label class="config-label" for="rightKey">Right File Key Column *</label>
                 <p class="config-description">Column to use for joining from right file</p>
                 <select id="rightKey" class="form-select" required>
                     <option value="">-- Select Column --</option>
                 </select>
             </div>
         </div>
+        <div id="extraKeys"></div>
+        <div class="form-group">
+            <button type="button" class="btn btn-sm" id="addKeyBtn" disabled>Add another key column</button>
+            <p class="config-description">For a key made of several columns, such as company and invoice number. Rows match when every key column matches.</p>
+        </div>
         <div class="config-row">
             <div class="config-item">
-                <label class="config-label">Join Type *</label>
+                <label class="config-label" for="joinType">Join Type *</label>
                 <p class="config-description">How to combine the files</p>
                 <select id="joinType" class="form-select" required>
                     <option value="inner">Inner Join (matched only)</option>
                     <option value="left">Left Join (all left + matched right)</option>
                     <option value="right">Right Join (all right + matched left)</option>
                     <option value="outer">Outer Join (all from both)</option>
+                    <option value="left_only">Only in left (left rows with no match)</option>
+                    <option value="right_only">Only in right (right rows with no match)</option>
                 </select>
             </div>
             <div class="config-item">
-                <label class="config-label">Duplicate Key Handling</label>
+                <label class="config-label" for="duplicateHandling">Duplicate Key Handling</label>
                 <p class="config-description">What to do if duplicate keys exist</p>
                 <select id="duplicateHandling" class="form-select">
                     <option value="keep_first">Keep First (default)</option>
@@ -643,6 +650,7 @@
     }
 
     function populateLeftColumns() {
+        extraKeys.textContent = '';                       // the columns changed: extra key choices no longer apply
         leftKey.innerHTML = '<option value="">-- Select Column --</option>';
         leftColumnsGrid.innerHTML = '';
 
@@ -667,6 +675,7 @@
     }
 
     function populateRightColumns() {
+        extraKeys.textContent = '';
         rightKey.innerHTML = '<option value="">-- Select Column --</option>';
         rightColumnsGrid.innerHTML = '';
 
@@ -697,9 +706,56 @@
         }
 
         // Enable merge button when keys are selected
-        const keysSelected = leftKey.value && rightKey.value;
+        addKeyBtn.disabled = !(leftColumns.length && rightColumns.length);
+        const keysSelected = leftKey.value && rightKey.value && extraKeyPairs().every(([left, right]) => left && right);
         mergeBtn.disabled = !ready || !keysSelected;
     }
+
+    // More key columns (a composite key): pairs of selects, built with DOM calls
+    const extraKeys = document.getElementById('extraKeys');
+    const addKeyBtn = document.getElementById('addKeyBtn');
+    function keySelect(columns, label) {
+        const select = document.createElement('select');
+        select.className = 'form-select';
+        select.setAttribute('aria-label', label);
+        const blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = '-- Select Column --';
+        select.appendChild(blank);
+        columns.forEach(colInfo => {
+            const option = document.createElement('option');
+            option.value = option.textContent = colInfo.name || colInfo;
+            select.appendChild(option);
+        });
+        select.addEventListener('change', checkReadyToMerge);
+        return select;
+    }
+    addKeyBtn.addEventListener('click', () => {
+        const number = extraKeys.children.length + 2;
+        const row = document.createElement('div');
+        row.className = 'config-row extra-key';
+        const left = document.createElement('div');
+        left.className = 'config-item';
+        left.appendChild(keySelect(leftColumns, 'Left file key column ' + number));
+        const right = document.createElement('div');
+        right.className = 'config-item';
+        right.style.cssText = 'display: flex; flex-direction: row; align-items: center; gap: 8px;';
+        const rightSelect = keySelect(rightColumns, 'Right file key column ' + number);
+        rightSelect.style.cssText = 'flex: 1; min-width: 0;';
+        right.appendChild(rightSelect);
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn btn-sm';
+        remove.textContent = 'Remove';
+        remove.style.flex = 'none';
+        remove.setAttribute('aria-label', 'Remove key column ' + number);
+        remove.addEventListener('click', () => { row.remove(); checkReadyToMerge(); });
+        right.appendChild(remove);
+        row.append(left, right);
+        extraKeys.appendChild(row);
+        checkReadyToMerge();
+    });
+    const extraKeyPairs = () => [...extraKeys.querySelectorAll('.extra-key')].map(row => [...row.querySelectorAll('select')].map(s => s.value));
 
     leftKey.addEventListener('change', checkReadyToMerge);
     rightKey.addEventListener('change', checkReadyToMerge);
@@ -771,6 +827,10 @@
         DD.appendFile(formData, 'right_file', rightFile);
         formData.append('left_key', leftKey.value);
         formData.append('right_key', rightKey.value);
+        extraKeyPairs().forEach(([left, right]) => {
+            formData.append('extra_left_keys[]', left);
+            formData.append('extra_right_keys[]', right);
+        });
         formData.append('join_type', joinType.value);
         formData.append('duplicate_handling', duplicateHandling.value);
 
@@ -881,7 +941,7 @@
                     </div>
                     <div class="summary-item">
                         <div class="summary-label">Join Type</div>
-                        <div class="summary-value" style="font-size: 18px;">${summary.join_type.toUpperCase() /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>
+                        <div class="summary-value" style="font-size: 18px;">${escapeHtml(summary.join_type.replace('_', ' ').toUpperCase()) /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>
                     </div>
                 </div>
                 ${progressData.warning ? `<div role="alert" style="margin-top: 16px; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--dd-warn); background: var(--dd-warn-bg); color: var(--accent-yellow);">${escapeHtml(progressData.warning)}</div>` : ''}

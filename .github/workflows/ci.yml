@@ -25,6 +25,6 @@ jobs:
       - name: Template escaping check
         run: python scripts/check_innerhtml.py
       - name: "Lint (pyflakes, any warning fails the build)"
-        run: python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py datadragon_report.py datadragon_tools.py
+        run: python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py datadragon_report.py datadragon_tools.py datadragon_cover.py
       - name: Dependency audit (pip-audit)
         run: pip-audit -r requirements.txt

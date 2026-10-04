@@ -87,13 +87,25 @@
 
 <!-- Settings -->
 <div class="card mb-6">
+    <div class="form-group">
+        <label class="form-label" for="splitMode">Split</label>
+        <select class="form-select" id="splitMode">
+            <option value="rows">into files of a fixed number of rows</option>
+            <option value="column">into one file per value of a column</option>
+        </select>
+    </div>
     <div class="split-settings">
         <div class="form-group">
             <label class="form-label" for="baseFilename">File name prefix (optional)</label>
             <input type="text" class="form-input" id="baseFilename" placeholder="e.g. PR_Amounts_Load" autocomplete="off">
-            <div class="field-hint">Files are named <code>prefix_1of25.xlsx</code>, <code>prefix_2of25.xlsx</code> ... Letters, digits, - and _ only.</div>
+            <div class="field-hint" id="nameHint">Files are named <code>prefix_1of25.xlsx</code>, <code>prefix_2of25.xlsx</code> ... Letters, digits, - and _ only.</div>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="columnGroup" hidden>
+            <label class="form-label" for="splitColumn">Column</label>
+            <select class="form-select" id="splitColumn"><option value="">Choose a column</option></select>
+            <div class="field-hint">One file per value, for example one per region. Blank cells go to a file of their own. At most 500 files.</div>
+        </div>
+        <div class="form-group" id="rowsGroup">
             <label class="form-label" for="chunkSize">Rows per file</label>
             <input type="number" class="form-input" id="chunkSize" value="40000" min="1" max="1000000" required>
             <div class="field-hint">Between 1 and 1,000,000. The header row is repeated in every file.</div>
@@ -204,12 +216,36 @@
 
     DD.initUpload({
         zone: uploadArea, input: fileInput, sizeInfo: fileSizeInfo,
-        onFile: source => {
+        onFile: async source => {
             selectedFile = source;
             error.style.display = 'none';
             results.classList.remove('show');
             splitBtn.disabled = false;
+            // the column names, for splitting by the values of a column
+            splitColumn.length = 1;
+            try {
+                const body = DD.appendFile(new FormData(), 'file', source);
+                const data = await (await fetch('/get-columns', { method: 'POST', body })).json();
+                (data.columns || []).forEach(column => {
+                    const option = document.createElement('option');
+                    option.value = option.textContent = column.name;
+                    splitColumn.appendChild(option);
+                });
+            } catch (err) {
+                console.error('Could not read the column names:', err);
+            }
         },
+    });
+
+    const splitMode = document.getElementById('splitMode');
+    const splitColumn = document.getElementById('splitColumn');
+    splitMode.addEventListener('change', () => {
+        const byColumn = splitMode.value === 'column';
+        document.getElementById('columnGroup').hidden = !byColumn;
+        document.getElementById('rowsGroup').hidden = byColumn;
+        document.getElementById('nameHint').textContent = byColumn
+            ? 'Files are named prefix_North.xlsx, prefix_South.xlsx ... Letters, digits, - and _ only.'
+            : 'Files are named prefix_1of25.xlsx, prefix_2of25.xlsx ... Letters, digits, - and _ only.';
     });
 
     function showError(message) {
@@ -233,14 +269,19 @@
     }
 
     splitBtn.addEventListener('click', () => {
-        const rows = parseInt(chunkSize.value, 10);
+        const byColumn = splitMode.value === 'column';
+        const rows = byColumn ? 40000 : parseInt(chunkSize.value, 10);
         if (!selectedFile) return;
+        if (byColumn && !splitColumn.value) {
+            return showError('Choose the column whose values decide the files.');
+        }
         if (!(rows >= 1 && rows <= 1000000)) {
             return showError('Rows per file must be a whole number between 1 and 1,000,000.');
         }
         const formData = new FormData();
         DD.appendFile(formData, 'file', selectedFile);
         formData.append('chunk_size', String(rows));
+        if (byColumn) formData.append('split_column', splitColumn.value);
         formData.append('base_filename', baseFilename.value.trim());
 
         splitBtn.disabled = true;

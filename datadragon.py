@@ -384,13 +384,13 @@ def wants_cover():
     return _cover_choice.get()
 
 
-def start_job(function, *args):
-    """Run `function(*args)` in the job pool."""
+def start_job(function, *args, **kwargs):
+    """Run `function(*args, **kwargs)` in the job pool."""
     cover = wants_cover()
 
     def run():
         _cover_choice.set(cover)
-        return function(*args)
+        return function(*args, **kwargs)
     future = executor.submit(run)
     future.add_done_callback(_log_job_failure)
     return future
@@ -1234,7 +1234,11 @@ def get_file_preview(file_path, max_rows=20):
         raise UserError('The file could not be read. Check that it is a valid Excel or CSV file.')
 
 
-def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_filename=None, progress_queue=None, session_id=None):
+MAX_SPLIT_VALUES = 500      # files when splitting by the values of a column
+
+
+def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_filename=None, progress_queue=None, session_id=None,
+                     split_column=None):
     """
     Splits an Excel file into multiple files with up to `chunk_size` records each.
     Returns the number of files created and total rows processed.
@@ -1247,6 +1251,8 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
                       Files will be named: [base_filename]_1of10.xlsx, [base_filename]_2of10.xlsx, etc.
         progress_queue: Queue to send progress updates
         session_id: Session identifier for tracking progress
+        split_column: when given, one file per value of this column instead of files of `chunk_size` rows.
+                      Files are named [base_filename]_[value].xlsx (blank cells: [base_filename]_blank.xlsx)
     """
     def send_progress(stage, current, total, message):
         """Send progress update to queue"""
@@ -1265,6 +1271,8 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
     # Read the data from the Excel file
     df = read_data_file(input_file_path)
     total_rows = len(df)
+    if split_column:
+        return _split_by_column(df, output_folder, base_filename, split_column, send_progress)
     num_splits = (total_rows + chunk_size - 1) // chunk_size
     os.makedirs(output_folder, exist_ok=True)  # only once the file has been read successfully
     
@@ -1295,6 +1303,39 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
     # Don't send 'complete' here - wait until after zipping
     
     return output_files, total_rows, num_splits
+
+def _split_by_column(df, output_folder, base_filename, split_column, send_progress):
+    """One file per value of `split_column`, in the order the values first appear. Returns what split_excel_file returns."""
+    by_name = {str(c): c for c in df.columns}
+    if split_column not in by_name:
+        raise UserError(f'Column "{split_column}" is not in this file.')
+    column = df[by_name[split_column]]
+    blank = datadragon_tools.is_blank(column)
+    keys = column.map(lambda v: v.strip() if isinstance(v, str) else v).where(~blank, None)
+    group_ids = keys.groupby(keys, sort=False, dropna=False).ngroup()
+    count = int(group_ids.max()) + 1 if len(df) else 0
+    if count > MAX_SPLIT_VALUES:
+        raise UserError(f'"{split_column}" has {count:,} different values, which would make {count:,} files. '
+                        f'The limit is {MAX_SPLIT_VALUES}; choose a column with fewer values.')
+    os.makedirs(output_folder, exist_ok=True)
+    base = base_filename.strip() if base_filename and base_filename.strip() else 'split'
+    output_files, used = [], set()
+    for number in range(count):
+        chunk = df[(group_ids == number).to_numpy()]
+        key = keys[chunk.index[0]]
+        label = 'blank' if key is None or (not isinstance(key, str) and pd.isna(key)) else \
+            ''.join(c if c.isalnum() or c in '-_' else '_' for c in _comparable_text(key))[:60].strip('_') or 'value'
+        name, suffix = label, 2
+        while name.lower() in used:                       # two values can become the same file name
+            name, suffix = f'{label}_{suffix}', suffix + 1
+        used.add(name.lower())
+        filename = f'{base}_{name}.xlsx'
+        send_progress('splitting', number + 1, count, f'Creating {filename}...')
+        output_path = os.path.join(output_folder, filename)
+        write_excel(chunk, output_path)
+        output_files.append(output_path)
+    return output_files, len(df), count
+
 
 @app.route('/')
 def index():
@@ -1593,12 +1634,12 @@ def progress(session_id):
     })
 
 @job_worker(discard_job_dir=True)
-def process_file_async(upload_path, output_folder, chunk_size, base_filename, timestamp, progress_queue, session_id):
+def process_file_async(upload_path, output_folder, chunk_size, base_filename, timestamp, progress_queue, session_id, split_column=None):
     """Process file in background thread"""
     # Split the file
     log.info("Starting file split...")
     output_files, total_rows, num_splits = split_excel_file(
-        upload_path, output_folder, chunk_size, base_filename, progress_queue, session_id
+        upload_path, output_folder, chunk_size, base_filename, progress_queue, session_id, split_column
     )
     log.info(f"Split complete: {num_splits} files, {total_rows} rows")
         
@@ -1621,7 +1662,8 @@ def process_file_async(upload_path, output_folder, chunk_size, base_filename, ti
         # The chunks stay clean (they are loaded into other systems); the record of the split sits beside them
         zipf.writestr('_DataDragon_Log.json', log_as_json(make_log(
             'File Splitter', total_rows, total_rows,
-            {'chunk_size': chunk_size, 'base_filename': base_filename or 'split', 'files': num_splits}, session_id)))
+            {**({'split_by_column': split_column} if split_column else {'chunk_size': chunk_size}),
+             'base_filename': base_filename or 'split', 'files': num_splits}, session_id)))
         
     # Clean up individual files
     log.info("Cleaning up temporary files...")
@@ -1684,6 +1726,7 @@ def upload_file():
         return jsonify({'error': 'Chunk size must be between 1 and 1,000,000'}), 400
         
     base_filename = request.form.get('base_filename', '').strip()
+    split_column = request.form.get('split_column', '').strip() or None      # one file per value, instead of by rows
         
     # Sanitize base_filename to prevent path traversal
     if base_filename:
@@ -1707,7 +1750,8 @@ def upload_file():
     log.info(f"Output folder: {output_folder}")
         
     progress_queue = open_job(session_id)
-    start_job(process_file_async, upload_path, output_folder, chunk_size, base_filename, timestamp, progress_queue, session_id)
+    start_job(process_file_async, upload_path, output_folder, chunk_size, base_filename, timestamp, progress_queue, session_id,
+              split_column)
         
     return job_started(session_id)
     
@@ -3386,6 +3430,13 @@ def _free_name(wanted, taken):
 def merge_files_async(left_file_path, right_file_path, left_key, right_key, join_type, left_columns, right_columns, duplicate_handling, progress_queue, session_id):
     """Merge two files in background thread with progress tracking"""
     send_progress = progress_sender(progress_queue, session_id)
+    # One key column per side, or several (a composite key): both forms arrive here as lists of the same length
+    left_keys = [left_key] if isinstance(left_key, str) else list(left_key)
+    right_keys = [right_key] if isinstance(right_key, str) else list(right_key)
+    if len(left_keys) != len(right_keys) or not left_keys:
+        raise UserError('Choose the same number of key columns for the left and the right file.')
+    if len(set(left_keys)) != len(left_keys) or len(set(right_keys)) != len(right_keys):
+        raise UserError('A key column is chosen more than once.')
         
     send_progress('loading', 0, 100, 'Reading left file...', 5)
         
@@ -3396,15 +3447,17 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
         
     # Read right file
     df_right = read_data_file(right_file_path)
-    align_key_types(df_left, [left_key], df_right, [right_key])
+    align_key_types(df_left, [k for k in left_keys if k in df_left.columns], df_right, [k for k in right_keys if k in df_right.columns])
         
     send_progress('loading', 100, 100, f'Files loaded: Left {len(df_left):,} rows, Right {len(df_right):,} rows', 15)
         
     # Validate key columns exist
-    if left_key not in df_left.columns:
-        raise UserError(f"Key column '{left_key}' not found in left file")
-    if right_key not in df_right.columns:
-        raise UserError(f"Key column '{right_key}' not found in right file")
+    for key in left_keys:
+        if key not in df_left.columns:
+            raise UserError(f"Key column '{key}' not found in left file")
+    for key in right_keys:
+        if key not in df_right.columns:
+            raise UserError(f"Key column '{key}' not found in right file")
         
     # Validate selected columns exist
     if left_columns:
@@ -3422,27 +3475,25 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
     # Select columns to include (if specified)
     if left_columns:
         # Always include the key column
-        if left_key not in left_columns:
-            left_columns = [left_key] + left_columns
+        left_columns = [key for key in left_keys if key not in left_columns] + left_columns
         df_left = df_left[left_columns]
         
     if right_columns:
         # Always include the key column
-        if right_key not in right_columns:
-            right_columns = [right_key] + right_columns
+        right_columns = [key for key in right_keys if key not in right_columns] + right_columns
         df_right = df_right[right_columns]
         
     # Handle duplicate keys. Blank keys are not keys: rows without one are never duplicates of each other.
-    left_has_key = df_left[left_key].notna()
-    right_has_key = df_right[right_key].notna()
+    left_has_key = df_left[left_keys].notna().all(axis=1)       # a composite key with a blank part is not a key
+    right_has_key = df_right[right_keys].notna().all(axis=1)
     if duplicate_handling == 'error':
-        left_dupes = int((left_has_key & df_left[left_key].duplicated()).sum())
-        right_dupes = int((right_has_key & df_right[right_key].duplicated()).sum())
+        left_dupes = int((left_has_key & df_left.duplicated(subset=left_keys)).sum())
+        right_dupes = int((right_has_key & df_right.duplicated(subset=right_keys)).sum())
         if left_dupes > 0 or right_dupes > 0:
             raise UserError(f"Duplicate keys found: Left file has {left_dupes} duplicates, Right file has {right_dupes} duplicates. Please handle duplicates first.")
     elif duplicate_handling == 'keep_first':
-        df_left = df_left[~(left_has_key & df_left[left_key].duplicated(keep='first'))]
-        df_right = df_right[~(right_has_key & df_right[right_key].duplicated(keep='first'))]
+        df_left = df_left[~(left_has_key & df_left.duplicated(subset=left_keys, keep='first'))]
+        df_right = df_right[~(right_has_key & df_right.duplicated(subset=right_keys, keep='first'))]
         
     send_progress('merging', 0, 100, f'Performing {join_type} join...', 30)
         
@@ -3455,26 +3506,45 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
         'outer': 'outer'
     }
     how = join_type_map.get(join_type, 'inner')
-        
-    # Blank keys never match: they are swapped for unique placeholders for the join and restored after.
-    indicator = _free_name('__dd_merge__', list(df_left.columns) + list(df_right.columns))
-    left_for_merge = df_left.copy()
-    right_for_merge = df_right.copy()
-    left_for_merge[left_key] = _null_safe_keys(df_left[left_key])
-    right_for_merge[right_key] = _null_safe_keys(df_right[right_key])
-    merged_df = pd.merge(
-        left_for_merge,
-        right_for_merge,
-        left_on=left_key,
-        right_on=right_key,
-        how=how,
-        suffixes=('_left', '_right'),
-        indicator=indicator
-    )
-    _restore_blank_keys(merged_df, [left_key, right_key])
-    matched = int((merged_df[indicator] == 'both').sum())
-    merged_df = merged_df.drop(columns=[indicator])
-    del left_for_merge, right_for_merge
+
+    # Which rows have a partner in the other file (counted on the input rows, so the numbers can never go negative)
+    left_present = df_left[left_keys].notna().all(axis=1)
+    right_present = df_right[right_keys].notna().all(axis=1)
+    if len(left_keys) == 1:
+        left_partner = left_present & df_left[left_keys[0]].isin(df_right.loc[right_present, right_keys[0]])
+        right_partner = right_present & df_right[right_keys[0]].isin(df_left.loc[left_present, left_keys[0]])
+    else:
+        left_index = pd.MultiIndex.from_frame(df_left[left_keys].astype(object))
+        right_index = pd.MultiIndex.from_frame(df_right[right_keys].astype(object))
+        left_partner = left_present & pd.Series(left_index.isin(right_index[right_present.to_numpy()]), index=df_left.index)
+        right_partner = right_present & pd.Series(right_index.isin(left_index[left_present.to_numpy()]), index=df_right.index)
+
+    if join_type in ('left_only', 'right_only'):
+        # The rows of one file that have no partner in the other: nothing is joined, so no column is added
+        merged_df = (df_left[~left_partner] if join_type == 'left_only' else df_right[~right_partner]).copy()
+        matched = int(left_partner.sum()) if join_type == 'left_only' else int(right_partner.sum())
+    else:
+        # Blank keys never match: they are swapped for unique placeholders for the join and restored after.
+        indicator = _free_name('__dd_merge__', list(df_left.columns) + list(df_right.columns))
+        left_for_merge = df_left.copy()
+        right_for_merge = df_right.copy()
+        for key in left_keys:
+            left_for_merge[key] = _null_safe_keys(df_left[key])
+        for key in right_keys:
+            right_for_merge[key] = _null_safe_keys(df_right[key])
+        merged_df = pd.merge(
+            left_for_merge,
+            right_for_merge,
+            left_on=left_keys if len(left_keys) > 1 else left_keys[0],
+            right_on=right_keys if len(right_keys) > 1 else right_keys[0],
+            how=how,
+            suffixes=('_left', '_right'),
+            indicator=indicator
+        )
+        _restore_blank_keys(merged_df, left_keys + right_keys)
+        matched = int((merged_df[indicator] == 'both').sum())
+        merged_df = merged_df.drop(columns=[indicator])
+        del left_for_merge, right_for_merge
         
     send_progress('merging', 100, 100, f'Merged: {len(merged_df):,} rows', 60)
         
@@ -3482,12 +3552,8 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
     left_total = len(df_left)
     right_total = len(df_right)
     merged_total = len(merged_df)
-    left_keys = df_left[left_key]
-    right_keys = df_right[right_key]
-    left_present = left_keys.notna()
-    right_present = right_keys.notna()
-    left_with_partner = int((left_present & left_keys.isin(right_keys[right_present])).sum())
-    right_with_partner = int((right_present & right_keys.isin(left_keys[left_present])).sum())
+    left_with_partner = int(left_partner.sum())
+    right_with_partner = int(right_partner.sum())
     unmatched_left = left_total - left_with_partner
     unmatched_right = right_total - right_with_partner
         
@@ -3499,7 +3565,7 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
         base_with_partner, base_side, other_side = left_with_partner, 'left', 'right'
     multiplication_factor = round(matched / base_with_partner, 2) if base_with_partner else 1.0
     merge_warning = None
-    if matched > base_with_partner:
+    if matched > base_with_partner and join_type not in ('left_only', 'right_only'):
         merge_warning = (f"Some keys appear more than once in the {other_side} file, so rows were multiplied: "
                          f"{base_with_partner:,} {base_side} rows with a partner produced {matched:,} merged rows. "
                          f"Choose 'keep first' or 'error' for duplicates to avoid this.")
@@ -3609,6 +3675,13 @@ def merge_data():
         
     if not left_key or not right_key:
         return jsonify({'error': 'Please select key columns from both files'}), 400
+    # More key columns (a composite key), paired in order with the first
+    extra_left = [k.strip() for k in request.form.getlist('extra_left_keys[]')]
+    extra_right = [k.strip() for k in request.form.getlist('extra_right_keys[]')]
+    if len(extra_left) != len(extra_right) or not all(extra_left + extra_right):
+        return jsonify({'error': 'Every extra key needs a column from both files'}), 400
+    if extra_left:
+        left_key, right_key = [left_key] + extra_left, [right_key] + extra_right
         
     # Get selected columns (optional)
     left_columns = request.form.getlist('left_columns[]')
@@ -3929,8 +4002,43 @@ def compare_data():
 def pivot_generator():
     return render_template('pivot_generator.html')
 
+PIVOT_AGGREGATIONS = ('sum', 'mean', 'count', 'min', 'max', 'median', 'std', 'nunique')
+PIVOT_SHOW_AS = {'values': 'values', 'row': '% of row total', 'column': '% of column total', 'total': '% of grand total'}
+PIVOT_DATE_GROUPS = ('year', 'quarter', 'month')
+
+
+def pivot_date_labels(cells, column, unit):
+    """The cells of a row/column field as period labels ('2024', '2024-Q1', '2024-01'). Blank stays blank.
+    Returns (labels, how many cells were not dates)."""
+    try:
+        order = detect_date_order(cells.dropna().tolist())
+    except UserError as e:
+        raise UserError(f"Column '{column}': {e} Convert it with Column Normalizer first, then pivot the result.")
+    not_dates = 0
+
+    def label(value):
+        nonlocal not_dates
+        if value is None or (isinstance(value, float) and value != value) or value is pd.NaT:
+            return None
+        if isinstance(value, date) and not isinstance(value, datetime):
+            when = datetime(value.year, value.month, value.day)
+        else:
+            when = parse_date(value, order)
+        if when is None:
+            not_dates += 1
+            return '(not a date)'
+        if unit == 'year':
+            return f'{when.year:04d}'
+        if unit == 'quarter':
+            return f'{when.year:04d}-Q{(when.month - 1) // 3 + 1}'
+        return f'{when.year:04d}-{when.month:02d}'
+
+    return cells.map(label), not_dates
+
+
 @job_worker('file_path')
-def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, progress_queue, session_id):
+def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, progress_queue, session_id,
+                         extra_aggfuncs=None, show_as='values', date_groups=None):
     """Generate pivot table in background thread with progress tracking"""
     send_progress = progress_sender(progress_queue, session_id)
         
@@ -3967,6 +4075,17 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
     dimension_cols = list(dict.fromkeys((rows or []) + (columns or [])))
     pivot_input = df[list(dict.fromkeys(dimension_cols + list(values)))].copy()
         
+    # Dates used as labels can be grouped into years, quarters or months
+    not_dates = {}
+    for col, unit in (date_groups or {}).items():
+        if col not in dimension_cols:
+            raise UserError(f"'{col}' is grouped by {unit} but is not a row or column field.")
+        if unit not in PIVOT_DATE_GROUPS:
+            raise UserError(f"Dates can be grouped by year, quarter or month, not '{unit}'.")
+        pivot_input[col], skipped = pivot_date_labels(pivot_input[col], col, unit)
+        if skipped:
+            not_dates[col] = skipped
+
     # A blank row/column label would silently vanish from the table and from the totals
     for col in dimension_cols:
         pivot_input[col] = pivot_input[col].where(pivot_input[col].notna(), '(blank)')
@@ -3974,6 +4093,7 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
     # Files are read losslessly (values keep their stored type), so the values to add up are converted
     # explicitly. Anything that is not a number is ignored and reported.
     ignored_non_numeric = {}
+    original_input = pivot_input.copy() if extra_aggfuncs else pivot_input
     if aggfunc not in ('count', 'nunique'):
         converted = {}
         for value_col in values:
@@ -3988,64 +4108,117 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
     # Determine default aggregation if not provided: add up numbers, otherwise count
     if not aggfunc:
         aggfunc = 'sum' if all(pd.api.types.is_numeric_dtype(pivot_input[c]) for c in values) else 'count'
+
+    # Several aggregations side by side: each is worked out like a pivot of its own, then they are joined.
+    aggfuncs = list(dict.fromkeys([aggfunc] + [a for a in (extra_aggfuncs or []) if a]))
+    unknown = [a for a in aggfuncs if a not in PIVOT_AGGREGATIONS]
+    if unknown:
+        raise UserError(f"Unknown aggregation: {', '.join(unknown)}.")
+    if show_as not in PIVOT_SHOW_AS:
+        raise UserError(f"Unknown 'show values as' choice: {show_as}.")
+    if show_as != 'values':
+        if any(a not in ('sum', 'count') for a in aggfuncs):
+            raise UserError("Percentages of a total only make sense for Sum and Count. Choose those, or show plain values.")
+        if show_as == 'row' and not columns:
+            raise UserError("'% of row total' needs a column field: without one every row has a single value.")
+    numeric_input = None
+    if any(a not in ('count', 'nunique') for a in aggfuncs[1:]):
+        numeric_input = original_input.copy()
+        for value_col in values:
+            numeric = pd.to_numeric(original_input[value_col], errors='coerce')
+            ignored = int((numeric.isna() & original_input[value_col].notna()).sum())
+            numeric_input[value_col] = numeric
+            if ignored:
+                ignored_non_numeric[value_col] = ignored
         
-    # Create pivot table
-    pivot_params = {
-        'index': rows if rows else None,
-        'columns': columns if columns else None,
-        'values': values,
-        'aggfunc': aggfunc
-    }
+    def build(aggfunc, pivot_input):
+        # Create pivot table
+        pivot_params = {
+            'index': rows if rows else None,
+            'columns': columns if columns else None,
+            'values': values,
+            'aggfunc': aggfunc
+        }
         
-    # Remove None values from index/columns (but keep values)
-    if pivot_params['index'] is None:
-        del pivot_params['index']
-    if pivot_params['columns'] is None:
-        del pivot_params['columns']
+        # Remove None values from index/columns (but keep values)
+        if pivot_params['index'] is None:
+            del pivot_params['index']
+        if pivot_params['columns'] is None:
+            del pivot_params['columns']
         
-    # Empty combinations are 0 only where 0 is true (sums and counts); for mean/min/max they stay empty.
-    # dropna=False keeps every row in the totals (the default drops rows with a blank in ANY pivot column).
-    fill_value = 0 if aggfunc in ('sum', 'count', 'nunique') else None
-    margins_added = True
-    used_labels = {str(v) for col in dimension_cols for v in pivot_input[col].unique()}
-    margins_name = next(name for name in ('Total', 'Grand Total', 'Grand Total (all rows)') if name not in used_labels)
-    try:
-        pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False,
-                                  margins=True, margins_name=margins_name)
-    except Exception as e:
-        # If margins fail, try without
-        margins_added = False
-        log.warning(f"Warning: Could not add totals/margins: {e}")
-        pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False)
+        # Empty combinations are 0 only where 0 is true (sums and counts); for mean/min/max they stay empty.
+        # dropna=False keeps every row in the totals (the default drops rows with a blank in ANY pivot column).
+        fill_value = 0 if aggfunc in ('sum', 'count', 'nunique') else None
+        margins_added = True
+        used_labels = {str(v) for col in dimension_cols for v in pivot_input[col].unique()}
+        margins_name = next(name for name in ('Total', 'Grand Total', 'Grand Total (all rows)') if name not in used_labels)
+        try:
+            pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False,
+                                      margins=True, margins_name=margins_name)
+        except Exception as e:
+            # If margins fail, try without
+            margins_added = False
+            log.warning(f"Warning: Could not add totals/margins: {e}")
+            pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False)
         
-    # dropna=False also invents every combination of the row (and column) labels. Keep only combinations that
-    # exist in the data, plus the margin row/columns (those are always last, so found by position).
-    def last_per_block(labels):
-        last = {}
-        for position, label in enumerate(labels):
-            last[label[0] if isinstance(label, tuple) else None] = position
-        return set(last.values())
+        # dropna=False also invents every combination of the row (and column) labels. Keep only combinations that
+        # exist in the data, plus the margin row/columns (those are always last, so found by position).
+        def last_per_block(labels):
+            last = {}
+            for position, label in enumerate(labels):
+                last[label[0] if isinstance(label, tuple) else None] = position
+            return set(last.values())
         
-    if rows:
-        observed_rows = set(pivot_input[rows].itertuples(index=False, name=None))
-        labels = list(pivot_df.index)
-        keep_rows = []
-        for position, label in enumerate(labels):
-            is_margin = margins_added and position == len(labels) - 1
-            keep_rows.append(is_margin or (label if isinstance(label, tuple) else (label,)) in observed_rows)
-        pivot_df = pivot_df.loc[keep_rows]
-    if columns:
-        observed_columns = set(pivot_input[columns].itertuples(index=False, name=None))
-        margin_positions = last_per_block(pivot_df.columns) if margins_added else set()
-        keep_columns = [
-            position in margin_positions or tuple(label[1:1 + len(columns)]) in observed_columns
-            for position, label in enumerate(pivot_df.columns)
-        ]
-        pivot_df = pivot_df.loc[:, keep_columns]
+        if rows:
+            observed_rows = set(pivot_input[rows].itertuples(index=False, name=None))
+            labels = list(pivot_df.index)
+            keep_rows = []
+            for position, label in enumerate(labels):
+                is_margin = margins_added and position == len(labels) - 1
+                keep_rows.append(is_margin or (label if isinstance(label, tuple) else (label,)) in observed_rows)
+            pivot_df = pivot_df.loc[keep_rows]
+        if columns:
+            observed_columns = set(pivot_input[columns].itertuples(index=False, name=None))
+            margin_positions = last_per_block(pivot_df.columns) if margins_added else set()
+            keep_columns = [
+                position in margin_positions or tuple(label[1:1 + len(columns)]) in observed_columns
+                for position, label in enumerate(pivot_df.columns)
+            ]
+            pivot_df = pivot_df.loc[:, keep_columns]
         
-    # Margin columns by position: the last column of each value block when there is a column dimension
-    total_column_positions = last_per_block(pivot_df.columns) if (margins_added and columns) else set()
-        
+        # Margin columns by position: the last column of each value block when there is a column dimension
+        total_column_positions = last_per_block(pivot_df.columns) if (margins_added and columns) else set()
+
+        if show_as != 'values':
+            if not margins_added:
+                raise UserError("The totals could not be worked out for this pivot, so percentages of them cannot be shown.")
+            blocks = {}
+            for position, label in enumerate(pivot_df.columns):
+                blocks.setdefault(label[0] if columns else position, []).append(position)
+            shares = pivot_df.astype(float)
+            for positions in blocks.values():
+                block = pivot_df.iloc[:, positions].astype(float)
+                total_column = block.iloc[:, -1]
+                if show_as == 'row':
+                    block = block.div(total_column.where(total_column != 0), axis=0)
+                elif show_as == 'column':
+                    bottom = block.iloc[-1]
+                    block = block.div(bottom.where(bottom != 0), axis=1)
+                else:
+                    grand = total_column.iloc[-1]
+                    block = block / grand if grand else block * float('nan')
+                for offset, position in enumerate(positions):
+                    shares.iloc[:, position] = block.iloc[:, offset].to_numpy()
+            pivot_df = shares
+        return pivot_df, total_column_positions, margins_added
+
+    built = [build(a, pivot_input if a == aggfunc else original_input if a in ('count', 'nunique') else numeric_input)
+             for a in aggfuncs]
+    pivot_df, total_column_positions, margins_added = built[0]
+    value_formats = []
+    for a, (frame, _, _) in zip(aggfuncs, built):
+        value_formats += ['0.0%' if show_as != 'values' else ('#,##0' if a in ('count', 'nunique') else '#,##0.00')] * frame.shape[1]
+
     send_progress('preparing', 100, 100, f'Pivot table created: {len(pivot_df):,} rows, {len(pivot_df.columns)} columns', 50)
         
     send_progress('saving', 0, 100, 'Saving results...', 60)
@@ -4073,6 +4246,16 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         
     # Flatten MultiIndex columns BEFORE reset_index (if they exist)
     pivot_df = flatten_columns(pivot_df)
+    if len(built) > 1:
+        parts, offset, total_column_positions = [], 0, set()
+        for a, (frame, totals, added) in zip(aggfuncs, built):
+            frame = flatten_columns(frame).reindex(pivot_df.index)
+            frame.columns = [f'{a}_{name}' for name in frame.columns]
+            total_column_positions |= {offset + position for position in totals}
+            margins_added = margins_added and added
+            offset += frame.shape[1]
+            parts.append(frame)
+        pivot_df = pd.concat(parts, axis=1)
         
     # Reset index to make it a proper table structure
     # Handle MultiIndex index properly
@@ -4099,12 +4282,18 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
             len(df),
             len(pivot_df_reset),
             len(pivot_df_reset.columns),
-            aggfunc if aggfunc else 'sum',
+            ', '.join(aggfuncs),
             ', '.join(rows) if rows else 'None',
             ', '.join(columns) if columns else 'None',
             ', '.join(values) if values else 'All Numeric'
         ]
     }
+    if show_as != 'values':
+        summary_data['Metric'].append('Values Shown As')
+        summary_data['Value'].append(PIVOT_SHOW_AS[show_as])
+    if date_groups:
+        summary_data['Metric'].append('Dates Grouped')
+        summary_data['Value'].append(', '.join(f'{col} by {unit}' for col, unit in date_groups.items()))
     summary_df = pd.DataFrame(summary_data)
         
     # Ensure summary_df doesn't have MultiIndex columns
@@ -4130,7 +4319,6 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
     try:
         cover = begin_cover(workbook) if wants_cover() else None
         border = {'border': 1, 'border_color': '#4472C4'}
-        number_format = '#,##0' if aggfunc in ('count', 'nunique') else '#,##0.00'
         formats = {}
 
         def fmt(**props):
@@ -4179,7 +4367,7 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
                 elif isinstance(value, float) and value in (float('inf'), float('-inf')):
                     sheet.write_string(r, c, 'inf' if value > 0 else '-inf', fmt(align='right', **base))
                 elif isinstance(value, (int, float)) and not isinstance(value, bool):
-                    sheet.write_number(r, c, value, fmt(align='right', num_format=number_format, **base))
+                    sheet.write_number(r, c, value, fmt(align='right', num_format=value_formats[c - row_header_cols], **base))
                 elif isinstance(value, (datetime, date)):
                     sheet.write_datetime(r, c, value, fmt(align='left', num_format='yyyy-mm-dd hh:mm:ss', **base))
                 else:
@@ -4209,7 +4397,10 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
             plain_sheet('Source Data', df)
         pivot_log = make_log('Pivot Table Generator', len(df), n_rows,
                              {'rows': rows, 'columns': columns, 'values': values, 'aggfunc': aggfunc,
-                              'filters': filters}, session_id)
+                              'filters': filters,
+                              **({'more_aggregations': aggfuncs[1:]} if len(aggfuncs) > 1 else {}),
+                              **({'show_as': show_as} if show_as != 'values' else {}),
+                              **({'date_groups': date_groups} if date_groups else {})}, session_id)
         write_log_sheet(workbook, pivot_log)
         if cover:
             cover_sheets = [(sheet.get_name(), None, None) for sheet in workbook.worksheets()
@@ -4249,7 +4440,8 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
             'source_rows': int(source_rows_total),
             'pivot_rows': int(pivot_rows_total),
             'pivot_cols': int(pivot_cols_total),
-            'aggfunc': aggfunc if aggfunc else 'sum'
+            'aggfunc': ', '.join(aggfuncs),
+            **({'show_as': PIVOT_SHOW_AS[show_as]} if show_as != 'values' else {})
         },
         'preview': preview_data
     }
@@ -4257,6 +4449,10 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
         final_message['ignored_non_numeric'] = ignored_non_numeric
         final_message['warning'] = 'Non-numeric values were ignored: ' + ', '.join(
             f'{count} in {col}' for col, count in ignored_non_numeric.items()) + '.'
+    if not_dates:
+        final_message['warning'] = (final_message.get('warning', '') + ' Values that are not dates were grouped under '
+                                    '"(not a date)": ' + ', '.join(f'{count} in {col}' for col, count in not_dates.items())
+                                    + '.').strip()
         
     progress_queue.put(final_message)
         
@@ -4283,6 +4479,10 @@ def generate_pivot():
     columns = request.form.getlist('columns[]')
     values = request.form.getlist('values[]')
     aggfunc = request.form.get('aggfunc', 'sum').strip()
+    extra_aggfuncs = [a.strip() for a in request.form.getlist('extra_aggfuncs[]') if a.strip()]
+    show_as = request.form.get('show_as', 'values').strip() or 'values'
+    date_groups = {col: unit for col, unit in zip(request.form.getlist('date_group_columns[]'),
+                                                  request.form.getlist('date_group_units[]')) if col and unit}
     filters = {}
         
     # Get filters (if any)
@@ -4306,7 +4506,8 @@ def generate_pivot():
     save_upload(file, file_path, session_id)
         
     progress_queue = open_job(session_id)
-    start_job(generate_pivot_async, file_path, rows, columns, values, aggfunc, filters, progress_queue, session_id)
+    start_job(generate_pivot_async, file_path, rows, columns, values, aggfunc, filters, progress_queue, session_id,
+              extra_aggfuncs=extra_aggfuncs, show_as=show_as, date_groups=date_groups)
         
     return job_started(session_id)
     

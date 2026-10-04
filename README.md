@@ -24,11 +24,11 @@ It is a small Flask application: you upload a file, a tool processes it in memor
 | | Sort, Rank & Sample | Sort by up to three columns, add a rank, keep the top rows or a repeatable random sample |
 | | Column Operations, Calculated Columns | Reorder, rename, split, merge columns; formula columns |
 | | Group & Summarise | One row per group with sums, averages, counts, lowest, highest, first and last |
-| | Pivot Table Generator, Transpose | Pivot tables; flip rows and columns |
+| | Pivot Table Generator, Transpose | Pivot tables (several aggregations at once, % of row/column/total, dates grouped by month/quarter/year); flip rows and columns |
 | | Unpivot | Columns into rows (wide to long) |
-| | File Splitter | Splits a big workbook into chunks (for example 40,000 rows) in a ZIP |
+| | File Splitter | Splits a big workbook into chunks (for example 40,000 rows) or into one file per value of a column, in a ZIP |
 | Combine and compare | Append Files | Stack two to ten files, matching columns by name, with a mapping for columns named differently |
-| | Data Merge, Data Comparison, Schema Comparison | Joins; added/removed/changed rows; column structure differences |
+| | Data Merge, Data Comparison, Schema Comparison | Joins on one or several key columns, including "only in left/right"; added/removed/changed rows; column structure differences |
 | Documents | PDF to Word | Converts a PDF to an editable Word file |
 
 Results of one tool can be picked as the input of the next ("earlier results" on each page) without uploading them again.
@@ -58,6 +58,7 @@ Then open <http://127.0.0.1:5002>. The server listens on `127.0.0.1` only, so it
 | `DATADRAGON_OUTPUT_TTL_MIN` | `30` | Minutes a result stays downloadable before it is deleted |
 | `DATADRAGON_UPLOAD_TTL_MIN` | `30` | Minutes before a stray upload (failed or abandoned request) is deleted |
 | `DATADRAGON_MAX_JOBS` | `4` | Background jobs running at the same time |
+| `DATADRAGON_COVER_SHEET` | `1` | `0` leaves the branded cover sheet out of Excel results by default (each browser can still switch it in the sidebar) |
 | `DATADRAGON_TRUST_PROXY` | unset | `1` behind exactly one reverse proxy: believe its `X-Forwarded-For/-Host/-Proto` |
 | `DATADRAGON_ALLOWED_ORIGINS` | none | Extra host names allowed to POST (comma separated), if you cannot use the setting above |
 | `DATADRAGON_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
@@ -82,7 +83,7 @@ gunicorn -k gthread -w 1 --threads 8 -t 0 -b 0.0.0.0:${PORT:-5002} datadragon:ap
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q                      # the suite (about 90 seconds)
-.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py datadragon_report.py datadragon_tools.py
+.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py datadragon_report.py datadragon_tools.py datadragon_cover.py
 .venv/bin/pip-audit -r requirements.txt            # known vulnerabilities in the dependencies
 .venv/bin/python scripts/check_innerhtml.py        # file-derived text must be escaped in the page scripts
 .venv/bin/python scripts/contrast.py               # WCAG contrast of the colour tokens, light and dark

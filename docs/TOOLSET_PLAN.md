@@ -287,7 +287,8 @@ Still open:
 | B2 Append Files | Done (`/append-files`): two to ten files, columns matched by name, a table showing which file has which column, mapping for columns named differently, optional loose name matching and source-file column. Not replayable in a recipe (several inputs). |
 | B3 Unpivot | Done (scaffold tool; replayable). Unpivot then pivot returns the original table (tested). |
 | B4 Group & Summarise | Done (scaffold tool; replayable). Matches pandas `groupby`, including blank groups (tested). Slow with tens of thousands of groups (see `BASELINES.md`). |
-| B5 Merge: multi-key, anti-join | Not started |
-| B6 Splitter by column value | Not started |
-| B7 Pivot upgrades | Not started |
+| B5 Merge: multi-key, anti-join | Done. Several key pairs; "only in left" and "only in right". Single-key snapshots unchanged; checked against nested loops (tested). |
+| B6 Splitter by column value | Done. One file per value in first-appearance order, blanks in their own file, at most 500 files; no row lost (tested). |
+| B7 Pivot upgrades | Done. Several aggregations side by side (each equals the single pivot), % of row/column/grand total (Sum and Count only), dates grouped by year/quarter/month (ambiguous day/month order is refused, not guessed). Existing snapshots unchanged. |
+| Excel cover sheet | Done (not in the original plan). Branded first sheet in Excel outputs: tool, time, row counts, a linked list of the sheets. On by default; switch in the sidebar or `DATADRAGON_COVER_SHEET=0`. DataDragon skips it when it reads its own files back. |
 
