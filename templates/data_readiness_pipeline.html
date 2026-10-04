@@ -5,7 +5,9 @@
 {% block content_class %}wide{% endblock %}
 
 {% block head_extra %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"
+        integrity="sha256-Mh46P6mNpKqpV9EL5Xy7UU3gmJ7tj51ya10FkCzQGQQ=" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 {% endblock %}
 
 {% block styles %}
@@ -2074,18 +2076,6 @@
     let typesChart = null;
     let uniquenessChart = null;
 
-    // Chart color palette matching dark theme
-    const chartColors = {
-        purple: 'rgba(168, 85, 247, 0.8)',
-        blue: 'rgba(59, 130, 246, 0.8)',
-        cyan: 'rgba(6, 182, 212, 0.8)',
-        green: 'rgba(16, 185, 129, 0.8)',
-        yellow: 'rgba(250, 204, 21, 0.8)',
-        orange: 'rgba(249, 115, 22, 0.8)',
-        pink: 'rgba(236, 72, 153, 0.8)',
-        red: 'rgba(239, 68, 68, 0.8)'
-    };
-    const colorPalette = Object.values(chartColors);
 
     // Stage Navigation
     function goToStage(num) {
@@ -2456,157 +2446,31 @@
 
     function renderTypesChart(typesCount) {
         const canvas = document.getElementById('typesChart');
-        if (!canvas) {
-            console.error('typesChart canvas not found');
-            return;
-        }
-        const ctx = canvas.getContext('2d');
-
-        // Destroy existing chart
-        if (typesChart) {
-            typesChart.destroy();
-        }
-
+        if (!canvas) return;
+        if (typesChart) typesChart.destroy();
         const labels = Object.keys(typesCount);
-        const data = Object.values(typesCount);
-
-        if (labels.length === 0) {
-            console.warn('No data types to display');
-            return;
-        }
-
-        typesChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: labels,
-                datasets: [{
-                    data: data,
-                    backgroundColor: colorPalette.slice(0, labels.length),
-                    borderColor: 'rgba(18, 18, 26, 1)',
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: {
-                            color: 'rgba(255, 255, 255, 0.7)',
-                            font: { size: 11 },
-                            padding: 12,
-                            usePointStyle: true,
-                            pointStyle: 'circle'
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(18, 18, 26, 0.95)',
-                        titleColor: '#fff',
-                        bodyColor: 'rgba(255, 255, 255, 0.8)',
-                        borderColor: 'rgba(255, 255, 255, 0.1)',
-                        borderWidth: 1,
-                        padding: 12,
-                        callbacks: {
-                            label: function(context) {
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const pct = ((context.raw / total) * 100).toFixed(1);
-                                return `${escapeHtml(context.label)}: ${escapeHtml(context.raw)} (${pct}%)`;
-                            }
-                        }
-                    }
-                },
-                cutout: '60%'
-            }
+        if (labels.length === 0) return;
+        typesChart = DDCharts.doughnut(canvas, {
+            title: 'Columns by data type', labels, values: Object.values(typesCount),
         });
     }
 
     function renderUniquenessChart(columnEntries, totalRows) {
         const canvas = document.getElementById('uniquenessChart');
-        if (!canvas) {
-            console.error('uniquenessChart canvas not found');
-            return;
-        }
-        const ctx = canvas.getContext('2d');
+        if (!canvas) return;
+        if (uniquenessChart) uniquenessChart.destroy();
+        if (columnEntries.length === 0) return;
 
-        // Destroy existing chart
-        if (uniquenessChart) {
-            uniquenessChart.destroy();
-        }
-
-        if (columnEntries.length === 0) {
-            console.warn('No columns to display in uniqueness chart');
-            return;
-        }
-
-        // Sort by uniqueness ratio and take top 10
-        const sorted = columnEntries
-            .map(([col, info]) => ({
-                name: col.length > 15 ? col.substring(0, 15) + '...' : col,
-                fullName: col,
-                ratio: totalRows > 0 ? (info.unique_count || 0) / totalRows * 100 : 0
-            }))
-            .sort((a, b) => b.ratio - a.ratio)
-            .slice(0, 10);
-
-        uniquenessChart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: sorted.map(c => c.name),
-                datasets: [{
-                    label: 'Uniqueness %',
-                    data: sorted.map(c => c.ratio),
-                    backgroundColor: sorted.map(c =>
-                        c.ratio >= 99 ? chartColors.green :
-                        c.ratio >= 50 ? chartColors.cyan :
-                        chartColors.purple
-                    ),
-                    borderRadius: 4,
-                    borderSkipped: false
-                }]
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: 'rgba(18, 18, 26, 0.95)',
-                        titleColor: '#fff',
-                        bodyColor: 'rgba(255, 255, 255, 0.8)',
-                        borderColor: 'rgba(255, 255, 255, 0.1)',
-                        borderWidth: 1,
-                        padding: 12,
-                        callbacks: {
-                            title: function(items) {
-                                return sorted[items[0].dataIndex].fullName;
-                            },
-                            label: function(context) {
-                                return `Uniqueness: ${context.raw.toFixed(1)}%`;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        beginAtZero: true,
-                        max: 100,
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                        ticks: {
-                            color: 'rgba(255, 255, 255, 0.5)',
-                            callback: v => v + '%'
-                        }
-                    },
-                    y: {
-                        grid: { display: false },
-                        ticks: {
-                            color: 'rgba(255, 255, 255, 0.7)',
-                            font: { size: 11 }
-                        }
-                    }
-                }
-            }
+        // Colour = how close to a key; the legend says so
+        const ratio = info => totalRows > 0 ? (info.unique_count || 0) / totalRows * 100 : 0;
+        const [green, blue, orange] = [DDCharts.palette[2], DDCharts.palette[0], DDCharts.palette[1]];
+        uniquenessChart = DDCharts.horizontalBars(canvas, {
+            title: 'Uniqueness by column', datasetLabel: 'Uniqueness', max: 100, topN: 10,
+            labels: columnEntries.map(([col]) => col), values: columnEntries.map(([, info]) => ratio(info)),
+            colors: columnEntries.map(([, info]) => ratio(info) >= 99 ? green : ratio(info) >= 50 ? blue : orange),
+            format: v => Number(v).toFixed(1) + '%',
+            legend: [{ label: '99% or more (key candidate)', color: green }, { label: '50-99%', color: blue },
+                     { label: 'under 50%', color: orange }],
         });
     }
 

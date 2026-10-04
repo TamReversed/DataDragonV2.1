@@ -3,9 +3,12 @@
 {% block title %}DataDragon - Column Analyzer{% endblock %}
 
 {% block head_extra %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"
+        integrity="sha256-Mh46P6mNpKqpV9EL5Xy7UU3gmJ7tj51ya10FkCzQGQQ=" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+        integrity="sha512-qZvrmS2ekKPF2mSznTQsxqPgnpkI4DNTlrdUmTzrDgektczlKNRRhy5X5AAOnx5S09ydFYWWNSfcEqDTTHgtNA==" crossorigin="anonymous"
+        referrerpolicy="no-referrer"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 {% endblock %}
 
 {% block styles %}
@@ -1204,7 +1207,7 @@
                     <li><strong>Flask:</strong> Web framework for handling requests</li>
                     <li><strong>Server-Sent Events (SSE):</strong> Real-time progress updates</li>
                     <li><strong>Chart.js:</strong> Client-side chart rendering for visualizations</li>
-                    <li><strong>jsPDF/html2canvas:</strong> PDF export functionality</li>
+                    <li><strong>jsPDF:</strong> PDF export functionality</li>
                 </ul>
             </div>
         </div>
@@ -1775,7 +1778,7 @@
         createMissingDataChart(analysis);
 
         columnsContainer.innerHTML = '';
-        for (const [colName, colInfo] of Object.entries(analysis.columns)) {
+        for (const [idx, [colName, colInfo]] of Object.entries(analysis.columns).entries()) {
             const colCard = document.createElement('div');
             colCard.className = 'column-card';
 
@@ -1863,7 +1866,7 @@
                     <div class="chart-container">
                         <div class="chart-title">Distribution Visualization</div>
                         <div class="chart-wrapper">
-                            <canvas id="numericChart_${colName.replace(/[^a-zA-Z0-9]/g, '_')}"></canvas>
+                            <canvas id="numericChart_${Number(idx)}"></canvas>
                         </div>
                     </div>
                 `;
@@ -1894,7 +1897,7 @@
                     <div class="chart-container">
                         <div class="chart-title">Value Distribution</div>
                         <div class="chart-wrapper">
-                            <canvas id="categoricalChart_${colName.replace(/[^a-zA-Z0-9]/g, '_')}"></canvas>
+                            <canvas id="categoricalChart_${Number(idx)}"></canvas>
                         </div>
                     </div>
                 `;
@@ -1967,10 +1970,10 @@
                 if (colCard.classList.contains('expanded') && !chartsCreated) {
                     setTimeout(() => {
                         if (colInfo.is_numeric && colInfo.statistics) {
-                            createNumericChart(colName, colInfo);
+                            createNumericChart(colName, colInfo, idx);
                         }
                         if (colInfo.is_categorical && colInfo.top_values) {
-                            createCategoricalChart(colName, colInfo);
+                            createCategoricalChart(colName, colInfo, idx);
                         }
                         chartsCreated = true;
                     }, 100);
@@ -1979,81 +1982,30 @@
         }
     }
 
+    let missingDataChart = null;
+
     function createMissingDataChart(analysis) {
-        const ctx = document.getElementById('missingDataChart');
-        if (!ctx) return;
+        const canvas = document.getElementById('missingDataChart');
+        if (!canvas) return;
+        const entries = Object.entries(analysis.columns)
+            .map(([col, info]) => [col, info.null_percentage])
+            .filter(([, pct]) => pct > 0);
 
-        const columns = Object.keys(analysis.columns);
-        const nullPercentages = columns.map(col => analysis.columns[col].null_percentage);
-
-        const filteredData = columns
-            .map((col, idx) => ({ col, pct: nullPercentages[idx] }))
-            .filter(item => item.pct > 0)
-            .sort((a, b) => b.pct - a.pct);
-
-        const chart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: filteredData.map(item => item.col.length > 30 ? item.col.substring(0, 30) + '...' : item.col),
-                datasets: [{
-                    label: 'Missing Data %',
-                    data: filteredData.map(item => item.pct),
-                    backgroundColor: 'rgba(168, 85, 247, 0.6)',
-                    borderColor: 'rgba(168, 85, 247, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return 'Missing: ' + context.parsed.y.toFixed(2) + '%';
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 100,
-                        ticks: {
-                            callback: function(value) {
-                                return value + '%';
-                            },
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    },
-                    x: {
-                        ticks: {
-                            maxRotation: 45,
-                            minRotation: 45,
-                            autoSkip: false,
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    }
-                }
-            }
+        const pct = v => Number(v).toFixed(1) + '%';
+        missingDataChart = DDCharts.horizontalBars(canvas, {
+            title: 'Missing data by column', datasetLabel: 'Missing',
+            labels: entries.map(([col]) => col), values: entries.map(([, p]) => p), format: pct, max: 100,
         });
-
-        chartInstances.push(chart);
+        chartInstances.push(missingDataChart);
+        if (!canvas.parentElement.parentElement.querySelector('.chart-download')) {
+            DDCharts.addDownloadButton(canvas.parentElement, () => DDCharts.chartImage(missingDataChart), 'missing-data');
+        }
     }
 
-    function createNumericChart(colName, colInfo) {
+    function createNumericChart(colName, colInfo, idx) {
         // Box / range strip on a linear axis from min to max: the box spans Q1-Q3, the tick is the median and the
         // whiskers reach the minimum and maximum. (A bar chart of five quantile values would suggest quantities.)
-        const canvasId = `numericChart_${colName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const canvasId = `numericChart_${idx}`;
         const canvas = document.getElementById(canvasId);
         if (!canvas || !colInfo.statistics) return;
 
@@ -2109,78 +2061,24 @@
         svg.appendChild(el('text', { x: W / 2, y: H - 2, 'text-anchor': 'middle', 'font-size': 11, fill: 'currentColor', opacity: 0.7 },
             'Box = middle half of the values (Q1 to Q3), white line = median, whiskers = minimum and maximum'));
         canvas.replaceWith(svg);
+        DDCharts.addDownloadButton(svg.parentElement, () => DDCharts.svgImage(svg), 'distribution-' + idx);
     }
 
-    function createCategoricalChart(colName, colInfo) {
-        const canvasId = `categoricalChart_${colName.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        const ctx = document.getElementById(canvasId);
-        if (!ctx || !colInfo.top_values) return;
+    function categoricalChartOptions(colName, colInfo) {
+        const entries = Object.entries(colInfo.top_values);
+        return {
+            title: 'Most common values of ' + colName, datasetLabel: 'Count',
+            labels: entries.map(([value]) => value), values: entries.map(([, count]) => count),
+            format: v => Number(v).toLocaleString(),
+        };
+    }
 
-        const topValues = Object.entries(colInfo.top_values)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10);
-
-        const labels = topValues.map(([value]) =>
-            value.length > 20 ? value.substring(0, 20) + '...' : value
-        );
-        const data = topValues.map(([, count]) => count);
-
-        const chart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Count',
-                    data: data,
-                    backgroundColor: 'rgba(168, 85, 247, 0.6)',
-                    borderColor: 'rgba(168, 85, 247, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return 'Count: ' + context.parsed.x.toLocaleString();
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        beginAtZero: true,
-                        ticks: {
-                            callback: function(value) {
-                                return value.toLocaleString();
-                            },
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    },
-                    y: {
-                        ticks: {
-                            maxRotation: 0,
-                            minRotation: 0,
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    }
-                }
-            }
-        });
-
+    function createCategoricalChart(colName, colInfo, idx) {
+        const canvas = document.getElementById(`categoricalChart_${idx}`);
+        if (!canvas || !colInfo.top_values) return;
+        const chart = DDCharts.horizontalBars(canvas, categoricalChartOptions(colName, colInfo));
         chartInstances.push(chart);
+        DDCharts.addDownloadButton(canvas.parentElement, () => DDCharts.chartImage(chart), 'values-' + idx);
     }
 
     function formatNumber(num) {
@@ -2206,7 +2104,7 @@
 
         try {
             const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });   // compress: chart PNGs are otherwise stored raw
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
             let yPosition = 20;
@@ -2283,6 +2181,17 @@
                 });
 
                 yPosition += 5;
+
+                // The chart of the same numbers
+                const missing = DDCharts.offscreenImage(canvas => DDCharts.horizontalBars(canvas, {
+                    title: 'Missing data by column', datasetLabel: 'Missing', max: 100, fixedSize: { width: 900 },
+                    labels: columnsWithMissing.map(([name]) => name), values: columnsWithMissing.map(([, info]) => info.null_percentage),
+                    format: v => Number(v).toFixed(1) + '%',
+                }));
+                const missingHeight = maxWidth * missing.height / missing.width;
+                checkNewPage(missingHeight + 5);
+                pdf.addImage(missing.image, 'PNG', margin, yPosition, maxWidth, missingHeight, undefined, 'FAST');
+                yPosition += missingHeight + 8;
             }
 
             pdf.setFontSize(16);
@@ -2348,6 +2257,16 @@
                         pdf.text(count.toLocaleString(), pageWidth - margin - 20, yPosition, { align: 'right' });
                         yPosition += 5;
                     });
+
+                    // The chart of the most common values
+                    const values = DDCharts.offscreenImage(canvas => DDCharts.horizontalBars(canvas, {
+                        ...categoricalChartOptions(colName, colInfo), topN: 10, fixedSize: { width: 900 },
+                    }));
+                    const valuesHeight = maxWidth * values.height / values.width;
+                    checkNewPage(valuesHeight + 5);
+                    yPosition += 2;
+                    pdf.addImage(values.image, 'PNG', margin, yPosition, maxWidth, valuesHeight, undefined, 'FAST');
+                    yPosition += valuesHeight + 2;
                 }
 
                 yPosition += 8;
@@ -2357,7 +2276,7 @@
             }
 
             const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-            const filename = `Column_Analysis_${escapeHtml(timestamp)}.pdf`;
+            const filename = 'Column_Analysis_' + timestamp + '.pdf';
 
             pdf.save(filename);
 
