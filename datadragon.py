@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import os
 import zipfile
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 from werkzeug.datastructures import FileStorage, ImmutableMultiDict, MultiDict
 from werkzeug.utils import cached_property, secure_filename
 import shutil
@@ -28,6 +29,7 @@ from itertools import combinations, count as itertools_count
 
 from datadragon_formula import FormulaError, evaluate_formula as safe_evaluate_formula
 import datadragon_regex
+from datadragon_logging import current_job_id, log
 from datadragon_regex import PatternError, PatternTooComplex
 
 # PDF Report Generation
@@ -65,6 +67,8 @@ class CacheAwareRequest(Request):
 
 
 app = Flask(__name__)
+from flask.logging import default_handler as _flask_log_handler
+app.logger.removeHandler(_flask_log_handler)    # Flask's own handler would print every line a second time
 app.request_class = CacheAwareRequest
 if os.environ.get('DATADRAGON_TRUST_PROXY', '') == '1':
     # Behind exactly one reverse proxy (Railway, nginx ...): believe its X-Forwarded-For/-Host/-Proto, so the client
@@ -159,6 +163,7 @@ def register_job(session_id, progress_queue, owner=None):
     """Create the progress channel for a job and bind it to its owner."""
     progress_queues[session_id] = progress_queue
     progress_queue_created[session_id] = time.time()
+    cancelled_jobs.discard(session_id)           # a pipeline session starts several jobs under one id
     original_put = progress_queue.put
 
     def put_and_touch(item, *args, **kwargs):
@@ -221,9 +226,6 @@ def _log_job_failure(future):
 
 
 # ------------------------------------------------------------------ logging and error hygiene
-from datadragon_logging import current_job_id, log
-
-
 class UserError(ValueError):
     """A problem with the user's input, worded for the user. Only these messages (and FormulaError / PatternError)
     are sent to the browser; any other exception is logged and the browser gets a generic message with a reference."""
@@ -352,6 +354,8 @@ def api_errors(view):
     def wrapped(*args, **kwargs):
         try:
             return view(*args, **kwargs)
+        except HTTPException:
+            raise                                       # 413, 400 ... from werkzeug keep their own meaning
         except PatternTooComplex as error:
             return jsonify({'error': str(error)}), 422
         except (UserError, FormulaError, PatternError) as error:
@@ -849,7 +853,8 @@ APP_COMMIT = _git_commit()
 
 def make_log(tool, rows_in=None, rows_out=None, params=None, job_id=None):
     """The record embedded in every output: what ran, with which code, when, with which settings, what went in and out.
-    Parameters named like secrets are dropped; cell values are never included."""
+    Callers pass the structure of the request (columns, operators, flags, counts), not literal search texts, filter
+    values or rule values, which are often the very data being redacted. Parameters named like secrets are dropped."""
     def clean(value):
         if isinstance(value, dict):
             return {str(k): clean(v) for k, v in value.items() if not _SECRET_PARAM.search(str(k))}
@@ -962,6 +967,11 @@ def sheet_too_big(df):
     return len(df) + 1 > EXCEL_MAX_ROWS or len(df.columns) > EXCEL_MAX_COLUMNS
 
 
+def short_stem(filename, limit=60):
+    """File name without extension, cut so that chaining tools (each adds a suffix and a job id) cannot grow it forever."""
+    return os.path.splitext(filename)[0][:limit]
+
+
 def write_log_sidecar(csv_path, log, job_id):
     """For a CSV output: `<name>.log.json` next to it, offered through the job's `log_url`."""
     sidecar = os.path.splitext(csv_path)[0] + '.log.json'
@@ -1072,7 +1082,7 @@ def count_data_rows(path):
     """Number of data rows (the header excluded) without loading the file.
 
     CSV: counted as records by the csv module, so a quoted cell containing a line break is one row, not two.
-    xlsx: the sheet's dimension from openpyxl in read-only mode. xls: read one column with pandas.
+    xlsx: the rows up to the last non-empty one, walked with openpyxl in read-only mode. xls: read one column with pandas.
     """
     extension = get_file_extension(path)
     if extension == 'csv':
@@ -1083,11 +1093,15 @@ def count_data_rows(path):
         from openpyxl import load_workbook
         workbook = load_workbook(path, read_only=True, data_only=True)
         try:
+            # The stored dimension is often wrong (formatted empty rows at the end, or a stale value), so walk the rows
+            # and take the last one that holds something, which is where pandas stops reading.
+            last_filled = 0
             sheet = workbook.worksheets[0]
-            rows = sheet.max_row
-            if rows is None:                                  # a sheet without stored dimensions: walk it
-                rows = sum(1 for _ in sheet.iter_rows(values_only=True))
-            return max(rows - 1, 0)
+            sheet.reset_dimensions()                       # read-only mode would stop at the stored (maybe wrong) size
+            for number, row in enumerate(sheet.iter_rows(values_only=True), 1):
+                if any(cell is not None for cell in row):
+                    last_filled = number
+            return max(last_filled - 1, 0)
         finally:
             workbook.close()
     return len(read_data_file(path, usecols=[0]))
@@ -1205,6 +1219,12 @@ CONTENT_SECURITY_POLICY = "; ".join([
     "form-action 'self'",
     "frame-ancestors 'none'",
 ])
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def file_too_large(error):
+    limit_mb = app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
+    return jsonify({'error': f'The upload is too large (the limit is {limit_mb} MB).'}), 413
 
 
 @app.after_request
@@ -1433,7 +1453,7 @@ def progress(session_id):
                 
                 # Serialize the data - handle large analysis objects
                 try:
-                    json_data = json.dumps(progress_data, default=str)
+                    json_data = json.dumps(make_json_serializable(progress_data), allow_nan=False)   # JSON has no NaN
                     yield f"data: {json_data}\n\n"
                     last_ping = time.time()
                 except Exception as json_err:
@@ -1442,7 +1462,7 @@ def progress(session_id):
                     if 'analysis' in progress_data:
                         log.info("Attempting to send without analysis data...")
                         progress_data_no_analysis = {k: v for k, v in progress_data.items() if k != 'analysis'}
-                        json_data = json.dumps(progress_data_no_analysis, default=str)
+                        json_data = json.dumps(make_json_serializable(progress_data_no_analysis), allow_nan=False)
                         yield f"data: {json_data}\n\n"
                         # Send analysis separately in chunks if needed
                         if progress_data.get('stage') == 'done':
@@ -4355,7 +4375,7 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
         if write_valid and len(valid_df) > 0:
             valid_df.to_excel(writer, sheet_name='Valid Records', index=False)
         log_frame(make_log('Data Validation', total_rows, valid_count,
-                           {'rules': rules, 'invalid_rows': invalid_count, 'rule_failures': failures_total,
+                           {'rules': [{k: v for k, v in r.items() if k != 'value'} for r in rules], 'invalid_rows': invalid_count, 'rule_failures': failures_total,
                             'details_truncated': truncated}, session_id)).to_excel(writer, sheet_name=LOG_SHEET, index=False)
         
     download_url = job_download_url(session_id, f"{output_filename}.xlsx")
@@ -5289,9 +5309,9 @@ def row_filter():
         })
 
     # Save filtered file
-    base_name = os.path.splitext(filename)[0]
+    base_name = short_stem(filename)
     output_path = save_table(filtered_df, job_output_path(session_id, f"{base_name}_filtered_{session_id}.xlsx"), session_id,
-                             log=make_log('Row Filter', original_rows, matching_rows, {'conditions': conditions}, session_id))
+                             log=make_log('Row Filter', original_rows, matching_rows, {'conditions': [{k: v for k, v in c.items() if k != 'value'} for c in conditions]}, session_id))
     output_filename = os.path.basename(output_path)
 
     # Cache the result
@@ -5396,10 +5416,10 @@ def find_replace():
             df[col] = pd.Series(values, index=df.index, dtype=object)
 
     # Save the modified file
-    base_name = os.path.splitext(filename)[0]
+    base_name = short_stem(filename)
     output_path = save_table(df, job_output_path(session_id, f"{base_name}_replaced_{session_id}.xlsx"), session_id,
                              log=make_log('Find & Replace', len(df), len(df),
-                                          {'find_text': find_text, 'replace_text': replace_text, 'column': column,
+                                          {'find_text_length': len(find_text), 'replace_text_length': len(replace_text), 'column': column,
                                            'case_sensitive': case_sensitive, 'use_regex': use_regex,
                                            'match_whole_cell': match_whole_cell, 'replacements_made': int(total_replacements),
                                            'rows_affected': len(rows_affected)}, session_id))
@@ -5502,7 +5522,7 @@ def calculated_columns():
     df[new_column_name] = result
 
     # Save the modified file
-    base_name = os.path.splitext(filename)[0]
+    base_name = short_stem(filename)
     output_path = save_table(df, job_output_path(session_id, f"{base_name}_calculated_{session_id}.xlsx"), session_id,
                              log=make_log('Calculated Columns', len(df), len(df),
                                           {'new_column': new_column_name, 'formula': formula}, session_id))
@@ -5764,7 +5784,7 @@ def column_operations():
         return jsonify({'error': f'Unknown operation: {operation}'}), 400
 
     # Save the modified file
-    base_name = os.path.splitext(filename)[0]
+    base_name = short_stem(filename)
     output_path = save_table(df, job_output_path(session_id, f"{base_name}_modified_{session_id}.xlsx"), session_id,
                              log=make_log('Column Operations', len(df), len(df),
                                           {'operation': operation, 'summary': operation_summary}, session_id))

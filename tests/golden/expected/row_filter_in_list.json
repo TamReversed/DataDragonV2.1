@@ -391,7 +391,7 @@
    ],
    [
     "s:'Parameters'",
-    "s:'{\"conditions\": [{\"column\": \"Name\", \"operator\": \"in_list\", \"value\": \"alice, carol\"}]}'"
+    "s:'{\"conditions\": [{\"column\": \"Name\", \"operator\": \"in_list\"}]}'"
    ],
    [
     "s:'Warnings'",

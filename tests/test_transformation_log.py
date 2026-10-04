@@ -33,7 +33,8 @@ def test_find_replace_output_has_the_log(client, tmp_path):
     log = log_of(output_path(payload))
     check_shape(log, "Find & Replace")
     params = json.loads(log["Parameters"])
-    assert (log["Rows in"], log["Rows out"]) == ("3", "3") and params["find_text"] == "foo" and params["replacements_made"] == 2
+    assert (log["Rows in"], log["Rows out"]) == ("3", "3") and params["replacements_made"] == 2
+    assert params["find_text_length"] == 3 and "foo" not in log["Parameters"] and "baz" not in log["Parameters"]
 
 
 def test_merge_output_has_the_log_after_its_data_sheets(client):

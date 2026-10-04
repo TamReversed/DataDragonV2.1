@@ -375,7 +375,7 @@
    ],
    [
     "s:'Parameters'",
-    "s:'{\"conditions\": [{\"column\": \"Region\", \"operator\": \"is_empty\"}, {\"column\": \"Name\", \"logic\": \"OR\", \"operator\": \"equals\", \"value\": \"Bob\"}]}'"
+    "s:'{\"conditions\": [{\"column\": \"Region\", \"operator\": \"is_empty\"}, {\"column\": \"Name\", \"logic\": \"OR\", \"operator\": \"equals\"}]}'"
    ],
    [
     "s:'Warnings'",

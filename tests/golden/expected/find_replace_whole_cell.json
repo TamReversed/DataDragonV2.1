@@ -695,7 +695,7 @@
    ],
    [
     "s:'Parameters'",
-    "s:'{\"case_sensitive\": true, \"column\": \"Region\", \"find_text\": \"N\", \"match_whole_cell\": true, \"replace_text\": \"North\", \"replacements_made\": 15, \"rows_affected\": 15, \"use_regex\": false}'"
+    "s:'{\"case_sensitive\": true, \"column\": \"Region\", \"find_text_length\": 1, \"match_whole_cell\": true, \"replace_text_length\": 5, \"replacements_made\": 15, \"rows_affected\": 15, \"use_regex\": false}'"
    ],
    [
     "s:'Warnings'",

@@ -869,7 +869,7 @@
    ],
    [
     "s:'Parameters'",
-    "s:'{\"details_truncated\": false, \"invalid_rows\": 11, \"rule_failures\": 11, \"rules\": [{\"column\": \"Amount\", \"type\": \"required\"}, {\"column\": \"Account\", \"type\": \"range\", \"value\": {\"max\": 1030, \"min\": 1001}}, {\"column\": \"Zip\", \"type\": \"pattern\", \"value\": \"^\\\\\\\\d{5}$\"}, {\"column\": \"Region\", \"type\": \"list\", \"value\": [\"N\", \"S\"]}]}'"
+    "s:'{\"details_truncated\": false, \"invalid_rows\": 11, \"rule_failures\": 11, \"rules\": [{\"column\": \"Amount\", \"type\": \"required\"}, {\"column\": \"Account\", \"type\": \"range\"}, {\"column\": \"Zip\", \"type\": \"pattern\"}, {\"column\": \"Region\", \"type\": \"list\"}]}'"
    ],
    [
     "s:'Warnings'",

@@ -2,8 +2,8 @@
 
 /* Keyboard focus: one visible ring everywhere */
 :focus-visible {
-    outline: 2px solid var(--accent-purple);
-    outline-offset: 2px;
+    outline: 2px solid var(--accent-purple) !important;   /* wins over the `outline: none` of individual components */
+    outline-offset: 2px !important;
 }
 
 /* People who asked for less motion get no ambient animation, no blur and no animated transitions.

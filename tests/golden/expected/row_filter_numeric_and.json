@@ -199,7 +199,7 @@
    ],
    [
     "s:'Parameters'",
-    "s:'{\"conditions\": [{\"column\": \"Amount\", \"operator\": \"greater_than\", \"value\": \"0\"}, {\"column\": \"Region\", \"logic\": \"AND\", \"operator\": \"equals\", \"value\": \"S\"}]}'"
+    "s:'{\"conditions\": [{\"column\": \"Amount\", \"operator\": \"greater_than\"}, {\"column\": \"Region\", \"logic\": \"AND\", \"operator\": \"equals\"}]}'"
    ],
    [
     "s:'Warnings'",

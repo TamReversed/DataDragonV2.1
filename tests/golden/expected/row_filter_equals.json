@@ -295,7 +295,7 @@
    ],
    [
     "s:'Parameters'",
-    "s:'{\"conditions\": [{\"column\": \"Region\", \"operator\": \"equals\", \"value\": \"N\"}]}'"
+    "s:'{\"conditions\": [{\"column\": \"Region\", \"operator\": \"equals\"}]}'"
    ],
    [
     "s:'Warnings'",

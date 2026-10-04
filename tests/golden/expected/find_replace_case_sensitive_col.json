@@ -695,7 +695,7 @@
    ],
    [
     "s:'Parameters'",
-    "s:'{\"case_sensitive\": true, \"column\": \"Name\", \"find_text\": \"Bob\", \"match_whole_cell\": false, \"replace_text\": \"Robert\", \"replacements_made\": 10, \"rows_affected\": 10, \"use_regex\": false}'"
+    "s:'{\"case_sensitive\": true, \"column\": \"Name\", \"find_text_length\": 3, \"match_whole_cell\": false, \"replace_text_length\": 6, \"replacements_made\": 10, \"rows_affected\": 10, \"use_regex\": false}'"
    ],
    [
     "s:'Warnings'",

@@ -130,6 +130,7 @@ const DD = (() => {
         let source = null;
         let finished = false;
         let cancelledHere = false;
+        let cancelRequested = false;      // Cancel pressed before the server told us the job id
         let reconnects = 0;
 
         function fail(text) {
@@ -147,7 +148,7 @@ const DD = (() => {
                 try {
                     message = JSON.parse(event.data);
                 } catch (err) {
-                    return;                      // keep-alive or garbled line
+                    return fail('The server sent an answer this page could not read. The job may have finished: check the result and try again.');
                 }
                 if (message.error) return fail(message.error);
                 if (message.stage === 'error') return fail(message.message || 'The job failed');
@@ -193,9 +194,14 @@ const DD = (() => {
                     // not JSON (e.g. a proxy error page)
                 }
                 if (!response.ok || !data || !data.success || !data.session_id) {
+                    if (cancelledHere) return;
                     return fail((data && data.error) || 'The server could not start the job (HTTP ' + response.status + ')');
                 }
                 jobId = data.session_id;
+                if (cancelRequested) {                                     // Cancel was pressed while the upload was in flight
+                    fetch('/jobs/' + encodeURIComponent(jobId) + '/cancel', { method: 'POST' }).catch(() => {});
+                    return;
+                }
                 await new Promise(resolve => setTimeout(resolve, 100));   // let the job register its progress channel
                 if (!finished) follow();
             } catch (err) {
@@ -206,6 +212,7 @@ const DD = (() => {
         return {
             cancel() {
                 cancelledHere = true;
+                if (!jobId) cancelRequested = true;
                 if (source) source.close();
                 if (jobId && !finished) fetch('/jobs/' + encodeURIComponent(jobId) + '/cancel', { method: 'POST' }).catch(() => {});
                 finished = true;
@@ -277,7 +284,8 @@ const DD = (() => {
             }
         });
         root.querySelectorAll('.alert-error, .error-message').forEach(el => el.setAttribute('role', 'alert'));
-        root.querySelectorAll('.progress-message, .progress-text, .stage-message').forEach(el => {
+        root.querySelectorAll('.progress-message, .progress-text').forEach(el => {
+            if (el.getAttribute('role') === 'status') return;
             el.setAttribute('role', 'status');
             el.setAttribute('aria-live', 'polite');
         });
@@ -299,8 +307,11 @@ const DD = (() => {
     }
     document.addEventListener('DOMContentLoaded', () => enhanceAccessibility());
     // Tables and lists that pages build later (previews, results) get the same treatment
+    let pending = false;
     new MutationObserver(records => {
-        if (records.some(r => r.addedNodes.length)) enhanceAccessibility();
+        if (pending || !records.some(r => r.addedNodes.length)) return;
+        pending = true;                                  // at most one pass per frame, however many nodes were added
+        requestAnimationFrame(() => { pending = false; enhanceAccessibility(); });
     }).observe(document.documentElement, { childList: true, subtree: true });
 
     return { cachedSource, appendFile, initUpload, cachedFiles, startJob, modal, enhanceAccessibility };

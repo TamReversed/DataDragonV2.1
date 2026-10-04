@@ -33,15 +33,20 @@ class FormulaError(ValueError):
 
 def round_half_up(series, decimals):
     """Excel's ROUND: halves go away from zero (2.5 -> 3, 2.675 -> 2.68), not to the nearest even number."""
+    if not -15 <= decimals <= 15:
+        raise FormulaError('ROUND: the number of decimals must be between -15 and 15')
     if pd.api.types.is_integer_dtype(series) and decimals >= 0:
         return series
     step = Decimal(1).scaleb(-decimals)
+    whole = pd.api.types.is_integer_dtype(series)
 
     def one(value):
         if pd.isna(value) or not np.isfinite(value):
             return value
-        return float(Decimal(repr(float(value))).quantize(step, rounding=ROUND_HALF_UP))
-    return series.map(one).astype(float)
+        rounded = Decimal(int(value) if whole else repr(float(value))).quantize(step, rounding=ROUND_HALF_UP)
+        return int(rounded) if whole else float(rounded) + 0.0          # + 0.0 turns -0.0 into 0.0
+    mapped = series.map(one)
+    return mapped if whole else mapped.astype(float)
 
 
 def build_function_map(df):
@@ -169,7 +174,7 @@ class _Interpreter:
         if op is None:
             raise FormulaError('Unsupported operator in formula')
         left, right = self.visit(node.left), self.visit(node.right)
-        if isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)) and _is_number(right) and right == 0 and _is_number(left):
+        if isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)) and _is_number(right) and right == 0:
             raise FormulaError('Division by zero')
         if isinstance(node.op, ast.Pow) and _is_number(right) and abs(right) > MAX_EXPONENT:
             raise FormulaError(f'Exponent too large (maximum {MAX_EXPONENT})')
