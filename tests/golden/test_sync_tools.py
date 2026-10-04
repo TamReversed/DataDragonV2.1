@@ -78,3 +78,25 @@ COLUMN_OPS = {
 @pytest.mark.parametrize("case", sorted(COLUMN_OPS))
 def test_column_operations(client, golden, case):
     run(client, golden, f"column_ops_{case}", "/column-operations", COLUMN_OPS[case])
+
+
+# Tools on the scaffold (datadragon_tools.py): options travel as one JSON field
+SCAFFOLD = {
+    "text_cleaner_upper": ("/text-cleaner", {"columns": ["Name", "Region", "Notes"], "case": "upper", "remove_punctuation": True}),
+    "fill_missing_constant_flag": ("/fill-missing", {"columns": ["Region", "Amount"], "method": "constant", "value": "?", "flag": True}),
+    "fill_missing_median": ("/fill-missing", {"columns": ["Amount", "Account"], "method": "median"}),
+    "fill_missing_drop_rows": ("/fill-missing", {"columns": ["Region"], "method": "drop_rows"}),
+    "remove_duplicates_columns": ("/remove-duplicates", {"columns": ["Region", "Flag"], "keep": "most_complete"}),
+    "remove_duplicates_whole_row": ("/remove-duplicates", {"columns": []}),
+    "sort_rank_top": ("/sort-and-sample", {"sort1": "Region", "sort2": "Amount", "direction2": "descending", "rank": True,
+                                           "rank_within": "Region", "keep": "first", "count": 12}),
+    "sort_sample_seed": ("/sort-and-sample", {"keep": "sample", "count": 9, "seed": 3}),
+}
+
+
+@pytest.mark.parametrize("case", sorted(SCAFFOLD))
+def test_scaffold_tools(client, golden, case):
+    url, options = SCAFFOLD[case]
+    run(client, golden, f"scaffold_{case}", url, {"options": json.dumps(options)})
+    preview, payload = post_form(client, url + "/preview", {"file": GOLDEN_XLSX}, {"options": json.dumps(options)})
+    golden(f"scaffold_{case}_preview", {"status": preview.status_code, "json": scrub(payload)})

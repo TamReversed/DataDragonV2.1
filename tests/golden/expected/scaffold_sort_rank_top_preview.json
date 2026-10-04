@@ -1,0 +1,33 @@
+{
+ "json": {
+  "change": {
+   "cells_changed": null,
+   "columns_added": [
+    "rank"
+   ],
+   "columns_removed": [],
+   "reordered": false,
+   "rows_after": 12,
+   "rows_before": 40,
+   "rows_changed": null,
+   "sample": []
+  },
+  "notes": [],
+  "success": true,
+  "summary": [
+   [
+    "Rows in",
+    40
+   ],
+   [
+    "Rows out",
+    12
+   ],
+   [
+    "Sorted by",
+    "Region (ascending), Amount (descending)"
+   ]
+  ]
+ },
+ "status": 200
+}

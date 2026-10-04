@@ -1,0 +1,27 @@
+{
+ "json": {
+  "change": {
+   "cells_changed": null,
+   "columns_added": [],
+   "columns_removed": [],
+   "reordered": false,
+   "rows_after": 27,
+   "rows_before": 40,
+   "rows_changed": null,
+   "sample": []
+  },
+  "notes": [],
+  "success": true,
+  "summary": [
+   [
+    "Rows removed",
+    13
+   ],
+   [
+    "Rows kept",
+    27
+   ]
+  ]
+ },
+ "status": 200
+}

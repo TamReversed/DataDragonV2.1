@@ -1233,6 +1233,86 @@ button.cached-file-item {
 }
 
 /* ---------------------------------------------------------------------------------------------------------
+ * Tools built on the scaffold (templates/tool.html): options, the column picker, summaries
+ * ------------------------------------------------------------------------------------------------------- */
+.tool-options { margin-bottom: var(--dd-space-5); }
+
+.tool-option:last-child { margin-bottom: 0; }
+
+.picker-search { max-width: 320px; }
+
+.picker-quick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--dd-space-2);
+    margin: var(--dd-space-2) 0;
+}
+
+.picker-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 4px;
+    max-height: 264px;
+    overflow-y: auto;
+    padding: var(--dd-space-2);
+    border: 1px solid var(--dd-rule);
+    border-radius: var(--dd-radius);
+    background: var(--dd-bg);
+}
+
+.picker-item {
+    display: grid;
+    grid-template-columns: auto minmax(0, auto) auto minmax(0, 1fr);
+    align-items: center;
+    gap: var(--dd-space-2);
+    padding: 5px 8px;
+    border-radius: var(--dd-radius-sm);
+    cursor: pointer;
+}
+
+.picker-item:hover { background: var(--dd-selected); }
+
+.picker-item:has(input:checked) { background: var(--dd-selected); }
+
+.picker-name {
+    font: 500 var(--dd-text-sm) var(--dd-font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.picker-sample {
+    font: var(--dd-text-xs) var(--dd-font-mono);
+    color: var(--dd-ink-3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-summary {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 4px var(--dd-space-5);
+    margin: 0 0 var(--dd-space-3);
+}
+
+.tool-summary dt { color: var(--dd-ink-2); }
+
+.tool-summary dd {
+    font: 500 var(--dd-text-md) var(--dd-font-mono);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.change-preview { margin-bottom: var(--dd-space-5); }
+
+td.is-blank {
+    color: var(--dd-ink-3);
+    font-style: italic;
+}
+
+/* ---------------------------------------------------------------------------------------------------------
  * Dialogs
  * ------------------------------------------------------------------------------------------------------- */
 .modal-backdrop,

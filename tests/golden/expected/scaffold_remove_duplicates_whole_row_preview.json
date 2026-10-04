@@ -1,0 +1,35 @@
+{
+ "json": {
+  "change": {
+   "cells_changed": null,
+   "columns_added": [],
+   "columns_removed": [],
+   "reordered": false,
+   "rows_after": 39,
+   "rows_before": 40,
+   "rows_changed": null,
+   "sample": []
+  },
+  "notes": [],
+  "success": true,
+  "summary": [
+   [
+    "Rows in",
+    40
+   ],
+   [
+    "Rows kept",
+    39
+   ],
+   [
+    "Duplicate rows removed",
+    1
+   ],
+   [
+    "Groups that had duplicates",
+    1
+   ]
+  ]
+ },
+ "status": 200
+}

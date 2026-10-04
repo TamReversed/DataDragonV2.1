@@ -76,3 +76,20 @@ Same machine, data and harness as above (`scripts/bench.py`, CSV inputs from `sc
 | `pivot` 500k (region x category) | 89 s / 5.99 GB | **0.78 s / 493 MB** (Source Data sheet skipped above 100k rows, T2.11) | T2.11/T2.12 | < 20 s, < 1.5 GB |
 | `pivot_hi` 500k (98k-row result: `zip` x `status`) | > 400 s (killed) | **3.1 s / 604 MB** (styled while writing, no `load_workbook`) | T2.12 | |
 | `keyworst` 20 cols x 20k rows | 27.8 s on this machine / 153 MB | **3.4 s / 145 MB** (integer codes; stops at 20,000 candidates and says so) | T2.12 | < 10 s or `truncated` |
+
+## Scaffold tools (Phase A of the toolset plan), 4 October 2026
+
+In-process timing of the tool function and of the change preview on a 200,000-row, 5-column table (Apple silicon
+laptop, Python 3.14, pandas 2.3). File reading and writing are not included; they are the same as for other tools.
+
+| Tool | Options | Run (s) | Change preview (s) | Rows out |
+|---|---|---|---|---|
+| Text Cleaner | 2 columns, upper case, remove accents | 0.40 | 0.05 | 200,000 |
+| Fill Missing | 3 columns, fill down, with the flag column | 0.80 | 0.05 | 200,000 |
+| Fill Missing | 1 column, median | 0.06 | 0.05 | 200,000 |
+| Remove Duplicates | 2 columns, keep the most complete | 0.06 | 0.00 | 20 |
+| Remove Duplicates | whole rows | 0.10 | 0.05 | 200,000 |
+| Sort, Rank & Sample | 2 sort columns, rank within a group | 0.13 | 0.04 | 200,000 |
+
+The preview endpoint runs the tool once and compares; the run endpoint runs it again. On these sizes that costs
+well under a second.

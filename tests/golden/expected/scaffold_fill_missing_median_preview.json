@@ -1,0 +1,56 @@
+{
+ "json": {
+  "change": {
+   "cells_changed": 2,
+   "columns_added": [],
+   "columns_removed": [],
+   "reordered": false,
+   "rows_after": 40,
+   "rows_before": 40,
+   "rows_changed": 2,
+   "sample": [
+    {
+     "cells": [
+      {
+       "after": "1020.0",
+       "before": null,
+       "column": "Account"
+      }
+     ],
+     "row": 6
+    },
+    {
+     "cells": [
+      {
+       "after": "450.0",
+       "before": null,
+       "column": "Amount"
+      }
+     ],
+     "row": 12
+    }
+   ]
+  },
+  "notes": [],
+  "success": true,
+  "summary": [
+   [
+    "Blank cells found",
+    2
+   ],
+   [
+    "Cells filled",
+    2
+   ],
+   [
+    "Filled in Amount",
+    1
+   ],
+   [
+    "Filled in Account",
+    1
+   ]
+  ]
+ },
+ "status": 200
+}
