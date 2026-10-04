@@ -1,0 +1,58 @@
+{
+ "json": {
+  "change": {
+   "cells_changed": null,
+   "columns_added": [
+    "rows",
+    "Amount_sum",
+    "Amount_mean",
+    "Amount_min",
+    "Amount_max",
+    "Amount_count",
+    "Amount_distinct",
+    "Account_sum",
+    "Account_mean",
+    "Account_min",
+    "Account_max",
+    "Account_count",
+    "Account_distinct"
+   ],
+   "columns_removed": [
+    "ID",
+    "Zip",
+    "Account",
+    "BigId",
+    "Amount",
+    "Date",
+    "DateText",
+    "EuroNum",
+    "Pct",
+    "Name",
+    "Email",
+    "Notes"
+   ],
+   "reordered": false,
+   "rows_after": 6,
+   "rows_before": 40,
+   "rows_changed": null,
+   "sample": []
+  },
+  "notes": [],
+  "success": true,
+  "summary": [
+   [
+    "Rows in",
+    40
+   ],
+   [
+    "Groups",
+    6
+   ],
+   [
+    "Columns out",
+    15
+   ]
+  ]
+ },
+ "status": 200
+}

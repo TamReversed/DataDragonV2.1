@@ -705,6 +705,37 @@ def get_file_extension(filename):
     """Get lowercase file extension"""
     return filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
 
+TEXT_DELIMITERS = {',': 'comma', ';': 'semicolon', '\t': 'tab', '|': 'pipe'}
+
+
+def csv_delimiter(path):
+    """The delimiter of a delimited text file, from its first non-empty line.
+
+    A comma wins whenever the line has one outside quotes (so every file that was read correctly before is read
+    the same way). Only a header line with no comma at all is examined for semicolons, tabs or pipes: the usual
+    shape of a European or tab-separated export.
+    """
+    for encoding in ('utf-8-sig', 'cp1252', 'latin-1'):
+        try:
+            with open(path, 'r', encoding=encoding, newline='') as handle:
+                line = next((text for text in (handle.readline() for _ in range(50)) if text.strip()), '')
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        return ','
+    counts, quoted = dict.fromkeys(TEXT_DELIMITERS, 0), False
+    for character in line:
+        if character == '"':
+            quoted = not quoted
+        elif character in counts and not quoted:
+            counts[character] += 1
+    if counts[',']:
+        return ','
+    best = max(counts, key=counts.get)
+    return best if counts[best] else ','
+
+
 def read_data_file(file_path, mode='lossless', sheet_name=0, **kwargs):
     """
     Unified file reader for Excel (.xlsx, .xls) and CSV files.
@@ -726,6 +757,7 @@ def read_data_file(file_path, mode='lossless', sheet_name=0, **kwargs):
             options.setdefault('dtype', str)
             options.setdefault('keep_default_na', False)
             options.setdefault('na_values', [''])
+        options.setdefault('sep', csv_delimiter(file_path))             # semicolon, tab and pipe files open too
         # utf-8-sig also strips a byte-order mark; cp1252 covers Windows exports; latin-1 never fails.
         # Only a decoding failure moves on to the next encoding; any other error is real and propagates.
         for encoding in ('utf-8-sig', 'cp1252', 'latin-1'):
@@ -1080,7 +1112,7 @@ def read_headers(path, display_name='the file'):
         for encoding in ('utf-8-sig', 'cp1252', 'latin-1'):
             try:
                 with open(path, 'r', encoding=encoding, newline='') as handle:
-                    first_row = next(csv.reader(handle), None)
+                    first_row = next(csv.reader(handle, delimiter=csv_delimiter(path)), None)
                 break
             except UnicodeDecodeError:
                 continue
@@ -1110,7 +1142,7 @@ def count_data_rows(path):
     if extension == 'csv':
         import csv
         with open(path, 'r', encoding='utf-8-sig', errors='replace', newline='') as handle:
-            return max(sum(1 for record in csv.reader(handle) if record) - 1, 0)
+            return max(sum(1 for record in csv.reader(handle, delimiter=csv_delimiter(path)) if record) - 1, 0)
     if extension == 'xlsx':
         from openpyxl import load_workbook
         workbook = load_workbook(path, read_only=True, data_only=True)
@@ -6466,6 +6498,184 @@ def pipeline_execute(session_id):
         'session_id': session_id,
         'message': 'Pipeline execution started'
     })
+
+# =============================================================================
+# OPEN A FILE: choose the sheet, the header row and the delimiter
+# =============================================================================
+# Every tool reads the first sheet, takes row 1 as the header and detects the delimiter. A file that needs more
+# than that is opened here once; the table it yields goes to "earlier results", where every tool can pick it up.
+OPEN_FILE_TYPES = ('.xlsx', '.xls', '.csv', '.tsv', '.txt')
+OPEN_FILE_GRID_ROWS = 30
+
+
+def _raw_grid(path, sheet, delimiter, nrows=None):
+    """The file as a grid of cells with no header taken: every row as it is stored. Returns (frame, sheets, delimiter)."""
+    extension = get_file_extension(path)
+    if extension in ('xlsx', 'xls'):
+        sheets = sheet_names_of(path)
+        if not sheets:
+            raise UserError('This workbook could not be read. Is it a real Excel file?')
+        if sheet not in sheets:
+            sheet = sheets[0]
+        return pd.read_excel(path, sheet_name=sheet, header=None, dtype=object, nrows=nrows), sheets, sheet, None
+    if delimiter not in TEXT_DELIMITERS:
+        delimiter = csv_delimiter(path)
+    # The csv module, not pandas: pandas takes the width of the first line as the width of the table and drops
+    # wider lines, which is exactly wrong for a file with a title line above its table.
+    import csv
+    import itertools
+    for encoding in ('utf-8-sig', 'cp1252', 'latin-1'):
+        try:
+            with open(path, 'r', encoding=encoding, newline='') as handle:
+                records = list(itertools.islice(csv.reader(handle, delimiter=delimiter), nrows))
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        raise UserError('Could not read the file with any supported encoding')
+    width = max((len(record) for record in records), default=0)
+    frame = pd.DataFrame([[cell if cell != '' else None for cell in record] + [None] * (width - len(record)) for record in records],
+                         columns=range(width), dtype=object)
+    return frame, [], None, delimiter
+
+
+def _open_file_request():
+    file = check_upload('file', OPEN_FILE_TYPES, 'Please upload an Excel or delimited text file (.xlsx, .xls, .csv, .tsv, .txt)')
+    return file, request.form.get('sheet') or None, {'comma': ',', 'semicolon': ';', 'tab': '\t', 'pipe': '|'}.get(request.form.get('delimiter', ''))
+
+
+@app.route('/open-file')
+def open_file_page():
+    return render_template('open_file.html')
+
+
+@app.route('/open-file/inspect', methods=['POST'])
+@rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
+def inspect_file():
+    """The first rows of the file exactly as stored, its sheets and its delimiter, so the user can say where the table is."""
+    file, sheet, delimiter = _open_file_request()
+    with temporary_upload(file, 'inspect') as path:
+        grid, sheets, sheet, delimiter = _raw_grid(path, sheet, delimiter, nrows=OPEN_FILE_GRID_ROWS)
+    rows = [[None if pd.isna(value) else str(value)[:120] for value in record] for record in grid.itertuples(index=False, name=None)]
+    filled = [sum(value is not None for value in row) for row in rows]
+    # A guess at the header row: the first row that fills most of the columns the table uses
+    widest = max(filled, default=0)
+    guess = next((i for i, count in enumerate(filled) if widest and count >= max(2, 0.8 * widest)), 0)
+    return jsonify({'success': True, 'sheets': sheets, 'sheet': sheet,
+                    'delimiter': TEXT_DELIMITERS.get(delimiter), 'rows': rows, 'columns': len(grid.columns),
+                    'suggested_header_row': guess + 1})
+
+
+def table_from_grid(grid, header_row, drop_empty=True):
+    """A table from a raw grid: `header_row` (1-based; 0 for none) names the columns, the rows after it are the data."""
+    if header_row < 0 or header_row > len(grid):
+        raise UserError(f'The header row must be between 0 and {len(grid)}.')
+    data = grid.iloc[header_row:].reset_index(drop=True)
+    names, unnamed, seen = [], [], {}
+    header = [None] * len(grid.columns) if header_row == 0 else grid.iloc[header_row - 1].tolist()
+    for i, value in enumerate(header):
+        name = '' if value is None or pd.isna(value) else str(value).strip()
+        unnamed.append(not name)
+        name = name or f'Column {i + 1}'
+        seen[name] = seen.get(name, 0) + 1
+        names.append(name if seen[name] == 1 else f'{name}_{seen[name]}')      # two columns cannot share a name
+    data.columns = names
+    if drop_empty:
+        blank = data.apply(datadragon_tools.is_blank)
+        # an empty column goes only when it has no name either; a named column that happens to be empty is data
+        keep_columns = [not (blank[name].all() and unnamed[i]) for i, name in enumerate(names)]
+        data = data.loc[~blank.all(axis=1).to_numpy(), keep_columns]
+    return data.reset_index(drop=True)
+
+
+@app.route('/open-file', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+@api_errors
+def open_file():
+    file, sheet, delimiter = _open_file_request()
+    try:
+        header_row = int(request.form.get('header_row', '1'))
+    except ValueError:
+        raise UserError('The header row must be a whole number.')
+    drop_empty = request.form.get('drop_empty', 'true').lower() != 'false'
+    filename = secure_filename(file.filename)
+    with temporary_upload(file, 'open') as path:
+        grid, sheets, sheet, delimiter = _raw_grid(path, sheet, delimiter)
+    df = table_from_grid(grid, header_row, drop_empty)
+    if not len(df.columns):
+        raise UserError('No table was found with these settings. Check the sheet and the header row.')
+    job_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+    job_registry.bind(job_id, current_owner())
+    log = make_log('Open a File', len(grid), len(df), {'sheet_chosen': bool(sheet), 'sheets_in_workbook': len(sheets),
+                                                      'header_row': header_row, 'delimiter': TEXT_DELIMITERS.get(delimiter),
+                                                      'drop_empty': drop_empty}, job_id)
+    stem = short_stem(filename) + (f'_{secure_filename(sheet)}' if sheet and len(sheets) > 1 else '')
+    output_path = save_table(df, job_output_path(job_id, f"{stem[:70]}_opened_{job_id}.xlsx"), job_id, log=log)
+    output_filename = os.path.basename(output_path)
+    # steps=[]: for a recipe this table is the starting point, like an uploaded file
+    cache_session_file(job_id, output_filename, output_path, len(df), len(df.columns), 'Open a File', steps=[])
+    return jsonify({
+        'success': True, 'filename': output_filename, 'download_url': job_download_url(job_id, output_filename),
+        **job_notes.get(job_id, {}),
+        'rows': len(df), 'columns': len(df.columns), 'sheet': sheet, 'delimiter': TEXT_DELIMITERS.get(delimiter),
+        'preview': {'columns': [str(c) for c in df.columns], 'rows': df_preview_text(df), 'total_rows': len(df)},
+    })
+
+
+# =============================================================================
+# APPEND FILES: stack several files that share (most of) their columns
+# =============================================================================
+MAX_APPEND_FILES = 10
+
+
+@app.route('/append-files')
+def append_files_page():
+    return render_template('append_files.html')
+
+
+@app.route('/append-files', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+@api_errors
+def append_files():
+    fields = sorted((f for f in request.files if re.fullmatch(r'file\d+', f)), key=lambda f: int(f[4:]))
+    if len(fields) < 2:
+        raise UserError('Choose at least two files to append.')
+    if len(fields) > MAX_APPEND_FILES:
+        raise UserError(f'At most {MAX_APPEND_FILES} files can be appended at once.')
+    try:
+        renames = json.loads(request.form.get('renames') or '{}')
+    except ValueError:
+        raise UserError('The column mapping could not be read. Reload the page and try again.')
+    loose = request.form.get('loose', 'false').lower() == 'true'
+    source_column = request.form.get('source_column', 'true').lower() != 'false'
+    tables = []
+    for field in fields:
+        file = check_upload(field, ('.xlsx', '.xls', '.csv'), 'Please upload Excel or CSV files (.xlsx, .xls, .csv)')
+        with temporary_upload(file, 'append') as path:
+            tables.append((secure_filename(file.filename), read_data_file(path)))
+    try:
+        stacked, report = datadragon_tools.append_tables(tables, renames if isinstance(renames, dict) else {}, loose, source_column)
+    except datadragon_tools.ToolError as error:
+        raise UserError(str(error))
+    job_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+    job_registry.bind(job_id, current_owner())
+    log = make_log('Append Files', sum(len(df) for _, df in tables), len(stacked),
+                   {'files': len(tables), 'loose_names': loose, 'source_column': source_column,
+                    'columns': report['columns'], 'columns_not_in_every_file': len(report['partial_columns']),
+                    'columns_mapped': sum(len(m) for m in renames.values()) if isinstance(renames, dict) else 0}, job_id)
+    output_path = save_table(stacked, job_output_path(job_id, f"appended_{len(tables)}_files_{job_id}.xlsx"), job_id, log=log)
+    output_filename = os.path.basename(output_path)
+    if output_filename.endswith(('.xlsx', '.csv')):
+        cache_session_file(job_id, output_filename, output_path, len(stacked), len(stacked.columns), 'Append Files')
+    return jsonify({
+        'success': True, 'filename': output_filename, 'download_url': job_download_url(job_id, output_filename),
+        **job_notes.get(job_id, {}),
+        'rows': report['rows'], 'columns': len(stacked.columns), 'rows_per_file': report['rows_per_file'],
+        'partial_columns': report['partial_columns'],
+        'preview': {'columns': [str(c) for c in stacked.columns], 'rows': df_preview_text(stacked), 'total_rows': len(stacked)},
+    })
+
 
 # =============================================================================
 # SIMPLE TOOLS ON THE SCAFFOLD (datadragon_tools.py)

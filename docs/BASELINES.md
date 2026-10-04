@@ -93,3 +93,18 @@ laptop, Python 3.14, pandas 2.3). File reading and writing are not included; the
 
 The preview endpoint runs the tool once and compares; the run endpoint runs it again. On these sizes that costs
 well under a second.
+
+## Phase B tools, 4 October 2026
+
+Same machine and method as above: the tool function only, on a 200,000-row table.
+
+| Tool | Options | Run (s) | Rows out |
+|---|---|---|---|
+| Unpivot | 2 kept columns, 3 unpivoted | 0.09 | 600,000 |
+| Group & Summarise | 4 groups, 3 columns, sum and average | 0.13 | 4 |
+| Group & Summarise | 2,000 groups, 1 column, five calculations | 0.57 | 2,000 |
+| Append Files | 3 files of 200,000 rows | 0.03 | 600,000 |
+
+Group & Summarise works group by group, so its time grows with the number of groups (about 0.3 ms per group and
+calculation). Tens of thousands of groups take tens of seconds; that path should be vectorised before the tool is
+used for near-unique grouping keys.

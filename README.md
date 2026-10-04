@@ -9,6 +9,7 @@ It is a small Flask application: you upload a file, a tool processes it in memor
 |---|---|---|
 | Data pipelines | Data Readiness Pipeline | Guided workflow: analyze shape, triage gaps, discover keys, anonymize, report (PDF) |
 | | Recipes | Save the steps behind a result as a file and replay them on another file, with a check first |
+| Open | Open a File | Choose the sheet, the row with the column names and the delimiter of a file the other tools cannot read as it is |
 | Quality and analysis | Column Analyzer | Profiling: statistics, semantic types, missing values, outliers, charts, PDF report |
 | | Duplicate Finder | Duplicate rows on chosen columns, with a removal list |
 | | Natural Key Finder | Smallest column combinations that identify every row |
@@ -22,9 +23,12 @@ It is a small Flask application: you upload a file, a tool processes it in memor
 | Reshape | Row Filter | AND/OR row filters |
 | | Sort, Rank & Sample | Sort by up to three columns, add a rank, keep the top rows or a repeatable random sample |
 | | Column Operations, Calculated Columns | Reorder, rename, split, merge columns; formula columns |
+| | Group & Summarise | One row per group with sums, averages, counts, lowest, highest, first and last |
 | | Pivot Table Generator, Transpose | Pivot tables; flip rows and columns |
+| | Unpivot | Columns into rows (wide to long) |
 | | File Splitter | Splits a big workbook into chunks (for example 40,000 rows) in a ZIP |
-| Combine and compare | Data Merge, Data Comparison, Schema Comparison | Joins; added/removed/changed rows; column structure differences |
+| Combine and compare | Append Files | Stack two to ten files, matching columns by name, with a mapping for columns named differently |
+| | Data Merge, Data Comparison, Schema Comparison | Joins; added/removed/changed rows; column structure differences |
 | Documents | PDF to Word | Converts a PDF to an editable Word file |
 
 Results of one tool can be picked as the input of the next ("earlier results" on each page) without uploading them again.

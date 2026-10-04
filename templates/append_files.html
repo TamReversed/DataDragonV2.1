@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}DataDragon - Append Files{% endblock %}
+
+{% block styles %}
+<style>
+    .append-list { display: grid; gap: 6px; margin-top: var(--dd-space-3); }
+
+    .append-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--dd-space-3);
+        padding: 8px 12px;
+        border: 1px solid var(--dd-rule);
+        border-radius: var(--dd-radius);
+        background: var(--dd-surface);
+    }
+
+    .column-match td.has { color: var(--dd-ok); }
+    .column-match td.lacks { color: var(--dd-ink-3); }
+    .column-match select { min-width: 190px; padding: 4px 8px; font: var(--dd-text-sm) var(--dd-font-ui); }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<div class="header-row">
+    <div>
+        <h1 class="page-title">Append <em>Files</em></h1>
+        <p class="page-subtitle">Stack several files with the same columns into one table, such as twelve monthly exports.</p>
+    </div>
+    <button class="help-btn" id="helpBtn" type="button" aria-haspopup="dialog">How it works</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="cached-files-section" id="cachedFilesSection">
+    <div class="cached-files-header"><span>Earlier results: click one to add it</span></div>
+    <div class="cached-files-list" id="cachedFilesList"></div>
+</div>
+
+<div class="card mb-6">
+    <div class="file-upload-zone" id="uploadArea">
+        {% include "brand/empty_upload.svg" %}
+        <div class="file-upload-text">Drop files here, or click to choose</div>
+        <div class="file-upload-hint">Two to ten Excel (.xlsx, .xls) or CSV files. They are stacked in the order shown.</div>
+        <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" multiple aria-label="Choose files to append">
+    </div>
+    <div class="append-list" id="fileList" aria-live="polite"></div>
+</div>
+
+<div class="error" id="error" role="alert"></div>
+
+<section class="card mb-6" id="matchSection" hidden>
+    <h2 class="card-title">How the columns line up</h2>
+    <p class="form-hint" id="matchSummary"></p>
+    <div class="form-group mt-2">
+        <label class="form-checkbox" for="loose"><input type="checkbox" id="loose"><span>Treat column names as the same when only case or spacing differs</span></label>
+    </div>
+    <div class="preview-table-wrapper"><table class="preview-table column-match" id="matchTable"></table></div>
+    <div class="form-group mt-4">
+        <label class="form-checkbox" for="sourceColumn"><input type="checkbox" id="sourceColumn" checked><span>Add a column that says which file each row came from</span></label>
+    </div>
+</section>
+
+<div class="btn-group mb-6">
+    <button type="button" class="btn btn-primary" id="runBtn" disabled>Append the files</button>
+</div>
+
+<section class="results" id="results" aria-live="polite">
+    <div class="card">
+        <h2 class="card-title">Files appended</h2>
+        <dl class="tool-summary" id="resultSummary"></dl>
+        <div id="resultNotes"></div>
+        <div class="btn-group mt-4"><a class="btn btn-primary" id="downloadBtn" href="#">Download the result</a></div>
+    </div>
+    <div class="card mt-4">
+        <div class="preview-header">
+            <div class="preview-title"><span>Result preview</span></div>
+            <div class="preview-stats" id="resultStats"></div>
+        </div>
+        <div class="preview-table-wrapper"><table class="preview-table"><thead id="resultHead"></thead><tbody id="resultBody"></tbody></table></div>
+    </div>
+</section>
+
+<div class="help-modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-modal-content">
+        <div class="help-modal-header">
+            <h2 class="help-modal-title" id="helpTitle">How Append Files works</h2>
+            <button type="button" class="help-modal-close" id="helpClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">What it does</h3>
+            <div class="help-section-content">Puts the rows of each file under the rows of the one before. Columns are matched by name, not by position, so the files may have their columns in a different order.</div>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">When a column is not in every file</h3>
+            <div class="help-section-content">The table shows which file has which column. A column that only some files have is kept, and left blank for the rows of the other files. If the same column has a different name in one file ("Vendor" and "Vendor Name"), say which column it is the same as.</div>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">The result</h3>
+            <div class="help-section-content">One table whose row count is the sum of the files, with a first column naming the file each row came from (optional). Only the first sheet of a workbook is used; use Open a File first for another sheet.</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/append_files.js') }}"></script>
+{% endblock %}

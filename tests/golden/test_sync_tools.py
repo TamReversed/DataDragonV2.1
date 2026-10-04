@@ -91,6 +91,14 @@ SCAFFOLD = {
     "sort_rank_top": ("/sort-and-sample", {"sort1": "Region", "sort2": "Amount", "direction2": "descending", "rank": True,
                                            "rank_within": "Region", "keep": "first", "count": 12}),
     "sort_sample_seed": ("/sort-and-sample", {"keep": "sample", "count": 9, "seed": 3}),
+    "unpivot_keep_two": ("/unpivot", {"id_columns": ["ID", "Name"], "value_columns": ["Amount", "Account", "Region"],
+                                      "name_column": "field", "value_column": "content", "drop_blank": True}),
+    "unpivot_everything": ("/unpivot", {"id_columns": ["ID"]}),
+    "group_region_flag": ("/group-and-summarise", {"group_columns": ["Region", "Flag"], "value_columns": ["Amount", "Account"],
+                                                   "sum": True, "mean": True, "min": True, "max": True, "count": True,
+                                                   "distinct": True}),
+    "group_text_first_last": ("/group-and-summarise", {"group_columns": ["Region"], "value_columns": ["Name"], "sum": False,
+                                                       "first": True, "last": True, "min": True, "row_count": False}),
 }
 
 

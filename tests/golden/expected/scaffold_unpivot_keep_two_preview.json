@@ -1,0 +1,51 @@
+{
+ "json": {
+  "change": {
+   "cells_changed": null,
+   "columns_added": [
+    "field",
+    "content"
+   ],
+   "columns_removed": [
+    "Zip",
+    "Account",
+    "BigId",
+    "Amount",
+    "Region",
+    "Date",
+    "DateText",
+    "EuroNum",
+    "Pct",
+    "Flag",
+    "Email",
+    "Notes"
+   ],
+   "reordered": false,
+   "rows_after": 105,
+   "rows_before": 40,
+   "rows_changed": null,
+   "sample": []
+  },
+  "notes": [],
+  "success": true,
+  "summary": [
+   [
+    "Rows in",
+    40
+   ],
+   [
+    "Columns unpivoted",
+    3
+   ],
+   [
+    "Rows out",
+    105
+   ],
+   [
+    "Blank values left out",
+    15
+   ]
+  ]
+ },
+ "status": 200
+}

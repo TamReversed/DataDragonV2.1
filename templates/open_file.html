@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}DataDragon - Open a File{% endblock %}
+
+{% block styles %}
+<style>
+    .grid-preview td.row-number,
+    .grid-preview th.row-number {
+        position: sticky;
+        left: 0;
+        background: var(--dd-sunken);
+        color: var(--dd-ink-2);
+        text-align: right;
+        padding: 0;
+    }
+
+    .grid-preview .row-pick {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        width: 100%;
+        min-width: 44px;
+        min-height: 26px;
+        padding: 4px 10px;
+        cursor: pointer;
+        text-align: right;
+    }
+
+    .grid-preview .row-pick:hover { background: var(--dd-selected); }
+
+    .grid-preview tr.is-header td {
+        background: var(--dd-selected);
+        font-weight: 500;
+        box-shadow: inset 0 -2px 0 var(--dd-teal);
+    }
+
+    .grid-preview tr.is-above td { color: var(--dd-ink-3); text-decoration: line-through; }
+
+    .open-settings {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--dd-space-4);
+        align-items: start;
+    }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<div class="header-row">
+    <div>
+        <h1 class="page-title">Open a <em>File</em></h1>
+        <p class="page-subtitle">For files the other tools cannot read as they are: choose the sheet, say which row holds the column names, and pick the delimiter.</p>
+    </div>
+    <button class="help-btn" id="helpBtn" type="button" aria-haspopup="dialog">How it works</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-6">
+    <div class="file-upload-zone" id="uploadArea">
+        {% include "brand/empty_upload.svg" %}
+        <div class="file-upload-text">Drop a file here, or click to choose</div>
+        <div class="file-upload-hint">Excel (.xlsx, .xls), CSV, TSV or text</div>
+        <div id="fileSizeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
+        <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv,.tsv,.txt" aria-label="Choose a file to open">
+    </div>
+</div>
+
+<div class="error" id="error" role="alert"></div>
+
+<section class="card mb-6" id="settings" hidden>
+    <h2 class="card-title">Where is the table?</h2>
+    <div class="open-settings">
+        <div class="form-group" id="sheetGroup" hidden>
+            <label class="form-label" for="sheetSelect">Sheet</label>
+            <select id="sheetSelect" class="form-select"></select>
+        </div>
+        <div class="form-group" id="delimiterGroup" hidden>
+            <label class="form-label" for="delimiterSelect">Values are separated by</label>
+            <select id="delimiterSelect" class="form-select">
+                <option value="comma">Comma ( , )</option>
+                <option value="semicolon">Semicolon ( ; )</option>
+                <option value="tab">Tab</option>
+                <option value="pipe">Pipe ( | )</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label class="form-label" for="headerRow">Row with the column names</label>
+            <input type="number" id="headerRow" class="form-input" min="0" value="1" aria-describedby="headerHelp">
+            <p class="form-hint" id="headerHelp">Rows above it are left out. Enter 0 if the file has no column names. You can also click a row number below.</p>
+        </div>
+        <div class="form-group">
+            <label class="form-checkbox" for="dropEmpty"><input type="checkbox" id="dropEmpty" checked><span>Leave out empty rows and unnamed empty columns</span></label>
+        </div>
+    </div>
+    <div class="preview-header mt-4">
+        <div class="preview-title"><span>The file as it is stored</span></div>
+        <div class="preview-stats" id="gridStats"></div>
+    </div>
+    <div class="preview-table-wrapper">
+        <table class="preview-table grid-preview" id="grid"><tbody id="gridBody"></tbody></table>
+    </div>
+</section>
+
+<div class="btn-group mb-6" id="actions" hidden>
+    <button type="button" class="btn btn-primary" id="openBtn">Open this table</button>
+</div>
+
+<section class="results" id="results" aria-live="polite">
+    <div class="card">
+        <h2 class="card-title">The table is ready</h2>
+        <dl class="tool-summary" id="resultSummary"></dl>
+        <p class="form-hint">It is now in "earlier results": open any tool and pick it there instead of uploading the file again.</p>
+        <div class="btn-group mt-4">
+            <a class="btn btn-primary" id="downloadBtn" href="#">Download the table</a>
+        </div>
+    </div>
+    <div class="card mt-4">
+        <div class="preview-header">
+            <div class="preview-title"><span>Result preview</span></div>
+            <div class="preview-stats" id="resultStats"></div>
+        </div>
+        <div class="preview-table-wrapper">
+            <table class="preview-table"><thead id="resultHead"></thead><tbody id="resultBody"></tbody></table>
+        </div>
+    </div>
+</section>
+
+<div class="help-modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-modal-content">
+        <div class="help-modal-header">
+            <h2 class="help-modal-title" id="helpTitle">How Open a File works</h2>
+            <button type="button" class="help-modal-close" id="helpClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">When to use it</h3>
+            <div class="help-section-content">Every tool reads the first sheet of a workbook and takes the first row as the column names. Use this page when the table is on another sheet, when there are title or blank rows above the column names, or when a text file is read with the wrong separator.</div>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">What it does</h3>
+            <div class="help-section-content">It shows the file exactly as it is stored. You say where the table starts, and it produces a clean table: column names in the first row, data below. Columns without a name are called Column 1, Column 2 and so on; if two columns share a name, the second gets _2.</div>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">Good to know</h3>
+            <div class="help-section-content">Nothing is converted: cells keep the values they have. Text files separated by semicolons, tabs or pipes are also recognised by the other tools on their own when the first line has no comma.</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/open_file.js') }}"></script>
+{% endblock %}
