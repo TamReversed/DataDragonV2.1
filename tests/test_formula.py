@@ -80,7 +80,7 @@ def test_rejection_is_formula_error_not_runtime_error(df):
     ("LEN([Name])", [8, 3, 0]),
     ("REPLACE([Name], \"o\", \"0\")", ["  Alice ", "B0b", ""]),
     ("CONCAT([Name], \"!\")", ["  Alice !", "Bob!", "!"]),
-    ("ROUND([Price], 1)", [1.2, 2.5, None]),
+    ("ROUND([Price], 1)", [1.3, 2.5, None]),          # half-up like Excel (was banker's rounding: 1.2)
     ("ABS(-[Qty])", [1, 2, 3]),
     ("CEILING([Price])", [2.0, 3.0, None]),
     ("FLOOR([Price])", [1.0, 2.0, None]),

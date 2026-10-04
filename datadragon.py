@@ -16,6 +16,8 @@ from concurrent.futures import ThreadPoolExecutor
 import secrets
 import time
 from contextlib import contextmanager
+import functools
+import operator as operator_module
 from functools import wraps
 from collections import defaultdict
 import math
@@ -944,6 +946,63 @@ def write_data_file(df, file_path, file_format='xlsx', **kwargs):
 
     return final_path
 
+def read_headers(path, display_name='the file'):
+    """The column names in the first row of a CSV or of the first sheet of a workbook, without reading the data.
+
+    CSV: the csv module (quoted names with commas work) with the same encoding fallbacks as read_data_file.
+    xlsx: row 1 through openpyxl in read-only mode. xls: pandas, header row only. Blank header cells are skipped.
+    """
+    extension = get_file_extension(path)
+    if extension == 'csv':
+        import csv
+        for encoding in ('utf-8-sig', 'cp1252', 'latin-1'):
+            try:
+                with open(path, 'r', encoding=encoding, newline='') as handle:
+                    first_row = next(csv.reader(handle), None)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            raise UserError(f'Could not read {display_name} with any supported encoding')
+        if first_row is None:
+            raise UserError(f'{display_name} is empty')
+    elif extension == 'xlsx':
+        from openpyxl import load_workbook
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        try:
+            first_row = next(workbook.worksheets[0].iter_rows(min_row=1, max_row=1, values_only=True), None) or ()
+        finally:
+            workbook.close()
+    else:
+        first_row = list(read_data_file(path, nrows=0).columns)
+    return [str(name).strip() for name in first_row if name is not None and str(name).strip()]
+
+
+def count_data_rows(path):
+    """Number of data rows (the header excluded) without loading the file.
+
+    CSV: counted as records by the csv module, so a quoted cell containing a line break is one row, not two.
+    xlsx: the sheet's dimension from openpyxl in read-only mode. xls: read one column with pandas.
+    """
+    extension = get_file_extension(path)
+    if extension == 'csv':
+        import csv
+        with open(path, 'r', encoding='utf-8-sig', errors='replace', newline='') as handle:
+            return max(sum(1 for record in csv.reader(handle) if record) - 1, 0)
+    if extension == 'xlsx':
+        from openpyxl import load_workbook
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        try:
+            sheet = workbook.worksheets[0]
+            rows = sheet.max_row
+            if rows is None:                                  # a sheet without stored dimensions: walk it
+                rows = sum(1 for _ in sheet.iter_rows(values_only=True))
+            return max(rows - 1, 0)
+        finally:
+            workbook.close()
+    return len(read_data_file(path, usecols=[0]))
+
+
 def get_file_preview(file_path, max_rows=20):
     """
     Get a preview of file contents for display before processing.
@@ -960,13 +1019,7 @@ def get_file_preview(file_path, max_rows=20):
         df = read_data_file(file_path, nrows=max_rows + 1)
 
         # Get total row count (read full file for count only)
-        ext = get_file_extension(file_path)
-        if ext == 'csv':
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                total_rows = sum(1 for _ in f) - 1  # Subtract header
-        else:
-            full_df = read_data_file(file_path, usecols=[0])  # Read just first column for count
-            total_rows = len(full_df)
+        total_rows = count_data_rows(file_path)
 
         rows = df_preview(df, max_rows)
 
@@ -977,8 +1030,9 @@ def get_file_preview(file_path, max_rows=20):
             'total_rows': total_rows,
             'total_cols': len(df.columns)
         }
-    except Exception as e:
-        raise UserError(f"Error reading file preview: {str(e)}")
+    except Exception:
+        log.exception('could not read the file for a preview')
+        raise UserError('The file could not be read. Check that it is a valid Excel or CSV file.')
 
 
 def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_filename=None, progress_queue=None, session_id=None):
@@ -4785,64 +4839,12 @@ def compare_columns_async(file1_path, file2_path, file1_name, file2_name, progre
         
     send_progress('loading', 0, 100, f'Reading headers from {file1_name}...', 10)
         
-    # Read just the headers from file 1 - optimized to read only first row
-    if file1_path.endswith('.csv'):
-        # For CSV, use csv module to properly handle quoted fields
-        import csv
-        with open(file1_path, 'r', encoding='utf-8-sig') as f:
-            reader = csv.reader(f)
-            first_row = next(reader)
-            columns1 = set([str(col).strip() for col in first_row if col])
-    else:
-        # For Excel, use pandas with nrows=0 to read only headers (handles both .xlsx and .xls)
-        try:
-            df1 = read_data_file(file1_path, nrows=0)
-            columns1 = set([str(col).strip() for col in df1.columns if col])
-        except Exception as e:
-            # Fallback: try openpyxl for .xlsx files only
-            if file1_path.endswith('.xlsx'):
-                try:
-                    from openpyxl import load_workbook
-                    wb = load_workbook(file1_path, read_only=True, data_only=True)
-                    ws = wb.active
-                    first_row = [cell.value for cell in ws[1] if cell.value is not None]
-                    columns1 = set([str(col).strip() for col in first_row])
-                    wb.close()
-                except Exception as e2:
-                    raise Exception(f"Error reading {file1_name}: {str(e2)}")
-            else:
-                raise Exception(f"Error reading {file1_name}: {str(e)}")
-        
+    columns1 = set(read_headers(file1_path, file1_name))
+
     send_progress('loading', 50, 100, f'Reading headers from {file2_name}...', 30)
-        
-    # Read just the headers from file 2 - optimized to read only first row
-    if file2_path.endswith('.csv'):
-        # For CSV, use csv module to properly handle quoted fields
-        import csv
-        with open(file2_path, 'r', encoding='utf-8-sig') as f:
-            reader = csv.reader(f)
-            first_row = next(reader)
-            columns2 = set([str(col).strip() for col in first_row if col])
-    else:
-        # For Excel, use pandas with nrows=0 to read only headers (handles both .xlsx and .xls)
-        try:
-            df2 = read_data_file(file2_path, nrows=0)
-            columns2 = set([str(col).strip() for col in df2.columns if col])
-        except Exception as e:
-            # Fallback: try openpyxl for .xlsx files only
-            if file2_path.endswith('.xlsx'):
-                try:
-                    from openpyxl import load_workbook
-                    wb = load_workbook(file2_path, read_only=True, data_only=True)
-                    ws = wb.active
-                    first_row = [cell.value for cell in ws[1] if cell.value is not None]
-                    columns2 = set([str(col).strip() for col in first_row])
-                    wb.close()
-                except Exception as e2:
-                    raise Exception(f"Error reading {file2_name}: {str(e2)}")
-            else:
-                raise Exception(f"Error reading {file2_name}: {str(e)}")
-        
+
+    columns2 = set(read_headers(file2_path, file2_name))
+
     send_progress('comparing', 0, 100, 'Comparing columns...', 50)
         
     # Get all unique columns (alphabetically sorted)
@@ -5082,74 +5084,63 @@ def row_filter():
     discard_upload(upload_path)  # contents are loaded; do not keep the file
     original_rows = len(df)
 
-    # Build filter mask
-    mask = None
+    # Build the filter. Each condition says how it joins the one before it; AND binds tighter than OR, as in SQL:
+    # "a OR b AND c" keeps the rows that match a, or match both b and c.
+    numeric_operators = {'greater_than': operator_module.gt, 'less_than': operator_module.lt,
+                         'greater_equal': operator_module.ge, 'less_equal': operator_module.le}
+    groups = []                     # masks to OR together; each entry is a list of masks to AND together
     current_logic = 'AND'
 
     for condition in conditions:
         column = condition.get('column')
         operator = condition.get('operator')
         value = condition.get('value', '')
-        logic = condition.get('logic')
-
-        if logic:
-            current_logic = logic
+        if condition.get('logic'):
+            current_logic = condition['logic'].upper()
 
         if column not in df.columns:
             return jsonify({'error': f'Column "{column}" not found'}), 400
 
         col_data = df[column]
+        blank = col_data.isna() | (col_data.astype(str).str.strip() == '')
+        # Text of each cell (a number prints as 5, not 5.0); blank cells stay missing instead of becoming 'nan'
+        text = col_data.map(lambda v: v if isinstance(v, str) else (None if pd.isna(v) else _comparable_text(v))).str.lower()
+        needle = str(value).lower()
 
-        # Build condition mask
         if operator == 'equals':
-            cond_mask = col_data.astype(str).str.lower() == str(value).lower()
+            cond_mask = text == needle
         elif operator == 'not_equals':
-            cond_mask = col_data.astype(str).str.lower() != str(value).lower()
+            cond_mask = text != needle
         elif operator == 'contains':
-            cond_mask = col_data.astype(str).str.lower().str.contains(str(value).lower(), na=False, regex=False)
+            cond_mask = text.str.contains(needle, na=False, regex=False)
         elif operator == 'not_contains':
-            cond_mask = ~col_data.astype(str).str.lower().str.contains(str(value).lower(), na=False, regex=False)
+            cond_mask = ~text.str.contains(needle, na=False, regex=False)
         elif operator == 'starts_with':
-            cond_mask = col_data.astype(str).str.lower().str.startswith(str(value).lower(), na=False)
+            cond_mask = text.str.startswith(needle, na=False)
         elif operator == 'ends_with':
-            cond_mask = col_data.astype(str).str.lower().str.endswith(str(value).lower(), na=False)
-        elif operator == 'greater_than':
+            cond_mask = text.str.endswith(needle, na=False)
+        elif operator in numeric_operators:
             try:
-                cond_mask = pd.to_numeric(col_data, errors='coerce') > float(value)
-            except:
-                cond_mask = col_data.astype(str) > str(value)
-        elif operator == 'less_than':
-            try:
-                cond_mask = pd.to_numeric(col_data, errors='coerce') < float(value)
-            except:
-                cond_mask = col_data.astype(str) < str(value)
-        elif operator == 'greater_equal':
-            try:
-                cond_mask = pd.to_numeric(col_data, errors='coerce') >= float(value)
-            except:
-                cond_mask = col_data.astype(str) >= str(value)
-        elif operator == 'less_equal':
-            try:
-                cond_mask = pd.to_numeric(col_data, errors='coerce') <= float(value)
-            except:
-                cond_mask = col_data.astype(str) <= str(value)
+                limit = float(value)
+            except (TypeError, ValueError):
+                raise UserError(f'"{value}" is not a number, so it cannot be used with a greater/less than condition '
+                                f'on column "{column}"')
+            cond_mask = numeric_operators[operator](pd.to_numeric(col_data, errors='coerce'), limit)
         elif operator == 'is_empty':
-            cond_mask = col_data.isna() | (col_data.astype(str).str.strip() == '')
+            cond_mask = blank
         elif operator == 'is_not_empty':
-            cond_mask = ~(col_data.isna() | (col_data.astype(str).str.strip() == ''))
+            cond_mask = ~blank
         elif operator == 'in_list':
-            values = [v.strip().lower() for v in str(value).split(',')]
-            cond_mask = col_data.astype(str).str.lower().isin(values)
+            cond_mask = text.isin([v.strip().lower() for v in str(value).split(',')])
         else:
             return jsonify({'error': f'Unknown operator: {operator}'}), 400
 
-        # Combine with existing mask
-        if mask is None:
-            mask = cond_mask
-        elif current_logic == 'AND':
-            mask = mask & cond_mask
-        else:  # OR
-            mask = mask | cond_mask
+        if not groups or current_logic == 'OR':
+            groups.append([cond_mask])
+        else:
+            groups[-1].append(cond_mask)
+
+    mask = functools.reduce(operator_module.or_, (functools.reduce(operator_module.and_, g) for g in groups))
 
     # Apply filter
     filtered_df = df[mask]

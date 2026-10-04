@@ -13,6 +13,7 @@ import re
 import secrets
 import time
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 
 import numpy as np
 import pandas as pd
@@ -28,6 +29,19 @@ MAX_SECONDS = 5           # wall-clock budget for one formula
 
 class FormulaError(ValueError):
     """The formula is not valid or uses something that is not allowed."""
+
+
+def round_half_up(series, decimals):
+    """Excel's ROUND: halves go away from zero (2.5 -> 3, 2.675 -> 2.68), not to the nearest even number."""
+    if pd.api.types.is_integer_dtype(series) and decimals >= 0:
+        return series
+    step = Decimal(1).scaleb(-decimals)
+
+    def one(value):
+        if pd.isna(value) or not np.isfinite(value):
+            return value
+        return float(Decimal(repr(float(value))).quantize(step, rounding=ROUND_HALF_UP))
+    return series.map(one).astype(float)
 
 
 def build_function_map(df):
@@ -63,7 +77,7 @@ def build_function_map(df):
         'REPLACE': lambda x, old, new: to_str_series(x).str.replace(str(old), str(new), regex=False),
 
         # Math functions
-        'ROUND': lambda x, decimals=0: pd.to_numeric(to_series(x), errors='coerce').round(int(decimals)),
+        'ROUND': lambda x, decimals=0: round_half_up(pd.to_numeric(to_series(x), errors='coerce'), int(decimals)),
         'ABS': lambda x: pd.to_numeric(to_series(x), errors='coerce').abs(),
         'CEILING': lambda x: pd.to_numeric(to_series(x), errors='coerce').apply(lambda v: np.ceil(v) if pd.notna(v) else v),
         'FLOOR': lambda x: pd.to_numeric(to_series(x), errors='coerce').apply(lambda v: np.floor(v) if pd.notna(v) else v),
@@ -155,6 +169,8 @@ class _Interpreter:
         if op is None:
             raise FormulaError('Unsupported operator in formula')
         left, right = self.visit(node.left), self.visit(node.right)
+        if isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)) and _is_number(right) and right == 0 and _is_number(left):
+            raise FormulaError('Division by zero')
         if isinstance(node.op, ast.Pow) and _is_number(right) and abs(right) > MAX_EXPONENT:
             raise FormulaError(f'Exponent too large (maximum {MAX_EXPONENT})')
         if isinstance(node.op, ast.Mult):
@@ -222,9 +238,14 @@ def _preprocess(df, formula):
         columns[key] = name
         return key
 
-    work = re.sub(r'"[^"]*"', save_string, formula)
-    work = re.sub(r"'[^']*'", save_string, work)
-    work = re.sub(r'\[([^\]]+)\]', column_ref, work)
+    # One left-to-right pass: whichever of "text", 'text' or [Column] starts first wins, so a column called
+    # We"ird can still be referenced in a formula that also contains a quoted string.
+    def replace_token(match):
+        if match.group(1) is not None:
+            return column_ref(match)
+        return save_string(match)
+
+    work = re.sub(r'\[([^\]]+)\]|"[^"]*"|\'[^\']*\'', replace_token, formula)
     return work, literals, columns
 
 
