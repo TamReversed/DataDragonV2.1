@@ -63,7 +63,9 @@ class CacheAwareRequest(Request):
         for field, cache_id in wanted.items():
             info = get_cached_file_by_id(cache_id)
             if info and os.path.isfile(info.get('path', '')):
-                merged.add(field, FileStorage(open(info['path'], 'rb'), filename=info['name']))
+                stand_in = FileStorage(open(info['path'], 'rb'), filename=info['name'])
+                stand_in.cache_id = cache_id           # lets a tool find the recorded steps behind its input
+                merged.add(field, stand_in)
         return ImmutableMultiDict(merged)
 
 
@@ -515,8 +517,10 @@ cleanup_thread_instance.start()
 # Global file cache with unique IDs - accessible across all sessions
 file_cache = {}  # cache_id -> {'name': str, 'path': str, 'timestamp': float, 'rows': int, 'cols': int, 'source_tool': str}
 
-def cache_session_file(session_id, filename, file_path, rows, cols, source_tool='Unknown', owner=None):
-    """Cache a processed file for potential use in another tool. Returns cache_id."""
+def cache_session_file(session_id, filename, file_path, rows, cols, source_tool='Unknown', owner=None, steps=None):
+    """Cache a processed file for potential use in another tool. Returns cache_id.
+    `steps`: the replayable steps that produced it from an uploaded file, or None when a step in its history
+    cannot be replayed (then no recipe can be saved from it)."""
     import hashlib
     # Generate unique cache ID from filename + timestamp
     cache_id = hashlib.md5(f"{filename}{time.time()}{os.urandom(8).hex()}".encode()).hexdigest()[:12]
@@ -537,9 +541,24 @@ def cache_session_file(session_id, filename, file_path, rows, cols, source_tool=
         'rows': rows,
         'cols': cols,
         'source_tool': source_tool,
-        'owner': owner
+        'owner': owner,
+        'steps': steps,
     }
     return cache_id
+
+
+def input_steps(field='file'):
+    """The recorded steps behind the file a request works on: [] for an upload, the cached result's steps when an
+    earlier result was picked, None when that result's history cannot be replayed."""
+    cache_id = getattr(request.files.get(field), 'cache_id', None)
+    if not cache_id:
+        return []
+    info = get_cached_file_by_id(cache_id)
+    return info.get('steps') if info else None
+
+
+def extend_steps(parent, step):
+    return None if parent is None else parent + [step]
 
 def get_cached_files(session_id=None):
     """Get the current browser's cached files (session_id kept for backwards compatibility)"""
@@ -2421,6 +2440,7 @@ def get_cached_files_endpoint():
                 'timestamp': f['timestamp'],
                 'cached_at': cached_at,
                 'source_tool': f.get('source_tool', 'Unknown'),
+                'recipe_steps': [step.get('name', step['tool']) for step in f['steps']] if f.get('steps') else None,
                 'age_seconds': int(time.time() - f['timestamp'])
             })
 
@@ -5200,42 +5220,8 @@ def transpose_data():
 def row_filter_page():
     return render_template('row_filter.html')
 
-@app.route('/row-filter', methods=['POST'])
-@rate_limit(max_requests=20, window=60)
-@api_errors
-def row_filter():
-    """Filter rows based on conditions"""
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-
-    # Get conditions
-    conditions_json = request.form.get('conditions', '[]')
-    preview_only = request.form.get('preview_only', 'false').lower() == 'true'
-
-    try:
-        conditions = json.loads(conditions_json)
-    except json.JSONDecodeError:
-        return jsonify({'error': 'Invalid conditions format'}), 400
-
-    if not conditions:
-        return jsonify({'error': 'At least one condition is required'}), 400
-
-    # Generate session ID
-    session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
-    job_registry.bind(session_id, current_owner())
-    filename = secure_filename(file.filename)
-    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-    save_upload(file, upload_path, session_id)
-
-    # Read the file
-    df = read_data_file(upload_path)
-    discard_upload(upload_path)  # contents are loaded; do not keep the file
-    original_rows = len(df)
-
+def row_filter_mask(df, conditions):
+    """True for the rows that match the conditions of the Row Filter (see the route and the recipe step)."""
     # Build the filter. Each condition says how it joins the one before it; AND binds tighter than OR, as in SQL:
     # "a OR b AND c" keeps the rows that match a, or match both b and c.
     numeric_operators = {'greater_than': operator_module.gt, 'less_than': operator_module.lt,
@@ -5251,7 +5237,7 @@ def row_filter():
             current_logic = condition['logic'].upper()
 
         if column not in df.columns:
-            return jsonify({'error': f'Column "{column}" not found'}), 400
+            raise UserError(f'Column "{column}" not found')
 
         col_data = df[column]
         blank = col_data.isna() | (col_data.astype(str).str.strip() == '')
@@ -5285,7 +5271,7 @@ def row_filter():
         elif operator == 'in_list':
             cond_mask = text.isin([v.strip().lower() for v in str(value).split(',')])
         else:
-            return jsonify({'error': f'Unknown operator: {operator}'}), 400
+            raise UserError(f'Unknown operator: {operator}')
 
         if not groups or current_logic == 'OR':
             groups.append([cond_mask])
@@ -5293,6 +5279,47 @@ def row_filter():
             groups[-1].append(cond_mask)
 
     mask = functools.reduce(operator_module.or_, (functools.reduce(operator_module.and_, g) for g in groups))
+
+    return mask
+
+
+@app.route('/row-filter', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+@api_errors
+def row_filter():
+    """Filter rows based on conditions"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    # Get conditions
+    steps_before = input_steps()
+    conditions_json = request.form.get('conditions', '[]')
+    preview_only = request.form.get('preview_only', 'false').lower() == 'true'
+
+    try:
+        conditions = json.loads(conditions_json)
+    except json.JSONDecodeError:
+        return jsonify({'error': 'Invalid conditions format'}), 400
+
+    if not conditions:
+        return jsonify({'error': 'At least one condition is required'}), 400
+
+    # Generate session ID
+    session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+    job_registry.bind(session_id, current_owner())
+    filename = secure_filename(file.filename)
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    save_upload(file, upload_path, session_id)
+
+    # Read the file
+    df = read_data_file(upload_path)
+    discard_upload(upload_path)  # contents are loaded; do not keep the file
+    original_rows = len(df)
+    mask = row_filter_mask(df, conditions)
 
     # Apply filter
     filtered_df = df[mask]
@@ -5317,7 +5344,8 @@ def row_filter():
     output_filename = os.path.basename(output_path)
 
     # Cache the result
-    cache_session_file(session_id, output_filename, output_path, matching_rows, len(filtered_df.columns), 'Row Filter')
+    cache_session_file(session_id, output_filename, output_path, matching_rows, len(filtered_df.columns), 'Row Filter',
+                       steps=extend_steps(steps_before, {'tool': 'row-filter', 'name': 'Row Filter', 'options': {'conditions': conditions}}))
 
     # Cleanup upload
     try:
@@ -5341,40 +5369,9 @@ def row_filter():
 def find_replace_page():
     return render_template('find_replace.html')
 
-@app.route('/find-replace', methods=['POST'])
-@rate_limit(max_requests=20, window=60)
-@api_errors
-def find_replace():
-    """Perform find and replace on uploaded file"""
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file uploaded'}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
-
-    # Get parameters
-    find_text = request.form.get('find_text', '')
-    replace_text = request.form.get('replace_text', '')
-    column = request.form.get('column', '__all__')
-    case_sensitive = request.form.get('case_sensitive', 'false').lower() == 'true'
-    use_regex = request.form.get('use_regex', 'false').lower() == 'true'
-    match_whole_cell = request.form.get('match_whole_cell', 'false').lower() == 'true'
-
-    if not find_text:
-        return jsonify({'error': 'Find text is required'}), 400
-
-    # Generate session ID
-    session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
-    job_registry.bind(session_id, current_owner())
-    filename = secure_filename(file.filename)
-    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-    save_upload(file, upload_path, session_id)
-
-    # Read the file
-    df = read_data_file(upload_path)
-
-    discard_upload(upload_path)  # contents are loaded; do not keep the file
+def find_and_replace(df, find_text, replace_text, column='__all__', case_sensitive=False, use_regex=False, match_whole_cell=False):
+    """Replace text in one column or all (see the Find & Replace route and the recipe step).
+    Changes `df` and returns (number of replacements, set of row labels affected)."""
     # Track replacements
     total_replacements = 0
     rows_affected = set()
@@ -5384,7 +5381,7 @@ def find_replace():
         columns_to_process = df.columns.tolist()
     else:
         if column not in df.columns:
-            return jsonify({'error': f'Column "{column}" not found'}), 400
+            raise UserError(f'Column "{column}" not found')
         columns_to_process = [column]
 
     # Perform find and replace. Only non-blank cells that match are changed (a blank stays blank and a number
@@ -5417,6 +5414,46 @@ def find_replace():
             rows_affected.update(df.index[changed].tolist())
             df[col] = pd.Series(values, index=df.index, dtype=object)
 
+    return total_replacements, rows_affected
+
+
+@app.route('/find-replace', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+@api_errors
+def find_replace():
+    """Perform find and replace on uploaded file"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    steps_before = input_steps()
+    # Get parameters
+    find_text = request.form.get('find_text', '')
+    replace_text = request.form.get('replace_text', '')
+    column = request.form.get('column', '__all__')
+    case_sensitive = request.form.get('case_sensitive', 'false').lower() == 'true'
+    use_regex = request.form.get('use_regex', 'false').lower() == 'true'
+    match_whole_cell = request.form.get('match_whole_cell', 'false').lower() == 'true'
+
+    if not find_text:
+        return jsonify({'error': 'Find text is required'}), 400
+
+    # Generate session ID
+    session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+    job_registry.bind(session_id, current_owner())
+    filename = secure_filename(file.filename)
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    save_upload(file, upload_path, session_id)
+
+    # Read the file
+    df = read_data_file(upload_path)
+
+    discard_upload(upload_path)  # contents are loaded; do not keep the file
+    total_replacements, rows_affected = find_and_replace(df, find_text, replace_text, column, case_sensitive, use_regex, match_whole_cell)
+
     # Save the modified file
     base_name = short_stem(filename)
     output_path = save_table(df, job_output_path(session_id, f"{base_name}_replaced_{session_id}.xlsx"), session_id,
@@ -5428,7 +5465,10 @@ def find_replace():
     output_filename = os.path.basename(output_path)
 
     # Cache the result
-    cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Find & Replace')
+    cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Find & Replace',
+                       steps=extend_steps(steps_before, {'tool': 'find-replace', 'name': 'Find & Replace', 'options': {
+                           'find_text': find_text, 'replace_text': replace_text, 'column': None if column == '__all__' else column,
+                           'case_sensitive': case_sensitive, 'use_regex': use_regex, 'match_whole_cell': match_whole_cell}}))
 
     # Cleanup upload
     try:
@@ -6473,8 +6513,10 @@ def register_tool_routes(tool):
     @rate_limit(max_requests=20, window=60)
     @api_errors
     def run():
+        steps_before = input_steps()
         filename, df, options = _load_tool_request(tool)
         result = _run_tool(tool, df, options)
+        steps = extend_steps(steps_before, datadragon_tools.step_record(tool, options, full=True))
         job_id = f"{int(time.time())}_{secrets.token_hex(8)}"
         job_registry.bind(job_id, current_owner())
         log = make_log(tool.name, len(df), len(result.df), result.details, job_id,
@@ -6485,8 +6527,10 @@ def register_tool_routes(tool):
         else:
             output_path = save_table(result.df, path, job_id, log=log)
         output_filename = os.path.basename(output_path)
+        cache_id = None
         if output_filename.endswith(('.xlsx', '.csv')):            # a zip of CSVs cannot be the input of the next tool
-            cache_session_file(job_id, output_filename, output_path, len(result.df), len(result.df.columns), tool.name)
+            cache_id = cache_session_file(job_id, output_filename, output_path, len(result.df), len(result.df.columns),
+                                          tool.name, steps=steps)
         return jsonify({
             'success': True,
             'filename': output_filename,
@@ -6497,6 +6541,9 @@ def register_tool_routes(tool):
             'preview': {'columns': [str(c) for c in result.df.columns], 'rows': df_preview_text(result.df),
                         'total_rows': len(result.df)},
             'extra_sheets': [name for name, _ in result.extra_sheets],
+            # the steps so far, when every one of them can be replayed: they can be saved as a recipe
+            'recipe_steps': [step['name'] for step in steps] if steps and cache_id else None,
+            'recipe_url': f'/recipes/export/{cache_id}' if steps and cache_id else None,
         })
 
     name = tool.slug.replace('-', '_')
@@ -6505,8 +6552,147 @@ def register_tool_routes(tool):
     app.add_url_rule(f'/{tool.slug}', f'tool_run_{name}', run, methods=['POST'])
 
 
+# ---- Tools with their own pages, registered so that a recipe can replay them --------------------------------
+def _as_tool_error(function):
+    """Run tool code of this module for a recipe: its UserError becomes the scaffold's ToolError."""
+    @wraps(function)
+    def wrapper(df, options):
+        try:
+            return function(df, options)
+        except UserError as error:
+            raise datadragon_tools.ToolError(str(error))
+    return wrapper
+
+
+def _check_conditions(value):
+    if not isinstance(value, list) or not value:
+        raise datadragon_tools.ToolError('At least one condition is required.')
+    if len(value) > 50 or not all(isinstance(c, dict) and len(str(c.get('value', ''))) <= 500 for c in value):
+        raise datadragon_tools.ToolError('The filter conditions are not readable.')
+    return value
+
+
+def _row_filter_step(df, options):
+    kept = df[row_filter_mask(df, options['conditions'])]
+    return datadragon_tools.ToolResult(kept, [('Rows in', len(df)), ('Rows kept', len(kept))],
+                                       {'conditions': len(options['conditions'])})
+
+
+def _find_replace_step(df, options):
+    if not options['find_text']:
+        raise UserError('Find text is required')
+    result = df.copy()
+    column = '__all__' if options['column'] is None else options['column']
+    replacements, rows = find_and_replace(result, options['find_text'], options['replace_text'], column,
+                                          options['case_sensitive'], options['use_regex'], options['match_whole_cell'])
+    return datadragon_tools.ToolResult(result, [('Replacements made', int(replacements)), ('Rows affected', len(rows))],
+                                       {'replacements_made': int(replacements), 'rows_affected': len(rows)})
+
+
+datadragon_tools.register(datadragon_tools.Tool(
+    slug='row-filter', name='Row Filter', title=('Row', 'Filter'), description='', action='', suffix='filtered', page=False,
+    run=_as_tool_error(_row_filter_step),
+    options=[datadragon_tools.Option('conditions', 'Conditions', 'json', check=_check_conditions)]))
+datadragon_tools.register(datadragon_tools.Tool(
+    slug='find-replace', name='Find & Replace', title=('Find &', 'Replace'), description='', action='', suffix='replaced',
+    page=False, run=_as_tool_error(_find_replace_step),
+    options=[datadragon_tools.Option('find_text', 'Find text', 'text', literal=True),
+             datadragon_tools.Option('replace_text', 'Replace with', 'text', literal=True),
+             datadragon_tools.Option('column', 'Column', 'column', optional_blank='All columns'),
+             datadragon_tools.Option('case_sensitive', 'Case sensitive', 'checkbox', default=False),
+             datadragon_tools.Option('use_regex', 'Regular expression', 'checkbox', default=False),
+             datadragon_tools.Option('match_whole_cell', 'Match whole cell', 'checkbox', default=False)]))
+
 for _tool in datadragon_tools.TOOLS.values():
-    register_tool_routes(_tool)
+    if _tool.page:
+        register_tool_routes(_tool)
+
+
+# =============================================================================
+# RECIPES: save the steps behind a result, replay them on another file
+# =============================================================================
+@app.route('/recipes')
+def recipes_page():
+    return render_template('recipes.html')
+
+
+@app.route('/recipes/export/<cache_id>')
+@api_errors
+def export_recipe(cache_id):
+    """The steps behind an earlier result of this browser, as a recipe file."""
+    info = get_cached_file_by_id(cache_id)
+    if not info or not info.get('steps'):
+        raise UserError('That result is no longer available, or its steps cannot be replayed.')
+    name = short_stem(info['name'], 40)
+    body = json.dumps(datadragon_tools.make_recipe(info['steps'], name), ensure_ascii=False, indent=2)
+    return Response(body, mimetype='application/json',
+                    headers={'Content-Disposition': f'attachment; filename="{secure_filename(name) or "steps"}.recipe.json"'})
+
+
+def _load_recipe_request():
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file (.xlsx, .xls, .csv)')
+    recipe_file = request.files.get('recipe')
+    if recipe_file is None or not recipe_file.filename:
+        raise UserError('Choose a recipe file (.recipe.json).')
+    raw = recipe_file.read(1_000_001)
+    if len(raw) > 1_000_000:
+        raise UserError('The recipe file is too large to be a recipe.')
+    try:
+        steps = datadragon_tools.check_recipe(json.loads(raw.decode('utf-8-sig')))
+    except (ValueError, UnicodeDecodeError) as error:
+        raise UserError(str(error) if isinstance(error, datadragon_tools.ToolError) else 'The recipe file is not readable.')
+    with temporary_upload(file, 'recipe') as path:
+        df = read_data_file(path)
+    return secure_filename(file.filename), df, steps
+
+
+@app.route('/recipes/check', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+@api_errors
+def check_recipe_on_file():
+    """Replay without writing anything: says what each step would do, or which step does not fit this file."""
+    _, df, steps = _load_recipe_request()
+    try:
+        result, reports, _ = datadragon_tools.replay(steps, df)
+    except datadragon_tools.ToolError as error:
+        return jsonify({'success': True, 'fits': False, 'problem': str(error), 'steps': len(steps)})
+    return jsonify({'success': True, 'fits': True, 'reports': make_json_serializable(reports),
+                    'rows_in': len(df), 'rows_out': len(result)})
+
+
+@app.route('/recipes/run', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+@api_errors
+def run_recipe():
+    steps_before = input_steps()
+    filename, df, steps = _load_recipe_request()
+    try:
+        result, reports, side_sheets = datadragon_tools.replay(steps, df)
+    except datadragon_tools.ToolError as error:
+        raise UserError(str(error))
+    job_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+    job_registry.bind(job_id, current_owner())
+    report_frame = pd.DataFrame([{'Step': r['step'], 'Tool': r['tool'], 'Rows in': r['rows_in'], 'Rows out': r['rows_out'],
+                                  'Cells changed': r['cells_changed'],
+                                  'Columns added': ', '.join(r['columns_added']), 'Columns removed': ', '.join(r['columns_removed'])}
+                                 for r in reports])
+    # The log names the tools in order; their settings stay in the recipe file (they can hold typed values)
+    log = make_log('Recipe', len(df), len(result), {'steps': [r['tool'] for r in reports]}, job_id,
+                   step=[{'tool': step['tool']} for step in steps])
+    path = job_output_path(job_id, f"{short_stem(filename)}_recipe_{job_id}.xlsx")
+    output_path = write_sheets(path, [('Result', result), ('Recipe steps', report_frame)] + side_sheets[:20], job_id, log=log)
+    output_filename = os.path.basename(output_path)
+    cache_id = None
+    if output_filename.endswith('.xlsx'):
+        cache_id = cache_session_file(job_id, output_filename, output_path, len(result), len(result.columns), 'Recipe',
+                                      steps=None if steps_before is None else steps_before + steps)
+    return jsonify({
+        'success': True, 'filename': output_filename, 'download_url': job_download_url(job_id, output_filename),
+        **job_notes.get(job_id, {}),
+        'reports': make_json_serializable(reports), 'rows_in': len(df), 'rows_out': len(result),
+        'preview': {'columns': [str(c) for c in result.columns], 'rows': df_preview_text(result), 'total_rows': len(result)},
+        'recipe_url': f'/recipes/export/{cache_id}' if cache_id else None,
+    })
 
 
 if __name__ == '__main__':

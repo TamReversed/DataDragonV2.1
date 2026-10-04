@@ -325,6 +325,18 @@
             if ((data.extra_sheets || []).length) {
                 notes.appendChild(el('p', { class: 'form-hint', text: 'The file also has: ' + data.extra_sheets.join(', ') + '.' }));
             }
+            // The steps so far can be saved and replayed on another file (see /recipes)
+            const recipeBtn = $('recipeBtn');
+            const recipeNote = $('recipeNote');
+            recipeBtn.hidden = !data.recipe_url;
+            if (data.recipe_url) {
+                recipeBtn.href = data.recipe_url;
+                recipeNote.textContent = 'Steps so far: ' + data.recipe_steps.map((name, i) => (i + 1) + '. ' + name).join('   ') +
+                    '. A recipe replays them on another file.';
+            } else {
+                recipeNote.textContent = 'A recipe cannot be saved from this result: an earlier step used a tool that cannot be replayed yet.';
+            }
+            recipeNote.hidden = false;
             $('downloadBtn').href = data.download_url;
             $('downloadBtn').setAttribute('download', data.filename);
             $('resultStats').textContent = Number(data.preview.total_rows).toLocaleString() + ' rows x ' + data.preview.columns.length + ' columns';

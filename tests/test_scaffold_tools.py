@@ -228,7 +228,7 @@ def upload(df):
     return buffer
 
 
-@pytest.mark.parametrize("slug", sorted(TOOLS))
+@pytest.mark.parametrize("slug", sorted(slug for slug, tool in TOOLS.items() if tool.page))
 def test_every_tool_has_a_page_in_the_hub_with_a_help_panel(client, slug):
     page = client.get(f"/{slug}")
     html = page.get_data(as_text=True)

@@ -24,7 +24,7 @@ class ToolError(ValueError):
 class Option:
     id: str
     label: str
-    kind: str                       # columns | column | select | checkbox | text | number
+    kind: str                       # columns | column | select | checkbox | text | number | json (checked by `check`)
     default: object = None
     choices: list = field(default_factory=list)      # select: [(value, label)]
     help: str = ''
@@ -34,6 +34,7 @@ class Option:
     literal: bool = False           # text the user typed that may be data: kept out of the log
     minimum: float = None
     maximum: float = None
+    check: object = None            # json: function(value) -> checked value, raising ToolError
 
 
 @dataclass
@@ -57,6 +58,7 @@ class Tool:
     run: object
     how: list = field(default_factory=list)          # [(heading, text)] for the "How it works" panel
     sheet_name: str = 'Result'
+    page: bool = True               # False: the tool has its own page elsewhere and is here so recipes can replay it
 
 
 TOOLS = {}
@@ -99,6 +101,8 @@ def parse_options(tool, raw, df):
             allowed = [choice[0] for choice in option.choices]
             if value not in allowed:
                 raise ToolError(f'"{option.label}" must be one of: {", ".join(map(str, allowed))}.')
+        elif option.kind == 'json':
+            value = option.check(value)
         elif option.kind == 'checkbox':
             value = value is True or str(value).lower() == 'true'
         elif option.kind == 'number':
@@ -128,20 +132,84 @@ def parse_options(tool, raw, df):
     return values
 
 
-def step_record(tool, options):
-    """The step as data, for the log: which tool, with which settings. Literal text is recorded by length only."""
+def step_record(tool, options, full=False):
+    """The step as data: which tool, with which settings.
+
+    For the log (`full=False`) text the user typed is recorded by length only, because it may be data.
+    For a recipe (`full=True`) the settings are complete, so the step can be replayed.
+    """
     recorded = {}
     for option in tool.options:
         value = options.get(option.id)
-        if option.literal:
+        if option.literal and not full:
             recorded[option.id] = {'literal': True, 'length': len(str(value or ''))}
+        elif option.kind == 'json' and not full:
+            recorded[option.id] = {'literal': True, 'items': len(value) if isinstance(value, (list, dict)) else 1}
         elif option.kind == 'columns':
             recorded[option.id] = [str(c) for c in value]
         elif option.kind == 'column':
             recorded[option.id] = None if value is None else str(value)
         else:
             recorded[option.id] = value
-    return {'tool': tool.slug, 'options': recorded}
+    step = {'tool': tool.slug, 'options': recorded}
+    if full:
+        step['name'] = tool.name
+    return step
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Recipes: recorded steps, replayed on another file
+# ---------------------------------------------------------------------------------------------------------------
+RECIPE_VERSION = 1
+MAX_RECIPE_STEPS = 50
+
+
+def make_recipe(steps, name=''):
+    return {'datadragon_recipe': RECIPE_VERSION, 'name': str(name)[:120], 'steps': steps}
+
+
+def check_recipe(data):
+    """The steps of a recipe file, or a ToolError saying what is wrong with it."""
+    if not isinstance(data, dict) or 'datadragon_recipe' not in data:
+        raise ToolError('This is not a DataDragon recipe file.')
+    if data['datadragon_recipe'] != RECIPE_VERSION:
+        raise ToolError('This recipe was made by a newer version of DataDragon and cannot be read here.')
+    steps = data.get('steps')
+    if not isinstance(steps, list) or not steps:
+        raise ToolError('The recipe has no steps.')
+    if len(steps) > MAX_RECIPE_STEPS:
+        raise ToolError(f'The recipe has {len(steps)} steps; the most that can be replayed is {MAX_RECIPE_STEPS}.')
+    for number, step in enumerate(steps, 1):
+        if not isinstance(step, dict) or not isinstance(step.get('tool'), str) or not isinstance(step.get('options'), dict):
+            raise ToolError(f'Step {number} of the recipe is not readable.')
+        if step['tool'] not in TOOLS:
+            raise ToolError(f'Step {number} uses "{step["tool"]}", which this version of DataDragon cannot replay.')
+    return steps
+
+
+def replay(steps, df):
+    """Apply the steps in order. Returns (final table, [per-step report], [(sheet name, table)] of side outputs).
+
+    A step whose settings no longer fit the table (a column that is gone, for example) stops the replay with a
+    ToolError that names the step; nothing is half-applied, because every step works on a copy.
+    """
+    reports, side_sheets = [], []
+    for number, step in enumerate(steps, 1):
+        tool = TOOLS[step['tool']]
+        try:
+            options = parse_options(tool, step['options'], df)
+            result = tool.run(df, options)
+        except ToolError as error:
+            raise ToolError(f'Step {number} ({tool.name}): {error}')
+        change = describe_change(df, result.df, sample=0)
+        reports.append({'step': number, 'tool': tool.name, 'rows_in': len(df), 'rows_out': len(result.df),
+                        'cells_changed': change['cells_changed'], 'columns_added': change['columns_added'],
+                        'columns_removed': change['columns_removed'],
+                        'summary': [[label, value] for label, value in result.summary]})
+        for name, frame in result.extra_sheets:
+            side_sheets.append((f'Step {number} {name}'[:31], frame))
+        df = result.df
+    return df, reports, side_sheets
 
 
 def describe(tool):

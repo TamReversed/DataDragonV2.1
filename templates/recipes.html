@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}DataDragon - Recipes{% endblock %}
+
+{% block page_title %}
+<div class="header-row">
+    <div>
+        <h1 class="page-title">Recipes: do it <em>again</em></h1>
+        <p class="page-subtitle">Save the steps you took on one file and replay them on the next one, such as next month's export.</p>
+    </div>
+    <button class="help-btn" id="helpBtn" type="button" aria-haspopup="dialog">How it works</button>
+</div>
+{% endblock %}
+
+{% block content %}
+<section class="card mb-6" id="savableSection" hidden>
+    <h2 class="card-title">Save a recipe from what you just did</h2>
+    <p class="form-hint">Results from this session whose steps can all be replayed.</p>
+    <div class="recipe-savable" id="savableList"></div>
+</section>
+
+<h2 class="recipe-heading">Replay a recipe</h2>
+
+<div class="cached-files-section" id="cachedFilesSection">
+    <div class="cached-files-header"><span>Earlier results: use one as the data file</span></div>
+    <div class="cached-files-list" id="cachedFilesList"></div>
+</div>
+
+<div class="grid grid-2 mb-6">
+    <div class="file-upload-zone" id="dataZone">
+        {% include "brand/empty_upload.svg" %}
+        <div class="file-upload-text">1. The data file</div>
+        <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV</div>
+        <div id="dataInfo" class="file-upload-hint mt-2" style="display: none;"></div>
+        <input type="file" id="dataInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" aria-label="Choose the data file">
+    </div>
+    <div class="file-upload-zone" id="recipeZone">
+        {% include "brand/done.svg" %}
+        <div class="file-upload-text">2. The recipe</div>
+        <div class="file-upload-hint">A .recipe.json file saved from DataDragon</div>
+        <div id="recipeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
+        <input type="file" id="recipeInput" class="visually-hidden file-upload-input" accept=".json,application/json" aria-label="Choose the recipe file">
+    </div>
+</div>
+
+<section class="card mb-6" id="recipeContents" hidden>
+    <h2 class="card-title">What this recipe does</h2>
+    <ol class="recipe-steps" id="recipeStepList"></ol>
+    <p class="form-hint">A recipe file holds the settings you typed (for example the text to find or the value to fill with). Treat it like the data it was made from.</p>
+</section>
+
+<div class="btn-group mb-6">
+    <button type="button" class="btn btn-primary" id="runBtn" disabled>Replay on this file</button>
+    <button type="button" class="btn" id="checkBtn" disabled>Check first</button>
+</div>
+
+<div class="error" id="error" role="alert"></div>
+
+<section class="card mb-6" id="checkResult" hidden aria-live="polite">
+    <h2 class="card-title" id="checkTitle"></h2>
+    <div id="checkBody"></div>
+</section>
+
+<section class="results" id="results" aria-live="polite">
+    <div class="card">
+        <h2 class="card-title">Recipe replayed</h2>
+        <div id="resultBody"></div>
+        <div class="btn-group mt-4">
+            <a class="btn btn-primary" id="downloadBtn" href="#">Download the result</a>
+        </div>
+    </div>
+    <div class="card mt-4">
+        <div class="preview-header">
+            <div class="preview-title"><span>Result preview</span></div>
+            <div class="preview-stats" id="resultStats"></div>
+        </div>
+        <div class="preview-table-wrapper">
+            <table class="preview-table"><thead id="resultHead"></thead><tbody id="resultBody2"></tbody></table>
+        </div>
+    </div>
+</section>
+
+<div class="help-modal" id="helpModal" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-modal-content">
+        <div class="help-modal-header">
+            <h2 class="help-modal-title" id="helpTitle">How recipes work</h2>
+            <button type="button" class="help-modal-close" id="helpClose" aria-label="Close">&times;</button>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">Recording</h3>
+            <div class="help-section-content">DataDragon remembers the steps behind each result while you work: clean the text, fill the blanks, use that result in the next tool, and so on. When every step can be replayed, the result can be saved as a recipe: a small file you keep.</div>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">Which tools can be replayed</h3>
+            <div class="help-section-content">Text Cleaner, Fill Missing, Remove Duplicates, Sort, Rank &amp; Sample, Find &amp; Replace and Row Filter. A result that passed through any other tool cannot be saved as a recipe yet.</div>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">Replaying</h3>
+            <div class="help-section-content">Give the new file and the recipe. "Check first" says what each step would do without writing anything. If a step no longer fits the file, for example because a column it uses is missing, the replay stops and names the step; nothing is half-done.</div>
+        </div>
+        <div class="help-section">
+            <h3 class="help-section-title">The result</h3>
+            <div class="help-section-content">The final table, a "Recipe steps" sheet with what each step changed, and any side outputs such as removed rows.</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/recipes.js') }}"></script>
+{% endblock %}
