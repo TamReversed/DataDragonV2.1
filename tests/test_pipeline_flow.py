@@ -111,7 +111,7 @@ def test_the_report_after_rerunning_keys_does_not_show_the_stale_key(client):
     msgs = run_stage(client, sid, "execute")
     zf = zipfile.ZipFile(output_path(msgs[-1]))
     text = re.sub(r"\s+", "", pdf_text(zf.read([n for n in zf.namelist() if n.endswith(".pdf")][0])))
-    assert "SelectedNaturalKey:Zip" in text
+    assert "SelectednaturalkeyZip" in text and "SelectednaturalkeyID" not in text      # the heading, then the key in its box
 
 
 # ------------------------------------------------------------------ stream hand-off
