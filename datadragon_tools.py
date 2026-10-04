@@ -630,3 +630,211 @@ register(Tool(
                           'sorted order and is repeatable: the seed is shown with the result.'),
          ('The result', 'The sorted (and possibly shortened) table.')],
 ))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Unpivot (wide to long)
+# ---------------------------------------------------------------------------------------------------------------
+def unpivot(df, options):
+    id_columns = options['id_columns']
+    value_columns = options['value_columns'] or [c for c in df.columns if c not in id_columns]
+    overlap = [str(c) for c in value_columns if c in id_columns]
+    if overlap:
+        raise ToolError(f'"{overlap[0]}" is chosen both as a column to keep and as a column to unpivot.')
+    if not value_columns:
+        raise ToolError('There is no column left to unpivot.')
+    name_column, value_column = options['name_column'].strip() or 'name', options['value_column'].strip() or 'value'
+    if name_column == value_column:
+        raise ToolError('The two new columns need different names.')
+    taken = [n for n in (name_column, value_column) if n in [str(c) for c in id_columns]]
+    if taken:
+        raise ToolError(f'A kept column is already called "{taken[0]}". Choose another name for the new column.')
+
+    position = '__row_position__'
+    wide = df[id_columns + value_columns].copy()
+    wide[position] = np.arange(len(wide))
+    long = wide.melt(id_vars=id_columns + [position], value_vars=value_columns, var_name=name_column, value_name=value_column)
+    # melt puts all of the first column's values first; keep each original row's values together instead
+    order = {column: i for i, column in enumerate(value_columns)}
+    long = long.assign(__column_position__=long[name_column].map(order)) \
+               .sort_values([position, '__column_position__'], kind='stable') \
+               .drop(columns=[position, '__column_position__']).reset_index(drop=True)
+    long[name_column] = long[name_column].map(str)
+    dropped = 0
+    if options['drop_blank']:
+        blank = is_blank(long[value_column])
+        dropped = int(blank.sum())
+        long = long[~blank].reset_index(drop=True)
+    summary = [('Rows in', len(df)), ('Columns unpivoted', len(value_columns)), ('Rows out', len(long))]
+    if options['drop_blank']:
+        summary.append(('Blank values left out', dropped))
+    return ToolResult(long, summary, {'id_columns': len(id_columns), 'value_columns': len(value_columns),
+                                     'drop_blank': bool(options['drop_blank']), 'rows_out': len(long)})
+
+
+register(Tool(
+    slug='unpivot', name='Unpivot', title=('Unpivot:', 'wide to long'),
+    description='Turn columns into rows: one row per value, for month or category columns that should be data.',
+    action='Unpivot', suffix='unpivoted', run=unpivot,
+    options=[
+        Option('id_columns', 'Columns to keep as they are', 'columns',
+               help='These identify each row (an account, a product). They are repeated on every new row.'),
+        Option('value_columns', 'Columns to turn into rows', 'columns',
+               help='For example the month columns. Choose none to unpivot every column that is not kept.'),
+        Option('name_column', 'Name for the new column that holds the old column names', 'text', default='name'),
+        Option('value_column', 'Name for the new column that holds the values', 'text', default='value'),
+        Option('drop_blank', 'Leave out rows whose value is blank', 'checkbox', default=False),
+    ],
+    how=[('What it does', 'Each chosen column becomes rows: its name goes into one new column and its values into another. '
+                          'A table with 100 rows and 12 month columns becomes 1,200 rows.'),
+         ('Good to know', 'The values of one original row stay together, in the order of the original columns. Nothing is '
+                          'calculated or converted.'),
+         ('The result', 'The long table. Pivoting it back on the same columns gives the table you started with.')],
+))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Group & Summarise
+# ---------------------------------------------------------------------------------------------------------------
+_NUMERIC_FUNCTIONS = ('sum', 'mean', 'median')
+SUMMARY_FUNCTIONS = [   # (option id, column suffix, label)
+    ('sum', 'sum', 'Sum'), ('mean', 'mean', 'Average'), ('median', 'median', 'Median'), ('min', 'min', 'Lowest'),
+    ('max', 'max', 'Highest'), ('count', 'count', 'Count of filled cells'), ('distinct', 'distinct', 'Count of different values'),
+    ('first', 'first', 'First value'), ('last', 'last', 'Last value'),
+]
+
+
+def _summarise(values, function):
+    """One function over the filled cells of one group (a Series without blanks)."""
+    if function == 'count':
+        return len(values)
+    if function == 'distinct':
+        return int(values.map(str).nunique()) if len(values) else 0
+    if not len(values):
+        return None
+    if function == 'first':
+        return values.iloc[0]
+    if function == 'last':
+        return values.iloc[-1]
+    numbers = pd.to_numeric(values, errors='coerce')
+    if function in ('min', 'max') and numbers.isna().any():           # text: compare without case, like the sort tool
+        ordered = values.map(str).sort_values(key=lambda s: s.str.casefold(), kind='stable')
+        return ordered.iloc[0] if function == 'min' else ordered.iloc[-1]
+    result = getattr(numbers, function)()
+    return int(result) if float(result).is_integer() and function in ('sum', 'min', 'max') else float(result)
+
+
+def group_and_summarise(df, options):
+    group_columns, value_columns = options['group_columns'], options['value_columns']
+    functions = [function for function, _, _ in SUMMARY_FUNCTIONS if options[function]]
+    if not functions and not options['row_count']:
+        raise ToolError('Choose at least one thing to calculate.')
+    if functions and not value_columns:
+        raise ToolError('Choose the columns to summarise, or untick the calculations and keep only the row count.')
+    overlap = [str(c) for c in value_columns if c in group_columns]
+    if overlap:
+        raise ToolError(f'"{overlap[0]}" is chosen both to group by and to summarise.')
+    filled = {column: df[column].where(~is_blank(df[column])) for column in value_columns}
+    for column in value_columns:
+        present = filled[column].dropna()
+        if any(f in _NUMERIC_FUNCTIONS for f in functions) and pd.to_numeric(present, errors='coerce').isna().any():
+            asked = ', '.join(label.lower() for f, _, label in SUMMARY_FUNCTIONS if f in functions and f in _NUMERIC_FUNCTIONS)
+            raise ToolError(f'"{column}" has values that are not numbers, so it has no {asked}. '
+                            'Leave it out, or untick those calculations.')
+
+    keys = pd.DataFrame({i: df[column].where(~is_blank(df[column]), None) for i, column in enumerate(group_columns)}, index=df.index)
+    group_ids = keys.groupby(list(keys.columns), sort=False, dropna=False).ngroup()      # numbered in order of first appearance
+    rows = []
+    for _, members in pd.Series(df.index, index=df.index).groupby(group_ids, sort=True):
+        index = members.to_numpy()
+        first = index[0]
+        row = {column: df.at[first, column] if not is_blank(df.loc[[first], column]).iloc[0] else None for column in group_columns}
+        if options['row_count']:
+            row[_free_name('rows', group_columns)] = len(index)
+        for column in value_columns:
+            values = filled[column].loc[index].dropna()
+            for function, suffix, _ in SUMMARY_FUNCTIONS:
+                if options[function]:
+                    row[f'{column}_{suffix}'] = _summarise(values, function)
+        rows.append(row)
+    result = pd.DataFrame(rows)
+    return ToolResult(result, [('Rows in', len(df)), ('Groups', len(result)), ('Columns out', len(result.columns))],
+                      {'group_columns': len(group_columns), 'value_columns': len(value_columns), 'functions': functions,
+                       'row_count': bool(options['row_count']), 'groups': len(result)})
+
+
+def _free_name(name, taken):
+    taken = {str(c) for c in taken}
+    while name in taken:
+        name += '_'
+    return name
+
+
+register(Tool(
+    slug='group-and-summarise', name='Group & Summarise', title=('Group &', 'Summarise'),
+    description='One row per group, with sums, averages, counts and more for the columns you choose.',
+    action='Summarise', suffix='summary', run=group_and_summarise,
+    options=[
+        Option('group_columns', 'Group by', 'columns', required=True,
+               help='Rows with the same values in these columns form one group. Blank cells form a group of their own.'),
+        Option('value_columns', 'Columns to summarise', 'columns'),
+        Option('row_count', 'Number of rows in each group', 'checkbox', default=True),
+    ] + [Option(function, label, 'checkbox', default=(function == 'sum')) for function, _, label in SUMMARY_FUNCTIONS],
+    how=[('What it does', 'Puts rows with the same values in the "group by" columns together and calculates what you tick '
+                          'for each of the columns to summarise. Each calculation becomes a column, named like amount_sum.'),
+         ('Good to know', 'Blank cells are left out of every calculation. Sum, average and median need columns where every '
+                          'filled cell is a number. Lowest and highest also work on text. Groups appear in the order they '
+                          'first occur in the file.'),
+         ('The result', 'A flat table with one row per group, ready to sort, join or chart.')],
+))
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Append Files (stack tables): not a scaffold tool, because it takes several files
+# ---------------------------------------------------------------------------------------------------------------
+def _loose_name(name):
+    return _SPACES.sub(' ', str(name).strip()).casefold()
+
+
+def append_tables(tables, renames=None, loose=False, source_column=True):
+    """Stack tables on top of each other, matching columns by name.
+
+    tables: [(file name, DataFrame)] in order. renames: {table position: {column: new name}}, applied first.
+    loose: names that differ only in case or spacing are the same column (the first spelling seen is kept).
+    Returns (stacked table, report) where report lists, per column, the files that did not have it.
+    """
+    if len(tables) < 2:
+        raise ToolError('Choose at least two files to append.')
+    renames = renames or {}
+    prepared, spelling = [], {}
+    for position, (name, df) in enumerate(tables):
+        mapping = {str(k): str(v) for k, v in (renames.get(position) or renames.get(str(position)) or {}).items()}
+        unknown = [c for c in mapping if c not in [str(x) for x in df.columns]]
+        if unknown:
+            raise ToolError(f'"{unknown[0]}" is not a column of {name}.')
+        columns = []
+        for column in df.columns:
+            target = mapping.get(str(column), str(column))
+            key = _loose_name(target) if loose else target
+            target = spelling.setdefault(key, target)
+            columns.append(target)
+        repeated = [c for c in dict.fromkeys(columns) if columns.count(c) > 1]
+        if repeated:
+            raise ToolError(f'In {name}, more than one column ends up as "{repeated[0]}". Map them to different columns.')
+        frame = df.copy()
+        frame.columns = columns
+        prepared.append((name, frame))
+
+    order = list(dict.fromkeys(column for _, frame in prepared for column in frame.columns))
+    source_name = _free_name('source_file', order) if source_column else None
+    parts = []
+    for name, frame in prepared:
+        part = frame.reindex(columns=order).astype(object)
+        if source_name:
+            part.insert(0, source_name, name)
+        parts.append(part)
+    stacked = pd.concat(parts, ignore_index=True)
+    missing = {column: [name for name, frame in prepared if column not in frame.columns] for column in order}
+    report = {'rows_per_file': [(name, len(frame)) for name, frame in prepared], 'rows': len(stacked),
+              'columns': len(order), 'partial_columns': {c: files for c, files in missing.items() if files}}
+    return stacked, report

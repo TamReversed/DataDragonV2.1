@@ -1,0 +1,310 @@
+{
+ "json": {
+  "extra_sheets": [],
+  "notes": [],
+  "preview": {
+   "columns": [
+    "Region",
+    "Flag",
+    "rows",
+    "Amount_sum",
+    "Amount_mean",
+    "Amount_min",
+    "Amount_max",
+    "Amount_count",
+    "Amount_distinct",
+    "Account_sum",
+    "Account_mean",
+    "Account_min",
+    "Account_max",
+    "Account_count",
+    "Account_distinct"
+   ],
+   "rows": [
+    {
+     "Account_count": "8",
+     "Account_distinct": "7",
+     "Account_max": "1036",
+     "Account_mean": "1016.5",
+     "Account_min": "1000",
+     "Account_sum": "8132",
+     "Amount_count": "8",
+     "Amount_distinct": "7",
+     "Amount_max": "1050.0",
+     "Amount_mean": "318.75",
+     "Amount_min": "-300.0",
+     "Amount_sum": "2550.0",
+     "Flag": "True",
+     "Region": "N",
+     "rows": "8"
+    },
+    {
+     "Account_count": "6",
+     "Account_distinct": "6",
+     "Account_max": "1037",
+     "Account_mean": "1021.0",
+     "Account_min": "1001",
+     "Account_sum": "6126",
+     "Amount_count": "6",
+     "Amount_distinct": "6",
+     "Amount_max": "1087.5",
+     "Amount_mean": "487.5",
+     "Amount_min": "-262.5",
+     "Amount_sum": "2925.0",
+     "Flag": "False",
+     "Region": "S",
+     "rows": "6"
+    },
+    {
+     "Account_count": "7",
+     "Account_distinct": "7",
+     "Account_max": "1038",
+     "Account_mean": "1020.0",
+     "Account_min": "1002",
+     "Account_sum": "7140",
+     "Amount_count": "7",
+     "Amount_distinct": "7",
+     "Amount_max": "1125.0",
+     "Amount_mean": "450.0",
+     "Amount_min": "-225.0",
+     "Amount_sum": "3150.0",
+     "Flag": "True",
+     "Region": null,
+     "rows": "7"
+    },
+    {
+     "Account_count": "7",
+     "Account_distinct": "7",
+     "Account_max": "1039",
+     "Account_mean": "1021.0",
+     "Account_min": "1003",
+     "Account_sum": "7147",
+     "Amount_count": "7",
+     "Amount_distinct": "7",
+     "Amount_max": "1162.5",
+     "Amount_mean": "487.5",
+     "Amount_min": "-187.5",
+     "Amount_sum": "3412.5",
+     "Flag": "False",
+     "Region": "N",
+     "rows": "7"
+    },
+    {
+     "Account_count": "5",
+     "Account_distinct": "5",
+     "Account_max": "1034",
+     "Account_mean": "1022.0",
+     "Account_min": "1010",
+     "Account_sum": "5110",
+     "Amount_count": "5",
+     "Amount_distinct": "5",
+     "Amount_max": "975.0",
+     "Amount_mean": "480.0",
+     "Amount_min": "-150.0",
+     "Amount_sum": "2400.0",
+     "Flag": "True",
+     "Region": "S",
+     "rows": "6"
+    },
+    {
+     "Account_count": "6",
+     "Account_distinct": "6",
+     "Account_max": "1035",
+     "Account_mean": "1020.0",
+     "Account_min": "1005",
+     "Account_sum": "6120",
+     "Amount_count": "6",
+     "Amount_distinct": "6",
+     "Amount_max": "1012.5",
+     "Amount_mean": "450.0",
+     "Amount_min": "-112.5",
+     "Amount_sum": "2700.0",
+     "Flag": "False",
+     "Region": null,
+     "rows": "6"
+    }
+   ],
+   "total_rows": 6
+  },
+  "recipe_steps": [
+   "Group & Summarise"
+  ],
+  "success": true,
+  "summary": [
+   [
+    "Rows in",
+    40
+   ],
+   [
+    "Groups",
+    6
+   ],
+   [
+    "Columns out",
+    15
+   ]
+  ]
+ },
+ "output": {
+  "Sheet1": [
+   [
+    "s:'Region'",
+    "s:'Flag'",
+    "s:'rows'",
+    "s:'Amount_sum'",
+    "s:'Amount_mean'",
+    "s:'Amount_min'",
+    "s:'Amount_max'",
+    "s:'Amount_count'",
+    "s:'Amount_distinct'",
+    "s:'Account_sum'",
+    "s:'Account_mean'",
+    "s:'Account_min'",
+    "s:'Account_max'",
+    "s:'Account_count'",
+    "s:'Account_distinct'"
+   ],
+   [
+    "s:'N'",
+    "b:True",
+    "n:8",
+    "n:2550",
+    "n:318.75",
+    "n:-300",
+    "n:1050",
+    "n:8",
+    "n:7",
+    "n:8132",
+    "n:1016.5",
+    "n:1000",
+    "n:1036",
+    "n:8",
+    "n:7"
+   ],
+   [
+    "s:'S'",
+    "b:False",
+    "n:6",
+    "n:2925",
+    "n:487.5",
+    "n:-262.5",
+    "n:1087.5",
+    "n:6",
+    "n:6",
+    "n:6126",
+    "n:1021",
+    "n:1001",
+    "n:1037",
+    "n:6",
+    "n:6"
+   ],
+   [
+    "n:None",
+    "b:True",
+    "n:7",
+    "n:3150",
+    "n:450",
+    "n:-225",
+    "n:1125",
+    "n:7",
+    "n:7",
+    "n:7140",
+    "n:1020",
+    "n:1002",
+    "n:1038",
+    "n:7",
+    "n:7"
+   ],
+   [
+    "s:'N'",
+    "b:False",
+    "n:7",
+    "n:3412.5",
+    "n:487.5",
+    "n:-187.5",
+    "n:1162.5",
+    "n:7",
+    "n:7",
+    "n:7147",
+    "n:1021",
+    "n:1003",
+    "n:1039",
+    "n:7",
+    "n:7"
+   ],
+   [
+    "s:'S'",
+    "b:True",
+    "n:6",
+    "n:2400",
+    "n:480",
+    "n:-150",
+    "n:975",
+    "n:5",
+    "n:5",
+    "n:5110",
+    "n:1022",
+    "n:1010",
+    "n:1034",
+    "n:5",
+    "n:5"
+   ],
+   [
+    "n:None",
+    "b:False",
+    "n:6",
+    "n:2700",
+    "n:450",
+    "n:-112.5",
+    "n:1012.5",
+    "n:6",
+    "n:6",
+    "n:6120",
+    "n:1020",
+    "n:1005",
+    "n:1035",
+    "n:6",
+    "n:6"
+   ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Group & Summarise'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'40'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'6'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"functions\": [\"sum\", \"mean\", \"min\", \"max\", \"count\", \"distinct\"], \"group_columns\": 2, \"groups\": 6, \"row_count\": true, \"value_columns\": 2}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:''"
+   ],
+   [
+    "s:'Step'",
+    "s:'{\"options\": {\"count\": true, \"distinct\": true, \"first\": false, \"group_columns\": [\"Region\", \"Flag\"], \"last\": false, \"max\": true, \"mean\": true, \"median\": false, \"min\": true, \"row_count\": true, \"sum\": true, \"value_columns\": [\"Amount\", \"Account\"]}, \"tool\": \"group-and-summarise\"}'"
+   ]
+  ]
+ },
+ "status": 200
+}

@@ -1,0 +1,838 @@
+{
+ "json": {
+  "extra_sheets": [],
+  "notes": [],
+  "preview": {
+   "columns": [
+    "ID",
+    "Name",
+    "field",
+    "content"
+   ],
+   "rows": [
+    {
+     "ID": "PR-00001",
+     "Name": "Alice",
+     "content": "-300",
+     "field": "Amount"
+    },
+    {
+     "ID": "PR-00001",
+     "Name": "Alice",
+     "content": "1000",
+     "field": "Account"
+    },
+    {
+     "ID": "PR-00001",
+     "Name": "Alice",
+     "content": "N",
+     "field": "Region"
+    },
+    {
+     "ID": "PR-00002",
+     "Name": "Bob",
+     "content": "-262.5",
+     "field": "Amount"
+    },
+    {
+     "ID": "PR-00002",
+     "Name": "Bob",
+     "content": "1001",
+     "field": "Account"
+    },
+    {
+     "ID": "PR-00002",
+     "Name": "Bob",
+     "content": "S",
+     "field": "Region"
+    },
+    {
+     "ID": "PR-00003",
+     "Name": "Carol",
+     "content": "-225",
+     "field": "Amount"
+    },
+    {
+     "ID": "PR-00003",
+     "Name": "Carol",
+     "content": "1002",
+     "field": "Account"
+    },
+    {
+     "ID": "PR-00004",
+     "Name": "Dave",
+     "content": "-187.5",
+     "field": "Amount"
+    },
+    {
+     "ID": "PR-00004",
+     "Name": "Dave",
+     "content": "1003",
+     "field": "Account"
+    },
+    {
+     "ID": "PR-00004",
+     "Name": "Dave",
+     "content": "N",
+     "field": "Region"
+    },
+    {
+     "ID": "PR-00005",
+     "Name": "Alice",
+     "content": "-150",
+     "field": "Amount"
+    },
+    {
+     "ID": "PR-00005",
+     "Name": "Alice",
+     "content": "S",
+     "field": "Region"
+    },
+    {
+     "ID": "PR-00006",
+     "Name": "Bob",
+     "content": "-112.5",
+     "field": "Amount"
+    },
+    {
+     "ID": "PR-00006",
+     "Name": "Bob",
+     "content": "1005",
+     "field": "Account"
+    },
+    {
+     "ID": "PR-00007",
+     "Name": "Carol",
+     "content": "-75",
+     "field": "Amount"
+    },
+    {
+     "ID": "PR-00007",
+     "Name": "Carol",
+     "content": "1006",
+     "field": "Account"
+    },
+    {
+     "ID": "PR-00007",
+     "Name": "Carol",
+     "content": "N",
+     "field": "Region"
+    },
+    {
+     "ID": "PR-00007",
+     "Name": "Carol",
+     "content": "-75",
+     "field": "Amount"
+    },
+    {
+     "ID": "PR-00007",
+     "Name": "Carol",
+     "content": "1006",
+     "field": "Account"
+    }
+   ],
+   "total_rows": 105
+  },
+  "recipe_steps": [
+   "Unpivot"
+  ],
+  "success": true,
+  "summary": [
+   [
+    "Rows in",
+    40
+   ],
+   [
+    "Columns unpivoted",
+    3
+   ],
+   [
+    "Rows out",
+    105
+   ],
+   [
+    "Blank values left out",
+    15
+   ]
+  ]
+ },
+ "output": {
+  "Sheet1": [
+   [
+    "s:'ID'",
+    "s:'Name'",
+    "s:'field'",
+    "s:'content'"
+   ],
+   [
+    "s:'PR-00001'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:-300"
+   ],
+   [
+    "s:'PR-00001'",
+    "s:'Alice'",
+    "s:'Account'",
+    "n:1000"
+   ],
+   [
+    "s:'PR-00001'",
+    "s:'Alice'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00002'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:-262.5"
+   ],
+   [
+    "s:'PR-00002'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1001"
+   ],
+   [
+    "s:'PR-00002'",
+    "s:'Bob'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00003'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:-225"
+   ],
+   [
+    "s:'PR-00003'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1002"
+   ],
+   [
+    "s:'PR-00004'",
+    "s:'Dave'",
+    "s:'Amount'",
+    "n:-187.5"
+   ],
+   [
+    "s:'PR-00004'",
+    "s:'Dave'",
+    "s:'Account'",
+    "n:1003"
+   ],
+   [
+    "s:'PR-00004'",
+    "s:'Dave'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00005'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:-150"
+   ],
+   [
+    "s:'PR-00005'",
+    "s:'Alice'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00006'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:-112.5"
+   ],
+   [
+    "s:'PR-00006'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1005"
+   ],
+   [
+    "s:'PR-00007'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:-75"
+   ],
+   [
+    "s:'PR-00007'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1006"
+   ],
+   [
+    "s:'PR-00007'",
+    "s:'Carol'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00007'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:-75"
+   ],
+   [
+    "s:'PR-00007'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1006"
+   ],
+   [
+    "s:'PR-00007'",
+    "s:'Carol'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00009'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:0"
+   ],
+   [
+    "s:'PR-00009'",
+    "s:'Alice'",
+    "s:'Account'",
+    "n:1008"
+   ],
+   [
+    "s:'PR-00010'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:37.5"
+   ],
+   [
+    "s:'PR-00010'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1009"
+   ],
+   [
+    "s:'PR-00010'",
+    "s:'Bob'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00011'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1010"
+   ],
+   [
+    "s:'PR-00011'",
+    "s:'Carol'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00012'",
+    "s:'Dave'",
+    "s:'Amount'",
+    "n:112.5"
+   ],
+   [
+    "s:'PR-00012'",
+    "s:'Dave'",
+    "s:'Account'",
+    "n:1011"
+   ],
+   [
+    "s:'PR-00013'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:150"
+   ],
+   [
+    "s:'PR-00013'",
+    "s:'Alice'",
+    "s:'Account'",
+    "n:1012"
+   ],
+   [
+    "s:'PR-00013'",
+    "s:'Alice'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00014'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:187.5"
+   ],
+   [
+    "s:'PR-00014'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1013"
+   ],
+   [
+    "s:'PR-00014'",
+    "s:'Bob'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00015'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:225"
+   ],
+   [
+    "s:'PR-00015'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1014"
+   ],
+   [
+    "s:'PR-00016'",
+    "s:'Dave'",
+    "s:'Amount'",
+    "n:262.5"
+   ],
+   [
+    "s:'PR-00016'",
+    "s:'Dave'",
+    "s:'Account'",
+    "n:1015"
+   ],
+   [
+    "s:'PR-00016'",
+    "s:'Dave'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00017'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:300"
+   ],
+   [
+    "s:'PR-00017'",
+    "s:'Alice'",
+    "s:'Account'",
+    "n:1016"
+   ],
+   [
+    "s:'PR-00017'",
+    "s:'Alice'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00018'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:337.5"
+   ],
+   [
+    "s:'PR-00018'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1017"
+   ],
+   [
+    "s:'PR-00019'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:375"
+   ],
+   [
+    "s:'PR-00019'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1018"
+   ],
+   [
+    "s:'PR-00019'",
+    "s:'Carol'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00020'",
+    "s:'Dave'",
+    "s:'Amount'",
+    "n:412.5"
+   ],
+   [
+    "s:'PR-00020'",
+    "s:'Dave'",
+    "s:'Account'",
+    "n:1019"
+   ],
+   [
+    "s:'PR-00020'",
+    "s:'Dave'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00021'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:450"
+   ],
+   [
+    "s:'PR-00021'",
+    "s:'Alice'",
+    "s:'Account'",
+    "n:1020"
+   ],
+   [
+    "s:'PR-00022'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:487.5"
+   ],
+   [
+    "s:'PR-00022'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1021"
+   ],
+   [
+    "s:'PR-00022'",
+    "s:'Bob'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00023'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:525"
+   ],
+   [
+    "s:'PR-00023'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1022"
+   ],
+   [
+    "s:'PR-00023'",
+    "s:'Carol'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00024'",
+    "s:'Dave'",
+    "s:'Amount'",
+    "n:562.5"
+   ],
+   [
+    "s:'PR-00024'",
+    "s:'Dave'",
+    "s:'Account'",
+    "n:1023"
+   ],
+   [
+    "s:'PR-00025'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:600"
+   ],
+   [
+    "s:'PR-00025'",
+    "s:'Alice'",
+    "s:'Account'",
+    "n:1024"
+   ],
+   [
+    "s:'PR-00025'",
+    "s:'Alice'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00026'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:637.5"
+   ],
+   [
+    "s:'PR-00026'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1025"
+   ],
+   [
+    "s:'PR-00026'",
+    "s:'Bob'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00027'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:675"
+   ],
+   [
+    "s:'PR-00027'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1026"
+   ],
+   [
+    "s:'PR-00028'",
+    "s:'Dave'",
+    "s:'Amount'",
+    "n:712.5"
+   ],
+   [
+    "s:'PR-00028'",
+    "s:'Dave'",
+    "s:'Account'",
+    "n:1027"
+   ],
+   [
+    "s:'PR-00028'",
+    "s:'Dave'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00029'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:750"
+   ],
+   [
+    "s:'PR-00029'",
+    "s:'Alice'",
+    "s:'Account'",
+    "n:1028"
+   ],
+   [
+    "s:'PR-00029'",
+    "s:'Alice'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00030'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:787.5"
+   ],
+   [
+    "s:'PR-00030'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1029"
+   ],
+   [
+    "s:'PR-00031'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:825"
+   ],
+   [
+    "s:'PR-00031'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1030"
+   ],
+   [
+    "s:'PR-00031'",
+    "s:'Carol'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00032'",
+    "s:'Dave'",
+    "s:'Amount'",
+    "n:862.5"
+   ],
+   [
+    "s:'PR-00032'",
+    "s:'Dave'",
+    "s:'Account'",
+    "n:1031"
+   ],
+   [
+    "s:'PR-00032'",
+    "s:'Dave'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00033'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:900"
+   ],
+   [
+    "s:'PR-00033'",
+    "s:'Alice'",
+    "s:'Account'",
+    "n:1032"
+   ],
+   [
+    "s:'PR-00034'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:937.5"
+   ],
+   [
+    "s:'PR-00034'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1033"
+   ],
+   [
+    "s:'PR-00034'",
+    "s:'Bob'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00035'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:975"
+   ],
+   [
+    "s:'PR-00035'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1034"
+   ],
+   [
+    "s:'PR-00035'",
+    "s:'Carol'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00036'",
+    "s:'Dave'",
+    "s:'Amount'",
+    "n:1012.5"
+   ],
+   [
+    "s:'PR-00036'",
+    "s:'Dave'",
+    "s:'Account'",
+    "n:1035"
+   ],
+   [
+    "s:'PR-00037'",
+    "s:'Alice'",
+    "s:'Amount'",
+    "n:1050"
+   ],
+   [
+    "s:'PR-00037'",
+    "s:'Alice'",
+    "s:'Account'",
+    "n:1036"
+   ],
+   [
+    "s:'PR-00037'",
+    "s:'Alice'",
+    "s:'Region'",
+    "s:'N'"
+   ],
+   [
+    "s:'PR-00038'",
+    "s:'Bob'",
+    "s:'Amount'",
+    "n:1087.5"
+   ],
+   [
+    "s:'PR-00038'",
+    "s:'Bob'",
+    "s:'Account'",
+    "n:1037"
+   ],
+   [
+    "s:'PR-00038'",
+    "s:'Bob'",
+    "s:'Region'",
+    "s:'S'"
+   ],
+   [
+    "s:'PR-00039'",
+    "s:'Carol'",
+    "s:'Amount'",
+    "n:1125"
+   ],
+   [
+    "s:'PR-00039'",
+    "s:'Carol'",
+    "s:'Account'",
+    "n:1038"
+   ],
+   [
+    "s:'PR-00040'",
+    "s:'Dave'",
+    "s:'Amount'",
+    "n:1162.5"
+   ],
+   [
+    "s:'PR-00040'",
+    "s:'Dave'",
+    "s:'Account'",
+    "n:1039"
+   ],
+   [
+    "s:'PR-00040'",
+    "s:'Dave'",
+    "s:'Region'",
+    "s:'N'"
+   ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Unpivot'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'40'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'105'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"drop_blank\": true, \"id_columns\": 2, \"rows_out\": 105, \"value_columns\": 3}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:''"
+   ],
+   [
+    "s:'Step'",
+    "s:'{\"options\": {\"drop_blank\": true, \"id_columns\": [\"ID\", \"Name\"], \"name_column\": \"field\", \"value_column\": \"content\", \"value_columns\": [\"Amount\", \"Account\", \"Region\"]}, \"tool\": \"unpivot\"}'"
+   ]
+  ]
+ },
+ "status": 200
+}

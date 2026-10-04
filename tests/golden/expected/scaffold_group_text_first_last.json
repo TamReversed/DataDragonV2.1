@@ -1,0 +1,120 @@
+{
+ "json": {
+  "extra_sheets": [],
+  "notes": [],
+  "preview": {
+   "columns": [
+    "Region",
+    "Name_min",
+    "Name_first",
+    "Name_last"
+   ],
+   "rows": [
+    {
+     "Name_first": "Alice",
+     "Name_last": "Dave",
+     "Name_min": "Alice",
+     "Region": "N"
+    },
+    {
+     "Name_first": "Bob",
+     "Name_last": "Bob",
+     "Name_min": "Alice",
+     "Region": "S"
+    },
+    {
+     "Name_first": "Carol",
+     "Name_last": "Carol",
+     "Name_min": "Alice",
+     "Region": null
+    }
+   ],
+   "total_rows": 3
+  },
+  "recipe_steps": [
+   "Group & Summarise"
+  ],
+  "success": true,
+  "summary": [
+   [
+    "Rows in",
+    40
+   ],
+   [
+    "Groups",
+    3
+   ],
+   [
+    "Columns out",
+    4
+   ]
+  ]
+ },
+ "output": {
+  "Sheet1": [
+   [
+    "s:'Region'",
+    "s:'Name_min'",
+    "s:'Name_first'",
+    "s:'Name_last'"
+   ],
+   [
+    "s:'N'",
+    "s:'Alice'",
+    "s:'Alice'",
+    "s:'Dave'"
+   ],
+   [
+    "s:'S'",
+    "s:'Alice'",
+    "s:'Bob'",
+    "s:'Bob'"
+   ],
+   [
+    "n:None",
+    "s:'Alice'",
+    "s:'Carol'",
+    "s:'Carol'"
+   ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Group & Summarise'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'40'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'3'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"functions\": [\"min\", \"first\", \"last\"], \"group_columns\": 1, \"groups\": 3, \"row_count\": false, \"value_columns\": 1}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:''"
+   ],
+   [
+    "s:'Step'",
+    "s:'{\"options\": {\"count\": false, \"distinct\": false, \"first\": true, \"group_columns\": [\"Region\"], \"last\": true, \"max\": false, \"mean\": false, \"median\": false, \"min\": true, \"row_count\": false, \"sum\": false, \"value_columns\": [\"Name\"]}, \"tool\": \"group-and-summarise\"}'"
+   ]
+  ]
+ },
+ "status": 200
+}
