@@ -1,9 +1,10 @@
-from flask import Flask, render_template, request, send_file, jsonify, Response, stream_with_context, after_this_request, session
+from flask import Flask, Request, render_template, request, send_file, jsonify, Response, stream_with_context, after_this_request, session
 import pandas as pd
 import numpy as np
 import os
 import zipfile
-from werkzeug.utils import secure_filename
+from werkzeug.datastructures import FileStorage, ImmutableMultiDict, MultiDict
+from werkzeug.utils import cached_property, secure_filename
 import shutil
 from datetime import date, datetime, timedelta
 import traceback
@@ -34,7 +35,33 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from xml.sax.saxutils import escape as pdf_text  # reportlab Paragraphs parse <...> as markup: escape file-derived text
 
+class CacheAwareRequest(Request):
+    """A request whose ``files`` can also be filled from the owner's cached results.
+
+    A form field ``cache_id`` (or ``cache_id.<field>``, e.g. ``cache_id.left_file``) stands in for an uploaded file:
+    the browser sends the id of a result it already has instead of uploading the bytes again. Every route that
+    reads ``request.files`` gets this for free. An uploaded file always wins, and an id that is unknown, expired or
+    belongs to another browser is simply treated as "no file".
+    """
+
+    @cached_property
+    def files(self):
+        uploaded = super().files
+        wanted = {('file' if key == 'cache_id' else key[len('cache_id.'):]): self.form.get(key)
+                  for key in self.form if key == 'cache_id' or key.startswith('cache_id.')}
+        wanted = {field: cache_id for field, cache_id in wanted.items() if field and field not in uploaded}
+        if not wanted:
+            return uploaded
+        merged = MultiDict(uploaded)
+        for field, cache_id in wanted.items():
+            info = get_cached_file_by_id(cache_id)
+            if info and os.path.isfile(info.get('path', '')):
+                merged.add(field, FileStorage(open(info['path'], 'rb'), filename=info['name']))
+        return ImmutableMultiDict(merged)
+
+
 app = Flask(__name__)
+app.request_class = CacheAwareRequest
 _configured_secret = os.environ.get('DATADRAGON_SECRET_KEY')
 app.config['SECRET_KEY'] = _configured_secret or secrets.token_hex(32)
 if not _configured_secret:
@@ -111,6 +138,13 @@ def assign_owner():
     current_owner()
 
 
+cancelled_jobs = set()
+
+
+class JobCancelled(Exception):
+    """Raised inside a running job (at its next progress report) after the owner cancelled it."""
+
+
 def register_job(session_id, progress_queue, owner=None):
     """Create the progress channel for a job and bind it to its owner."""
     progress_queues[session_id] = progress_queue
@@ -119,6 +153,9 @@ def register_job(session_id, progress_queue, owner=None):
 
     def put_and_touch(item, *args, **kwargs):
         progress_queue_created[session_id] = time.time()    # the job is alive: the channel is not abandoned
+        terminal = isinstance(item, dict) and item.get('stage') in ('done', 'error')
+        if session_id in cancelled_jobs and not terminal:
+            raise JobCancelled('Cancelled')                   # a long loop reports progress: stop it here
         return original_put(item, *args, **kwargs)
     progress_queue.put = put_and_touch
     job_registry.bind(session_id, owner or current_owner())
@@ -289,6 +326,7 @@ def cleanup_progress_queues(now=None):
         if now - created > QUEUE_TTL_SECONDS:
             progress_queue_created.pop(session_id, None)
             progress_queues.pop(session_id, None)
+            cancelled_jobs.discard(session_id)
 
 
 def run_cleanup():
@@ -2296,6 +2334,15 @@ def preview_data():
         print(f"Error in preview_data: {str(e)}")
         print(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/jobs/<job_id>/cancel', methods=['POST'])
+def cancel_job(job_id):
+    """Ask a running job to stop at its next progress report. Only the browser that started it may do so."""
+    if job_registry.owner_of(job_id) != current_owner() or job_id not in progress_queues:
+        return jsonify({'error': 'Job not found'}), 404
+    cancelled_jobs.add(job_id)
+    return jsonify({'success': True})
 
 
 @app.route('/get-cached-files', methods=['GET'])

@@ -18,25 +18,28 @@ from test_merge import write_rows
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATES = sorted(glob.glob(os.path.join(ROOT, "templates", "*.html")))
+COMMON_JS = os.path.join(ROOT, "static", "js", "common.js")
+SOURCES = TEMPLATES + [COMMON_JS]           # every place escapeHtml is defined
 NODE = shutil.which("node")
 HOSTILE = ["<img src=x onerror=alert(1)>", '" onmouseover="alert(1)', "' onclick='alert(1)", "a&b", "</script><script>x",
            "`${alert(1)}`", "x y", "&lt;already&gt;"]
-ESCAPE_FUNCTION = re.compile(r"function escapeHtml\(text\) \{.*?\n    \}", re.S)
+ESCAPE_FUNCTION = re.compile(r"function escapeHtml\(text\) \{.*?\n\s*\}\n", re.S)
 
 
 def escape_source(path):
     match = ESCAPE_FUNCTION.search(open(path, encoding="utf-8").read())
-    return match.group(0) if match else None
+    # compare the code, not its indentation (the shared copy sits at column 0)
+    return "\n".join(line.strip() for line in match.group(0).strip().splitlines()) if match else None
 
 
 # ------------------------------------------------------------------ HTML
 def templates_with_escape():
-    return [t for t in TEMPLATES if escape_source(t)]
+    return [t for t in SOURCES if escape_source(t)]
 
 
 def test_every_copy_of_escapehtml_is_the_same_quote_escaping_function():
     sources = {os.path.basename(t): escape_source(t) for t in templates_with_escape()}
-    assert len(sources) >= 17
+    assert "common.js" in sources, "the shared copy must exist"
     assert len(set(sources.values())) == 1, "escapeHtml differs between templates"
     only = next(iter(sources.values()))
     assert "&quot;" in only and "&#39;" in only and "createElement" not in only

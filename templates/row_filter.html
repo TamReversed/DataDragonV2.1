@@ -441,20 +441,7 @@
 
 {% block scripts %}
 <script>
-    function escapeHtml(text) {
-        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
-        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[ch]));
-    }
 
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
 
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
@@ -481,6 +468,39 @@
     const previewMoreIndicator = document.getElementById('previewMoreIndicator');
 
     let selectedFile = null;
+
+    // Upload zone (click, keyboard, drag and drop); the chosen file may also be an earlier result
+    const upload = DD.initUpload({
+        zone: uploadArea, input: fileInput, sizeInfo: fileSizeInfo,
+        onFile: async source => {
+            selectedFile = source;
+            error.style.display = 'none';
+            results.classList.remove('show');
+
+            try {
+                const formData = new FormData();
+                DD.appendFile(formData, 'file', selectedFile);
+                const response = await fetch('/get-columns', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (data.success && data.columns) {
+                    fileColumns = data.columns;
+                    filterSection.classList.add('show');
+                    conditionsContainer.innerHTML = '';
+                    conditionCount = 0;
+                    addCondition();
+                    updateButtons();
+                    fetchPreview(selectedFile);
+                } else {
+                    throw new Error(data.error || 'Failed to get columns');
+                }
+            } catch (err) {
+                console.error('Error reading file:', err);
+                showError('Failed to read file: ' + err.message);
+            }
+        },
+    });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => upload.choose(source) });
     let downloadUrl = null;
     let fileColumns = [];
     let totalRows = 0;
@@ -503,44 +523,7 @@
         { value: 'in_list', label: 'In List (comma-separated)' }
     ];
 
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.style.display = 'block';
-                cachedFilesList.innerHTML = data.files.map(file => `
-                    <button type="button" class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
-                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
-                    </button>
-                `).join('');
-            }
-        } catch (err) { console.error('Error loading cached files:', err); }
-    }
 
-    async function useCachedFile(cacheId) {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
-                const blob = await fileResponse.blob();
-                const file = new File([blob], data.filename, { type: blob.type });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                fileInput.files = dataTransfer.files;
-                fileInput.dispatchEvent(new Event('change'));
-            }
-        } catch (err) { console.error('Error using cached file:', err); showError('Failed to load cached file'); }
-    }
 
     function displayPreview(previewData) {
         totalRows = previewData.total_rows;
@@ -561,60 +544,16 @@
     async function fetchPreview(file) {
         try {
             const formData = new FormData();
-            formData.append('file', file);
+            DD.appendFile(formData, 'file', file);
             const response = await fetch('/preview-data', { method: 'POST', body: formData });
             const data = await response.json();
             if (data.success) displayPreview(data);
         } catch (err) { console.error('Error fetching preview:', err); }
     }
 
-    loadCachedFiles();
 
-    uploadArea.addEventListener('click', () => fileInput.click());
 
-    fileInput.addEventListener('change', async (e) => {
-        if (e.target.files.length > 0) {
-            selectedFile = e.target.files[0];
-            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
-            fileSizeInfo.style.display = 'block';
-            uploadArea.classList.add('has-file');
-            error.style.display = 'none';
-            results.classList.remove('show');
 
-            try {
-                const formData = new FormData();
-                formData.append('file', selectedFile);
-                const response = await fetch('/get-columns', { method: 'POST', body: formData });
-                const data = await response.json();
-
-                if (data.success && data.columns) {
-                    fileColumns = data.columns;
-                    filterSection.classList.add('show');
-                    conditionsContainer.innerHTML = '';
-                    conditionCount = 0;
-                    addCondition();
-                    updateButtons();
-                    fetchPreview(selectedFile);
-                } else {
-                    throw new Error(data.error || 'Failed to get columns');
-                }
-            } catch (err) {
-                console.error('Error reading file:', err);
-                showError('Failed to read file: ' + err.message);
-            }
-        }
-    });
-
-    uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
-    uploadArea.addEventListener('dragleave', () => { uploadArea.classList.remove('dragover'); });
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-        if (e.dataTransfer.files.length) {
-            fileInput.files = e.dataTransfer.files;
-            fileInput.dispatchEvent(new Event('change'));
-        }
-    });
 
     function addCondition() {
         conditionCount++;
@@ -710,7 +649,7 @@
         if (!selectedFile || conditions.length === 0) return;
 
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
         formData.append('conditions', JSON.stringify(conditions));
         formData.append('preview_only', 'true');
 
@@ -731,7 +670,7 @@
         if (!selectedFile || conditions.length === 0) return;
 
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
         formData.append('conditions', JSON.stringify(conditions));
 
         filterBtn.disabled = true;
