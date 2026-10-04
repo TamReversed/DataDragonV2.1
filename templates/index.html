@@ -43,7 +43,7 @@
     }
 
     .results-summary strong {
-        color: var(--accent-purple);
+        color: var(--dd-ink);
     }
 
     @keyframes modalSlideIn {
@@ -77,9 +77,7 @@
 <!-- Upload Area -->
 <div class="card mb-6">
     <div class="file-upload-zone" id="uploadArea">
-        <svg class="file-upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-        </svg>
+        {% include "brand/empty_upload.svg" %}
         <div class="file-upload-text">Drop a file here, or click to choose</div>
         <div class="file-upload-hint">Excel files (.xlsx, .xls), up to 500 MB</div>
         <div class="file-upload-hint mt-2" id="fileSizeInfo" style="display: none;"></div>

@@ -22,7 +22,7 @@
     .config-title {
         font-size: 16px;
         font-weight: 600;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
         margin-bottom: var(--space-5);
     }
 
@@ -47,7 +47,7 @@
 
     .rule-number {
         font-weight: 600;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
         font-size: 14px;
     }
 
@@ -148,13 +148,12 @@
         font-weight: 600;
         color: var(--text-secondary);
         margin-bottom: var(--space-2);
-        text-transform: uppercase;
     }
 
     .summary-value {
         font-size: 24px;
         font-weight: 700;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
     }
 
     .summary-value.success {
@@ -282,9 +281,7 @@
 <!-- File Upload -->
 <div class="card mb-6">
     <div class="file-upload-zone" id="fileUploadArea">
-        <svg class="file-upload-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-        </svg>
+        {% include "brand/empty_upload.svg" %}
         <div class="file-upload-text">Drop a file here, or click to choose</div>
         <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files supported</div>
         <div id="fileSizeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
@@ -856,7 +853,7 @@
 
             resultsTableContainer.innerHTML = tableHTML;
         } else {
-            resultsTableContainer.innerHTML = '<div class="no-errors-message">All rows passed validation! No errors found.</div>';
+            DD.showState(resultsTableContainer, 'done', 'Every row passed', 'No rule was broken, so there is nothing to fix.');
         }
     }
 

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}DataDragon - page not found{% endblock %}
+
+{% block header %}{% endblock %}
+
+{% block content %}
+<div class="state">
+    {% include "brand/error.svg" %}
+    <h1 class="page-title">That page is not <em>here.</em></h1>
+    <p class="state-text">The address may be mistyped, or a result may have expired: result files are deleted after 30 minutes.</p>
+    <p><a class="btn btn-primary" href="/">See all tools</a></p>
+</div>
+{% endblock %}

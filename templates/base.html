@@ -81,6 +81,12 @@
         </main>
     </div>
 
+    <!-- Illustrations for state blocks (DD.showState) -->
+    <template id="ddState-empty">{% include "brand/empty_results.svg" %}</template>
+    <template id="ddState-done">{% include "brand/done.svg" %}</template>
+    <template id="ddState-error">{% include "brand/error.svg" %}</template>
+    <template id="ddState-upload">{% include "brand/empty_upload.svg" %}</template>
+
     <script src="{{ url_for('static', filename='js/shell.js') }}"></script>
     <script src="{{ url_for('static', filename='js/common.js') }}"></script>
     {% block scripts %}{% endblock %}

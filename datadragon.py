@@ -1226,6 +1226,14 @@ def file_too_large(error):
     return jsonify({'error': f'The upload is too large (the limit is {limit_mb} MB).'}), 413
 
 
+@app.errorhandler(404)
+def not_found(error):
+    """A page for people who followed a bad link; scripts and API calls keep the standard response."""
+    if request.method == 'GET' and request.accept_mimetypes.best == 'text/html':
+        return render_template('not_found.html'), 404
+    return error
+
+
 @app.after_request
 def add_security_headers(response):
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')

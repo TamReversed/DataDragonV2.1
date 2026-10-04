@@ -4,54 +4,6 @@
 
 {% block styles %}
 <style>
-    /* File Upload Zone */
-    .file-upload-zone {
-        border: 2px dashed var(--border-default);
-        border-radius: var(--radius-xl);
-        padding: var(--space-10);
-        text-align: center;
-        cursor: pointer;
-        transition: all var(--transition-base);
-        background: var(--bg-card);
-        margin-bottom: var(--space-6);
-    }
-
-    .file-upload-zone:hover {
-        border-color: var(--accent-purple);
-        background: var(--bg-card-hover);
-    }
-
-    .file-upload-zone.dragover {
-        border-color: var(--accent-purple);
-        background: var(--dd-selected);
-        box-shadow: var(--shadow-glow-purple);
-    }
-
-    .file-upload-icon {
-        width: 48px;
-        height: 48px;
-        margin: 0 auto var(--space-4);
-        color: var(--text-muted);
-    }
-
-    .file-upload-zone:hover .file-upload-icon {
-        color: var(--accent-purple);
-    }
-
-    .file-upload-text {
-        font-size: 16px;
-        color: var(--text-secondary);
-        margin-bottom: var(--space-2);
-    }
-
-    .file-upload-hint {
-        font-size: 13px;
-        color: var(--text-muted);
-    }
-
-    .file-upload-input {
-        display: none;
-    }
 
     /* Column Selector */
     .column-selector {
@@ -74,7 +26,7 @@
     .selector-label {
         font-size: 16px;
         font-weight: 600;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
         margin-bottom: var(--space-2);
         display: block;
     }
@@ -197,7 +149,7 @@
 
     .summary-label {
         font-weight: 600;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
     }
 
     .summary-value {
@@ -216,7 +168,7 @@
     .result-title {
         font-size: 20px;
         font-weight: 700;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
         margin-bottom: var(--space-4);
         text-align: center;
     }
@@ -230,7 +182,7 @@
     }
 
     .explanation-box h3 {
-        color: var(--accent-blue);
+        color: var(--dd-ink);
         margin: 0 0 var(--space-2) 0;
         font-size: 18px;
     }
@@ -380,12 +332,8 @@
 </div>
 
 <!-- File Upload Zone -->
-<div class="file-upload-zone" id="uploadArea">
-    <div class="file-upload-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-        </svg>
-    </div>
+<div class="file-upload-zone mb-6" id="uploadArea">
+    {% include "brand/empty_upload.svg" %}
     <div class="file-upload-text">Drop a file here, or click to choose</div>
     <div class="file-upload-hint">Excel or CSV files (.xlsx, .xls, .csv)</div>
     <div class="file-size-info" id="fileSizeInfo" style="display: none;"></div>

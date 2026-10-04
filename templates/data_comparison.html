@@ -60,7 +60,7 @@
     .config-title {
         font-size: 18px;
         font-weight: 700;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
         margin-bottom: var(--space-4);
     }
 
@@ -173,13 +173,12 @@
         font-weight: 600;
         color: var(--text-muted);
         margin-bottom: var(--space-2);
-        text-transform: uppercase;
     }
 
     .summary-value {
         font-size: 24px;
         font-weight: 700;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
     }
 
     .result-section {
@@ -193,7 +192,7 @@
     .result-title {
         font-size: 20px;
         font-weight: 700;
-        color: var(--accent-purple);
+        color: var(--dd-ink);
         margin-bottom: var(--space-4);
         text-align: center;
     }
@@ -248,8 +247,6 @@
         text-align: left;
         font-weight: 600;
         font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
         position: sticky;
         top: 0;
     }
@@ -872,7 +869,7 @@
             displayTab(currentTab, tabs);
         } else {
             resultsTabs.innerHTML = '';
-            resultsTableContainer.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: var(--space-5);">No differences found. Files are identical.</p>';
+            DD.showState(resultsTableContainer, 'empty', 'No differences found', 'The two files match on every row and column that was compared.');
         }
     }
 
