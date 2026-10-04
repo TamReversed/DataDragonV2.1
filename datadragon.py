@@ -1,4 +1,4 @@
-from flask import Flask, Request, render_template, request, send_file, jsonify, Response, stream_with_context, after_this_request, session
+from flask import Flask, Request, render_template, request, send_file, jsonify, Response, stream_with_context, after_this_request, session, has_request_context
 import pandas as pd
 import numpy as np
 import os
@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 import secrets
 import time
 from contextlib import contextmanager
+import contextvars
 import functools
 import operator as operator_module
 from functools import wraps
@@ -41,6 +42,7 @@ from reportlab.lib.enums import TA_CENTER
 from xml.sax.saxutils import escape as pdf_text  # reportlab Paragraphs parse <...> as markup: escape file-derived text
 from datadragon_report import generate_readiness_report
 import datadragon_tools
+from datadragon_cover import COVER_SHEET, begin_cover, finish_cover
 
 class CacheAwareRequest(Request):
     """A request whose ``files`` can also be filled from the owner's cached results.
@@ -368,9 +370,28 @@ def api_errors(view):
     return wrapped
 
 
+COVER_SHEET_DEFAULT = os.environ.get('DATADRAGON_COVER_SHEET', '1') != '0'
+_cover_choice = contextvars.ContextVar('cover_choice', default=True)
+
+
+def wants_cover():
+    """Should Excel outputs get the cover sheet? On unless the deployment (DATADRAGON_COVER_SHEET=0) or this browser
+    (cookie dd_cover=0, set from the sidebar) switched it off. A background job uses the choice of the request that started it."""
+    if not COVER_SHEET_DEFAULT:
+        return False
+    if has_request_context():
+        return request.cookies.get('dd_cover') != '0'
+    return _cover_choice.get()
+
+
 def start_job(function, *args):
     """Run `function(*args)` in the job pool."""
-    future = executor.submit(function, *args)
+    cover = wants_cover()
+
+    def run():
+        _cover_choice.set(cover)
+        return function(*args)
+    future = executor.submit(run)
     future.add_done_callback(_log_job_failure)
     return future
 
@@ -771,7 +792,11 @@ def read_data_file(file_path, mode='lossless', sheet_name=0, **kwargs):
         options = dict(kwargs)
         if mode == 'lossless':
             options.setdefault('dtype', object)
-        return pd.read_excel(file_path, sheet_name=sheet_name, **options)
+        with pd.ExcelFile(file_path) as workbook:
+            names = workbook.sheet_names
+            if sheet_name == 0 and len(names) > 1 and names[0] == COVER_SHEET:
+                sheet_name = 1                      # a DataDragon output used as input: its cover sheet is not the data
+            return workbook.parse(sheet_name=sheet_name, **options)
 
     else:
         raise UserError(f"Unsupported file format: {ext}. Supported formats: xlsx, xls, csv")
@@ -830,7 +855,8 @@ def sheet_names_of(file_path):
         return []
     try:
         with pd.ExcelFile(file_path) as workbook:
-            return [name for name in workbook.sheet_names if name != LOG_SHEET]   # our own log sheet is not user data
+            # our own log and cover sheets are not user data
+            return [name for name in workbook.sheet_names if name not in (LOG_SHEET, COVER_SHEET)]
     except Exception:
         return []
 
@@ -953,9 +979,12 @@ def write_excel(df, path, sheet_name='Sheet1', log=None, **kwargs):
     kwargs.setdefault('index', False)
     if kwargs != {'index': False}:
         with excel_writer(path) as writer:      # unusual options: let pandas handle them
+            cover = begin_cover(writer.book) if log and wants_cover() else None
             df.to_excel(writer, sheet_name=sheet_name, **kwargs)
             if log:
                 log_frame(log).to_excel(writer, sheet_name=LOG_SHEET, index=False)
+            if cover:
+                finish_cover(writer.book, cover, log, [(sheet_name, len(df), len(df.columns))])
         return
     if len(df) + 1 > EXCEL_MAX_ROWS or len(df.columns) > EXCEL_MAX_COLUMNS:
         raise UserError(f"This sheet is too large for Excel ({len(df):,} rows x {len(df.columns):,} columns; the "
@@ -964,6 +993,7 @@ def write_excel(df, path, sheet_name='Sheet1', log=None, **kwargs):
     workbook = xlsxwriter.Workbook(path, {'strings_to_formulas': False, 'strings_to_urls': False,
                                           'default_date_format': 'yyyy-mm-dd hh:mm:ss'})
     try:
+        cover = begin_cover(workbook) if log and wants_cover() else None
         sheet = workbook.add_worksheet(sheet_name)
         header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'top'})
         sheet.write_row(0, 0, [str(c) for c in df.columns], header)
@@ -974,6 +1004,8 @@ def write_excel(df, path, sheet_name='Sheet1', log=None, **kwargs):
                                             if isinstance(v, float) else v for v in row])
         if log:
             write_log_sheet(workbook, log)
+        if cover:
+            finish_cover(workbook, cover, log, [(sheet_name, len(df), len(df.columns))])
     finally:
         workbook.close()
 
@@ -1058,10 +1090,13 @@ def write_sheets(path, sheets, job_id=None, log=None):
     sheets = [(name, frame) for name, frame in sheets if frame is not None]
     if not any(sheet_too_big(frame) for _, frame in sheets):
         with excel_writer(path) as writer:
+            cover = begin_cover(writer.book) if log and wants_cover() else None
             for name, frame in sheets:
                 frame.to_excel(writer, sheet_name=name, index=False)
             if log:
                 log_frame(log).to_excel(writer, sheet_name=LOG_SHEET, index=False)
+            if cover:
+                finish_cover(writer.book, cover, log, [(name, len(frame), len(frame.columns)) for name, frame in sheets])
         return path
     zip_path = os.path.splitext(path)[0] + '.zip'
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as archive:
@@ -1100,6 +1135,12 @@ def write_data_file(df, file_path, file_format='xlsx', **kwargs):
 
     return final_path
 
+def _data_worksheet(workbook):
+    """The first sheet of an openpyxl workbook that holds data (a DataDragon cover sheet is skipped)."""
+    sheets = workbook.worksheets
+    return sheets[1] if len(sheets) > 1 and sheets[0].title == COVER_SHEET else sheets[0]
+
+
 def read_headers(path, display_name='the file'):
     """The column names in the first row of a CSV or of the first sheet of a workbook, without reading the data.
 
@@ -1124,7 +1165,7 @@ def read_headers(path, display_name='the file'):
         from openpyxl import load_workbook
         workbook = load_workbook(path, read_only=True, data_only=True)
         try:
-            first_row = next(workbook.worksheets[0].iter_rows(min_row=1, max_row=1, values_only=True), None) or ()
+            first_row = next(_data_worksheet(workbook).iter_rows(min_row=1, max_row=1, values_only=True), None) or ()
         finally:
             workbook.close()
     else:
@@ -1150,7 +1191,7 @@ def count_data_rows(path):
             # The stored dimension is often wrong (formatted empty rows at the end, or a stale value), so walk the rows
             # and take the last one that holds something, which is where pandas stops reading.
             last_filled = 0
-            sheet = workbook.worksheets[0]
+            sheet = _data_worksheet(workbook)
             sheet.reset_dimensions()                       # read-only mode would stop at the stored (maybe wrong) size
             for number, row in enumerate(sheet.iter_rows(values_only=True), 1):
                 if any(cell is not None for cell in row):
@@ -4087,6 +4128,7 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
     workbook = xlsxwriter.Workbook(output_path, {'strings_to_formulas': False, 'strings_to_urls': False,
                                                  'default_date_format': 'yyyy-mm-dd hh:mm:ss'})
     try:
+        cover = begin_cover(workbook) if wants_cover() else None
         border = {'border': 1, 'border_color': '#4472C4'}
         number_format = '#,##0' if aggfunc in ('count', 'nunique') else '#,##0.00'
         formats = {}
@@ -4165,9 +4207,14 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
                                      f"{PIVOT_SOURCE_SHEET_LIMIT:,} rows.")
         else:
             plain_sheet('Source Data', df)
-        write_log_sheet(workbook, make_log('Pivot Table Generator', len(df), n_rows,
-                                           {'rows': rows, 'columns': columns, 'values': values, 'aggfunc': aggfunc,
-                                            'filters': filters}, session_id))
+        pivot_log = make_log('Pivot Table Generator', len(df), n_rows,
+                             {'rows': rows, 'columns': columns, 'values': values, 'aggfunc': aggfunc,
+                              'filters': filters}, session_id)
+        write_log_sheet(workbook, pivot_log)
+        if cover:
+            cover_sheets = [(sheet.get_name(), None, None) for sheet in workbook.worksheets()
+                            if sheet.get_name() not in (COVER_SHEET, LOG_SHEET)]
+            finish_cover(workbook, cover, pivot_log, cover_sheets)
         send_progress('saving', max(n_cols, 1), max(n_cols, 1), 'Saving file...', 95)
     finally:
         workbook.close()

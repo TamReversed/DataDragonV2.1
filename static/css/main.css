@@ -357,6 +357,12 @@ textarea {
     color: var(--dd-ink);
 }
 
+.sidebar-pref {
+    border-top: none;
+    padding-top: 0;
+    color: var(--dd-ink-2);
+}
+
 .nav-toggle { display: none; }
 
 .main-content {
