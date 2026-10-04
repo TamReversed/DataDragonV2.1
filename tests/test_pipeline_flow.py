@@ -236,3 +236,13 @@ def test_the_page_puts_the_session_in_the_url_and_resumes_from_it():
     html = open("templates/data_readiness_pipeline.html", encoding="utf-8").read()
     assert "history.replaceState(null, '', location.pathname + '?s='" in html
     assert "new URLSearchParams(location.search).get('s')" in html and "resumeFromUrl();" in html
+
+
+def test_the_right_panel_has_a_view_for_every_stage():
+    """Each stage shows its own part of the analysis (the panel used to stay the same from stage 2 on)."""
+    html = open("templates/data_readiness_pipeline.html", encoding="utf-8").read()
+    assert "const STAGE_VIEWS = {" in html and "showStageView(num);" in html
+    for view in ("gaps", "keys", "report"):
+        assert f'.analysis-dashboard[data-view="{view}"]' in html, view
+    for name in ("card-types", "card-uniqueness", "card-completeness", 'id="previewTitle"'):
+        assert name in html, name
