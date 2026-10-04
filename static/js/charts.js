@@ -19,7 +19,7 @@ const DDCharts = (() => {
         return FALLBACK.map((fallback, i) => token('--dd-viz-' + (i + 1), fallback));
     }
 
-    function colors() {
+    function themeColors() {
         return {
             text: token('--dd-viz-text', '#44524E'),
             grid: token('--dd-viz-grid', '#D9D1BF'),
@@ -34,7 +34,7 @@ const DDCharts = (() => {
 
     function applyDefaults() {
         if (!window.Chart) return;
-        const c = colors();
+        const c = themeColors();
         Chart.defaults.color = c.text;
         Chart.defaults.borderColor = c.grid;
         Chart.defaults.font.family = "'Instrument Sans', system-ui, sans-serif";
@@ -54,7 +54,7 @@ const DDCharts = (() => {
         after.forEach((color, i) => { palette[i] = color; });
         if (!window.Chart) return;
         applyDefaults();
-        const c = colors();
+        const c = themeColors();
         const swap = value => {
             const i = typeof value === 'string' ? before.indexOf(value) : -1;
             return i >= 0 ? after[i] : value;
@@ -132,7 +132,7 @@ const DDCharts = (() => {
                         display: true,
                         labels: {
                             generateLabels: () => options.legend.map(item => ({ text: item.label, fillStyle: item.color,
-                                                                              strokeStyle: item.color, fontColor: colors().text })),
+                                                                              strokeStyle: item.color, fontColor: themeColors().text })),
                         },
                     } : { display: false },
                     tooltip: {
@@ -143,7 +143,7 @@ const DDCharts = (() => {
                     },
                 },
                 scales: {
-                    x: { beginAtZero: true, max: options.max, ticks: { callback: v => format(v) }, grid: { color: colors().grid } },
+                    x: { beginAtZero: true, max: options.max, ticks: { callback: v => format(v) }, grid: { color: themeColors().grid } },
                     y: { grid: { display: false }, ticks: { autoSkip: false } },
                 },
             },
@@ -168,13 +168,13 @@ const DDCharts = (() => {
             data: {
                 labels: options.labels,
                 datasets: [{ data: options.values, backgroundColor: options.labels.map((_, i) => palette[i % palette.length]),
-                             borderColor: colors().surface, borderWidth: 2 }],
+                             borderColor: themeColors().surface, borderWidth: 2 }],
             },
             options: {
                 cutout: '60%',
                 plugins: {
                     legend: { display: true, position: 'right',
-                              labels: { color: colors().text, font: { size: 12 }, padding: 12, usePointStyle: true, pointStyle: 'rect' } },
+                              labels: { color: themeColors().text, font: { size: 12 }, padding: 12, usePointStyle: true, pointStyle: 'rect' } },
                     tooltip: {
                         callbacks: {
                             label: item => item.label + ': ' + item.raw + ' (' + (total ? (item.raw / total * 100).toFixed(1) : 0) + '%)',
@@ -202,7 +202,7 @@ const DDCharts = (() => {
         flat.width = source.width;
         flat.height = source.height;
         const context = flat.getContext('2d');
-        context.fillStyle = colors().surface;
+        context.fillStyle = themeColors().surface;
         context.fillRect(0, 0, flat.width, flat.height);
         context.drawImage(source, 0, 0);
         return flat.toDataURL('image/png');
@@ -216,14 +216,14 @@ const DDCharts = (() => {
             clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
             clone.setAttribute('width', box.width);
             clone.setAttribute('height', box.height);
-            clone.style.color = colors().text;
+            clone.style.color = themeColors().text;
             const image = new Image();
             image.onload = () => {
                 const flat = document.createElement('canvas');
                 flat.width = box.width * scale;
                 flat.height = box.height * scale;
                 const context = flat.getContext('2d');
-                context.fillStyle = colors().surface;
+                context.fillStyle = themeColors().surface;
                 context.fillRect(0, 0, flat.width, flat.height);
                 context.drawImage(image, 0, 0, flat.width, flat.height);
                 resolve(flat.toDataURL('image/png'));
@@ -276,5 +276,5 @@ const DDCharts = (() => {
         }
     }
 
-    return { offscreenImage, palette, colors, retheme, applyDefaults, horizontalBars, doughnut, chartImage, svgImage, addDownloadButton, shorten };
+    return { offscreenImage, palette, colors: themeColors, retheme, applyDefaults, horizontalBars, doughnut, chartImage, svgImage, addDownloadButton, shorten };
 })();
