@@ -6,12 +6,13 @@ A field notebook for data, kept by a clever dragon. Paper and ink, one ember.
   project, so the variables are the theme config.
 - **Live specimen:** `docs/redesign/design-system.html` (open in a browser; "Switch theme", or add `#dark` / `#light`).
   Screenshots: `design-system_light.png`, `design-system_dark.png`. Rebuild with `python scripts/build_design_preview.py`.
-- **Status:** tokens and assets exist; the app's pages do not use them yet. That is Phase 4.
+- **Status:** in use. `templates/base.html` is the shell, `static/css/main.css` the component library, and every
+  page extends the shell.
 
 ## Themes
 
 Light is the default. Dark applies when the system asks for it, unless the page sets `data-theme="light"` on
-`<html>`; `data-theme="dark"` forces dark. Phase 4 adds a toggle that stores the choice.
+`<html>`; `data-theme="dark"` forces dark. The toggle in the sidebar stores the choice in the browser (`dd-theme`).
 
 ## Colour
 
@@ -68,7 +69,7 @@ The fonts are loaded from Google Fonts for now (the app's CSP already allows it)
   `prefers-reduced-motion` the durations are zero.
 - **Layout:** 272 px sidebar, 1080 px content column.
 
-## Components (specified here, built in Phase 4)
+## Components (in `static/css/main.css`)
 
 Button (primary, default, quiet, disabled) · text field and select · upload drop zone · tool tree · table (mono,
 sunken header, numbers right-aligned, selected row with a teal edge) · stat (serif number + pixel label) · message
