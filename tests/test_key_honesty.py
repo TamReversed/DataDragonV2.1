@@ -84,3 +84,10 @@ def test_unimplemented_methods_are_not_offered():
     html = open("templates/data_readiness_pipeline.html", encoding="utf-8").read()
     for word in ("realistic fake", "SHA-256", "Partial masking", "[REDACTED]", "Fill with default"):
         assert word not in html
+
+
+def test_both_key_tools_offer_the_allow_blank_values_checkbox():
+    for page, sends in (("unique_identifier_finder", "formData.append('allow_null_keys'"),
+                        ("data_readiness_pipeline", "allow_null_keys: document.getElementById('allowNullKeys').checked")):
+        html = open(f"templates/{page}.html", encoding="utf-8").read()
+        assert 'id="allowNullKeys"' in html and sends in html

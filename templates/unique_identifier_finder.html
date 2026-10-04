@@ -911,6 +911,16 @@
     </div>
 </div>
 
+<div class="mb-6">
+    <label for="allowNullKeys" style="display: flex; gap: 10px; align-items: flex-start; cursor: pointer; margin-bottom: var(--space-4);">
+    <input type="checkbox" id="allowNullKeys" style="margin-top: 4px;">
+    <span>
+        <strong>Allow columns with blank values as keys</strong>
+        <span style="display: block; margin-top: 4px; font-size: 13px; opacity: .8;">Off (recommended): a column with any blank cell is skipped, because a blank is not an identifier. On: blanks count as one more value, so a column with a single blank can still be a key.</span>
+    </span>
+</label>
+</div>
+
 <div class="btn-group mb-6">
     <button class="btn btn-primary btn-lg" id="findBtn" disabled>Analyze Key Candidates</button>
     <button class="btn btn-danger btn-lg" id="cancelBtn" style="display: none;">Cancel</button>
@@ -1313,6 +1323,7 @@
         const formData = new FormData();
         DD.appendFile(formData, 'file', selectedFile);
         selectedColumns.forEach(col => formData.append('selected_columns[]', col));
+        formData.append('allow_null_keys', document.getElementById('allowNullKeys').checked ? 'true' : 'false');
 
         findBtn.disabled = true;
         findBtn.textContent = 'Analyzing...';
