@@ -30,3 +30,10 @@ def test_preview_tables_share_height_and_overscroll_rules():
 def test_main_css_has_the_shared_small_screen_rules():
     css = open("static/css/main.css", encoding="utf-8").read()
     assert "@media (max-width: 640px)" in css and ".btn-group {" in css and ".preview-table-wrapper," in css
+
+
+def test_landing_links_use_the_new_names_and_the_shortcut_respects_open_dialogs(client):
+    html = client.get("/").get_data(as_text=True)
+    assert 'href="/natural-key-finder"' in html and 'href="/data-anonymizer"' in html
+    assert 'href="/data-scrubber"' not in html and 'href="/unique-identifier-finder"' not in html
+    assert "testFileModal').style.display === 'flex'" in html and "select, button, [role=dialog]" in html

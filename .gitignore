@@ -32,7 +32,6 @@ output/
 *.xlsx
 *.xls
 *.csv
-!test_data_dragon.xlsx
 !tests/fixtures/*.xlsx
 !tests/fixtures/*.csv
 

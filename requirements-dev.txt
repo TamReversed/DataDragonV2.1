@@ -2,5 +2,5 @@
 pytest
 pytest-timeout
 pytest-cov
-pyflakes
+pyflakes==4.0.1
 pip-audit
