@@ -75,7 +75,6 @@ illustrations). Nothing was generated in Phases 4 and 5.
 
 ## Suggested follow-ups
 
-- Delete the unused old logo files `static/images/datadragon-logo-128.png` and `-256.png` (waiting for a yes).
 - Replace the alias variables in page CSS with the `--dd-*` tokens, then delete the alias block from `main.css`.
 - Move inline styles and scripts to files, then tighten the CSP.
 - Open a pull request for `redesign/v2` into `main`. The hardening work (PR #1) is already merged, so the redesign
