@@ -67,6 +67,7 @@ const DDCharts = (() => {
                 });
                 if (chart.config.type === 'doughnut') dataset.borderColor = c.surface;
             });
+            if (chart.$ddLegend) chart.$ddLegend.forEach(item => { item.color = swap(item.color); });
             Object.values(chart.options.scales || {}).forEach(scale => {
                 if (scale.grid) scale.grid.color = c.grid;
                 if (scale.ticks) scale.ticks.color = c.text;
@@ -134,8 +135,9 @@ const DDCharts = (() => {
                     legend: options.legend ? {
                         display: true,
                         labels: {
-                            generateLabels: () => options.legend.map(item => ({ text: item.label, fillStyle: item.color,
-                                                                              strokeStyle: item.color, fontColor: themeColors().text })),
+                            // read from the chart, so a theme switch can re-colour the swatches (see retheme)
+                            generateLabels: chart => (chart.$ddLegend || options.legend).map(item => ({
+                                text: item.label, fillStyle: item.color, strokeStyle: item.color, fontColor: themeColors().text })),
                         },
                     } : { display: false },
                     tooltip: {
@@ -151,6 +153,7 @@ const DDCharts = (() => {
                 },
             },
         });
+        chart.$ddLegend = (options.legend || []).map(item => ({ ...item }));
         if (rows.length > topN && !fixed) {
             const note = document.createElement('div');
             note.className = 'chart-note';

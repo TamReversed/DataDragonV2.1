@@ -937,11 +937,23 @@ button.cached-file-item {
     font-variant-numeric: tabular-nums;
 }
 
-.main-content th {
+.main-content table th {
     background: var(--dd-sunken);
     color: var(--dd-ink-2);
     font-weight: 500;
 }
+
+.main-content td.num,
+.main-content th.num { text-align: right; }
+
+/* The box a tool renders its result table into: scroll in both directions rather than squeeze the columns */
+#resultsTableContainer {
+    max-width: 100%;
+    max-height: 520px;
+    overflow: auto;
+}
+
+#resultsTableContainer > table { margin-top: 0; }
 
 /* ---------------------------------------------------------------------------------------------------------
  * Badges
