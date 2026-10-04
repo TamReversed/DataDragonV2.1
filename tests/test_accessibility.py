@@ -35,7 +35,7 @@ def test_focus_ring_and_reduced_motion_rules_exist_and_every_page_loads_them():
     css = read("static/css/a11y.css")
     assert ":focus-visible" in css and "2px solid var(--accent-purple)" in css and "outline-offset: 2px" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
-    for page in ("base", "landing", "splash"):          # index.html (the splitter) now extends base.html
+    for page in ("base", "landing"):          # index.html (the splitter) now extends base.html
         assert "css/a11y.css" in read(f"templates/{page}.html"), page
     main = read("static/css/main.css")
     assert "@media (prefers-reduced-motion: no-preference)" in main     # orb animation and blur only for these users

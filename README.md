@@ -71,7 +71,7 @@ gunicorn -k gthread -w 1 --threads 8 -t 0 -b 0.0.0.0:${PORT:-5002} datadragon:ap
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q                      # the suite (about 90 seconds)
-.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py
+.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py
 .venv/bin/pip-audit -r requirements.txt            # known vulnerabilities in the dependencies
 .venv/bin/python scripts/check_innerhtml.py        # file-derived text must be escaped in the page scripts
 .venv/bin/python scripts/contrast.py               # WCAG contrast of the colour tokens

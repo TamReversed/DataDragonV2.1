@@ -23,7 +23,6 @@ from functools import wraps
 from collections import defaultdict
 import math
 import re
-import uuid
 from urllib.parse import urlparse
 from itertools import combinations, count as itertools_count
 
@@ -34,11 +33,11 @@ from datadragon_regex import PatternError, PatternTooComplex
 
 # PDF Report Generation
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.enums import TA_CENTER
 from xml.sax.saxutils import escape as pdf_text  # reportlab Paragraphs parse <...> as markup: escape file-derived text
 
 class CacheAwareRequest(Request):
@@ -1376,7 +1375,7 @@ def generate_test_file():
         
         return send_file(file_path, as_attachment=True, download_name=download_filename)
         
-    except Exception as e:
+    except Exception:
         log.exception("Error generating test file")
         return jsonify({'error': 'Failed to generate the test file'}), 500
 
@@ -1473,7 +1472,7 @@ def progress(session_id):
                     log.debug(f"Final stage reached: {stage}, closing connection")
                     time.sleep(0.5)  # Give time for message to be sent
                     break
-        except Exception as e:
+        except Exception:
             log.exception("SSE error")
         
         # Clean up the queue, but only the one this stream served: the next pipeline stage may already have
@@ -2064,7 +2063,6 @@ def analyze_file_async(upload_path, progress_queue, session_id):
     send_progress('loading', 0, 100, 'Reading file into memory...', 5)
         
     # Read file into memory
-    filename = os.path.basename(upload_path)
     df = read_data_file(upload_path, mode='infer')
         
     send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
@@ -2514,7 +2512,6 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
     send_progress('loading', 0, 100, 'Reading file into memory...', 5)
         
     # Read file into memory
-    filename = os.path.basename(upload_path)
     df = read_data_file(upload_path)
         
     send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
@@ -2702,14 +2699,6 @@ def generate_natural_key_report(output_path, original_rows, duplicate_count, row
         borderPadding=5
     )
 
-    subheading_style = ParagraphStyle(
-        'CustomSubheading',
-        parent=styles['Heading3'],
-        fontSize=12,
-        spaceBefore=15,
-        spaceAfter=8,
-        textColor=colors.HexColor('#667eea')
-    )
 
     body_style = ParagraphStyle(
         'CustomBody',
@@ -3037,7 +3026,6 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
     send_progress('loading', 0, 100, 'Reading file into memory...', 5)
         
     # Read file into memory
-    filename = os.path.basename(upload_path)
     df = read_data_file(upload_path)
         
     original_row_count = len(df)
@@ -5105,7 +5093,6 @@ def transpose_file_async(upload_path, progress_queue, session_id):
     send_progress('loading', 0, 100, 'Reading file into memory...', 10)
         
     # Read file into memory
-    filename = os.path.basename(upload_path)
     df = read_data_file(upload_path)
         
     original_shape = df.shape
@@ -6209,10 +6196,10 @@ def pipeline_get_transformations(session_id):
             if 'object' in dtype and detected in ['Numeric', 'Integer', 'Date', 'Currency']:
                 # Generate explanation based on detected type
                 type_explanations = {
-                    'Numeric': f'Stored as text but contains numbers - flagged only: this pipeline does not convert it (use the Data Normalizer)',
-                    'Integer': f'Stored as text but contains whole numbers - flagged only: this pipeline does not convert it (use the Data Normalizer)',
-                    'Date': f'Stored as text but contains dates - flagged only: this pipeline does not convert it (use the Data Normalizer)',
-                    'Currency': f'Stored as text but contains currency values - flagged only: this pipeline does not convert it (use the Data Normalizer)'
+                    'Numeric': 'Stored as text but contains numbers - flagged only: this pipeline does not convert it (use the Data Normalizer)',
+                    'Integer': 'Stored as text but contains whole numbers - flagged only: this pipeline does not convert it (use the Data Normalizer)',
+                    'Date': 'Stored as text but contains dates - flagged only: this pipeline does not convert it (use the Data Normalizer)',
+                    'Currency': 'Stored as text but contains currency values - flagged only: this pipeline does not convert it (use the Data Normalizer)'
                 }
                 explanation = type_explanations.get(detected, 'May need type conversion')
 
@@ -6427,12 +6414,10 @@ def pipeline_execute(session_id):
 
 def generate_readiness_report(output_path, state, transformation_log=None):
     """Generate comprehensive Data Readiness PDF report"""
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.units import inch
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT
 
     doc = SimpleDocTemplate(output_path, pagesize=letter,
                            leftMargin=0.75*inch, rightMargin=0.75*inch,
