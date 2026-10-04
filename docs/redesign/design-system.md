@@ -32,7 +32,8 @@ Light is the default. Dark applies when the system asks for it, unless the page 
 
 **Rules**
 
-1. **Ember** is for the single primary action of a page and for the dragon. Nothing else is orange.
+1. **Ember** is for the single primary action of a page and for the dragon. Nothing else is orange. Once a result
+   is showing, its download is that action and the run button steps back to the default look.
 2. **Teal** means "you can interact with this" (links, focus, selection).
 3. **Green, amber, red** mean status and always come with an icon or word, never colour alone.
 4. No gradients, no per-tool or per-category colours, no glow.

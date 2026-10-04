@@ -135,7 +135,7 @@
         width: 100%;
         padding: var(--space-3) var(--space-4);
         background: var(--bg-input);
-        border: 1px solid var(--border-subtle);
+        border: 1px solid var(--border-default);
         border-radius: var(--radius-md);
         color: var(--text-primary);
         font-size: 14px;
@@ -238,26 +238,10 @@
         margin-top: var(--space-5);
         background: var(--bg-card);
         border-radius: var(--radius-lg);
-        overflow: hidden;
         border: 1px solid var(--border-subtle);
-        max-height: 500px;
-        overflow-y: auto;
-        display: block;
     }
 
-    .results-table thead {
-        display: table;
-        width: 100%;
-        table-layout: fixed;
-    }
 
-    .results-table tbody {
-        display: table;
-        width: 100%;
-        table-layout: fixed;
-        max-height: 400px;
-        overflow-y: auto;
-    }
 
     .results-table th {
         background: var(--bg-tertiary);
@@ -274,7 +258,7 @@
         padding: var(--space-3) var(--space-4);
         border-bottom: 1px solid var(--border-subtle);
         font-size: 13px;
-        word-break: break-word;
+        white-space: nowrap;
         color: var(--text-primary);
     }
 
@@ -927,8 +911,12 @@
             preview.forEach(row => {
                 tableHTML += '<tr>';
                 columns.forEach(col => {
-                    const val = row[col] !== null && row[col] !== undefined ? String(row[col]) : '';
-                    tableHTML += `<td>${escapeHtml(val)}</td>`;
+                    // Numbers are shown to two decimals (the downloaded file keeps the full values)
+                    const raw = row[col];
+                    const number = typeof raw === 'number' ? raw : (typeof raw === 'string' && /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN);
+                    const isNumber = Number.isFinite(number) && col !== columns[0];
+                    const val = raw === null || raw === undefined ? '' : (isNumber && !Number.isInteger(number) ? number.toFixed(2) : String(raw));
+                    tableHTML += `<td${isNumber ? ' class="num"' : '' /* safe: number, css class/colour or HTML assembled from escaped parts */}>${escapeHtml(val)}</td>`;
                 });
                 tableHTML += '</tr>';
             });

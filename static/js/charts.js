@@ -67,6 +67,7 @@ const DDCharts = (() => {
                 });
                 if (chart.config.type === 'doughnut') dataset.borderColor = c.surface;
             });
+            if (chart.$ddLegend) chart.$ddLegend.forEach(item => { item.color = swap(item.color); });
             Object.values(chart.options.scales || {}).forEach(scale => {
                 if (scale.grid) scale.grid.color = c.grid;
                 if (scale.ticks) scale.ticks.color = c.text;
@@ -110,9 +111,12 @@ const DDCharts = (() => {
             canvas.width = fixed.width;
             canvas.height = fixed.height || height;
         } else if (wrapper) {
+            // The canvas's parent gets a fixed height. A responsive chart in a box whose height is `auto` grows
+            // without end: every resize makes the box taller, which triggers the next resize.
             wrapper.style.height = height + 'px';
-            const container = wrapper.closest('.chart-container');
-            if (container) container.style.height = 'auto';
+            wrapper.style.position = 'relative';
+            const container = wrapper.parentElement && wrapper.parentElement.closest('.chart-container');
+            if (container) container.style.height = 'auto';         // an outer box may grow to fit the fixed inner one
         }
 
         const colors = shown.map(r => r.color || palette[0]);
@@ -131,8 +135,9 @@ const DDCharts = (() => {
                     legend: options.legend ? {
                         display: true,
                         labels: {
-                            generateLabels: () => options.legend.map(item => ({ text: item.label, fillStyle: item.color,
-                                                                              strokeStyle: item.color, fontColor: themeColors().text })),
+                            // read from the chart, so a theme switch can re-colour the swatches (see retheme)
+                            generateLabels: chart => (chart.$ddLegend || options.legend).map(item => ({
+                                text: item.label, fillStyle: item.color, strokeStyle: item.color, fontColor: themeColors().text })),
                         },
                     } : { display: false },
                     tooltip: {
@@ -148,12 +153,13 @@ const DDCharts = (() => {
                 },
             },
         });
+        chart.$ddLegend = (options.legend || []).map(item => ({ ...item }));
         if (rows.length > topN && !fixed) {
             const note = document.createElement('div');
             note.className = 'chart-note';
             note.style.cssText = 'font-size:12px;color:var(--text-secondary);margin-top:4px';
             note.textContent = 'Showing the ' + topN + ' largest of ' + rows.length + '.';
-            canvas.closest('.chart-container, .card, div').appendChild(note);
+            wrapper.insertAdjacentElement('afterend', note);         // below the fixed-height box, not inside it
         }
         return chart;
     }

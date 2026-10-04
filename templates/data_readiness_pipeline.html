@@ -238,7 +238,8 @@
 
     .charts-row {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);    /* minmax(0, ...): a chart must not widen its column */
+        align-items: start;                                      /* a short chart's card does not stretch to a tall one */
         gap: var(--space-5);
         flex-shrink: 0;
     }
@@ -285,7 +286,7 @@
 
     .completeness-bars {
         display: grid;
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: var(--space-3) var(--space-6);
     }
 
@@ -1780,7 +1781,7 @@
                 </div>
 
                 <!-- Completeness Bars -->
-                <div class="chart-card">
+                <div class="chart-card full-width">
                     <div class="chart-title">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
@@ -2331,7 +2332,7 @@
 
         // Colour = how close to a key; the legend says so
         const ratio = info => totalRows > 0 ? (info.unique_count || 0) / totalRows * 100 : 0;
-        const [green, blue, orange] = [DDCharts.palette[2], DDCharts.palette[0], DDCharts.palette[1]];
+        const [green, blue, orange] = [DDCharts.palette[0], DDCharts.palette[2], DDCharts.palette[1]];     // teal, blue, ember
         uniquenessChart = DDCharts.horizontalBars(canvas, {
             title: 'Uniqueness by column', datasetLabel: 'Uniqueness', max: 100, topN: 10,
             labels: columnEntries.map(([col]) => col), values: columnEntries.map(([, info]) => ratio(info)),
@@ -2569,11 +2570,14 @@
 
     document.getElementById('saveGapsBtn').addEventListener('click', async () => {
         try {
-            await fetch(`/pipeline/${state.sessionId}/gaps/triage`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(state.gapTriage)
-            });
+            // Nothing ticked means nothing to save (the server answers 400 to an empty list)
+            if (Object.keys(state.gapTriage).length > 0) {
+                await fetch(`/pipeline/${state.sessionId}/gaps/triage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(state.gapTriage)
+                });
+            }
             goToStage(4);
         } catch (error) {
             showError('gapError', error.message);

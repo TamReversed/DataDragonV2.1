@@ -210,26 +210,10 @@
         margin-top: var(--space-5);
         background: var(--bg-card);
         border-radius: var(--radius-lg);
-        overflow: hidden;
         border: 1px solid var(--border-subtle);
-        max-height: 500px;
-        overflow-y: auto;
-        display: block;
     }
 
-    .results-table thead {
-        display: table;
-        width: 100%;
-        table-layout: fixed;
-    }
 
-    .results-table tbody {
-        display: table;
-        width: 100%;
-        table-layout: fixed;
-        max-height: 400px;
-        overflow-y: auto;
-    }
 
     .results-table th {
         background: var(--bg-tertiary);
@@ -247,7 +231,7 @@
         border-bottom: 1px solid var(--border-subtle);
         font-size: 13px;
         color: var(--text-primary);
-        word-break: break-word;
+        white-space: nowrap;
     }
 
     .results-table tr:hover {

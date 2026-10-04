@@ -32,7 +32,7 @@ response as before). Element ids and form field names used by the page scripts a
 | `pip-audit` | no known vulnerabilities |
 | axe-core 4.10.2 (WCAG 2.0/2.1/2.2 A and AA) | 0 violations on the hub, Duplicate Finder, Data Merge, the pipeline, Security (light, 375 px) and Column Analyzer with results (dark, desktop) |
 | Sideways scrolling at 375 px | none on those pages |
-| Run with a test file in the browser | Duplicate Finder, Column Analyzer (17 charts, live theme switch), the pipeline through shape analysis, Transpose, Find & Replace |
+| Run with a test file in the browser | All 18 tools and every stage of the pipeline, in light and dark, with no script errors |
 
 The project has no type checker and no JavaScript linter, so there was nothing to run for those.
 
@@ -57,28 +57,26 @@ illustrations). Nothing was generated in Phases 4 and 5.
 
 ## Known gaps
 
-1. **Most tools were not run end to end in the browser.** Five flows were (see above). The other pages were checked
-   in their starting state in both themes; their result views use the same tokens but were not looked at with data.
+1. **Every tool has now been run with data in both themes** (a scripted headless browser, 17 runs plus the
+   whole pipeline), and what that showed was fixed: a chart that grew without end, a crushed result table on Data
+   Merge, pipeline charts wider than the page, off-style table headers and download buttons, unrounded pivot
+   numbers. The runs used one small test file each; unusual data (very wide, very long, other scripts) was not tried.
 2. **Page-local CSS remains** (about 5,400 lines) for tool-specific layouts. It reads the tokens through aliases
    (`--accent-purple` now means teal, and so on), which works but hides the intent. Some result headings may still be
    teal where the rule says ink.
-3. **Two ember buttons can show at once** after a run (the action and the download), against the "one primary
-   action" rule.
-4. **The brief's product does not exist here.** Onboarding, auth, dashboards, a chart builder, sharing, settings and
+3. **The brief's product does not exist here.** Onboarding, auth, dashboards, a chart builder, sharing, settings and
    billing were not built, because the rule was to redesign what exists.
-5. **Tablet:** at 768 px the sidebar collapses to a top bar rather than staying beside the content.
-6. **Fonts cover Latin and Latin Extended only.** Text in other scripts (for example in file names) falls back to
+4. **Tablet:** at 768 px the sidebar collapses to a top bar rather than staying beside the content.
+5. **Fonts cover Latin and Latin Extended only.** Text in other scripts (for example in file names) falls back to
    system fonts.
-7. **Inline styles** (about 200 `style="…"` attributes) are still there, so the CSP still needs `'unsafe-inline'`
+6. **Inline styles** (about 200 `style="…"` attributes) are still there, so the CSP still needs `'unsafe-inline'`
    for styles.
-8. **Charts on a page that is printed in dark mode** print dark; only the PDF export forces light.
+7. **Charts on a page that is printed in dark mode** print dark; only the PDF export forces light.
 
 ## Suggested follow-ups
 
 - Delete the unused old logo files `static/images/datadragon-logo-128.png` and `-256.png` (waiting for a yes).
-- Run every remaining tool once with data in both themes and fix what shows up.
 - Replace the alias variables in page CSS with the `--dd-*` tokens, then delete the alias block from `main.css`.
-- Make the download button the only ember button once results are shown.
 - Move inline styles and scripts to files, then tighten the CSP.
 - Open a pull request for `redesign/v2` into `main`. The hardening work (PR #1) is already merged, so the redesign
   PR contains only its own 12 commits and merges cleanly.

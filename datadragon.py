@@ -1984,8 +1984,9 @@ def analyze_dataframe(df, progress_queue=None, session_id=None):
         # Categorical/string column analysis
         if pd.api.types.is_string_dtype(col_data) or pd.api.types.is_object_dtype(col_data) or isinstance(col_data.dtype, pd.CategoricalDtype):
             col_info['is_categorical'] = True
-            # Most frequent values (top 10)
-            value_counts = col_data.value_counts().head(10)
+            # Most frequent values (top 10). Ties keep the order of first appearance in the file: the default sort is
+            # not stable, so equally frequent values came out in a different order on different machines.
+            value_counts = col_data.value_counts(sort=False).sort_values(ascending=False, kind='stable').head(10)
             col_info['top_values'] = {
                 str(k): int(v) for k, v in value_counts.items()
             }

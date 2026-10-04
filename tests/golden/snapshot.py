@@ -78,6 +78,26 @@ def describe_file(path):
     return describe_bytes(path, data)
 
 
+def differences(expected, actual, path=""):
+    """The paths where two snapshots differ, with both values (so a CI log says what changed, not only that it did)."""
+    if isinstance(expected, dict) and isinstance(actual, dict):
+        found = []
+        for key in sorted(set(expected) | set(actual)):
+            if key not in expected:
+                found.append(f"{path}/{key}: unexpected {actual[key]!r:.80}")
+            elif key not in actual:
+                found.append(f"{path}/{key}: missing (expected {expected[key]!r:.80})")
+            else:
+                found += differences(expected[key], actual[key], f"{path}/{key}")
+        return found
+    if isinstance(expected, list) and isinstance(actual, list) and len(expected) == len(actual):
+        found = []
+        for i, (e, a) in enumerate(zip(expected, actual)):
+            found += differences(e, a, f"{path}[{i}]")
+        return found
+    return [] if expected == actual else [f"{path}: expected {expected!r:.80}, got {actual!r:.80}"]
+
+
 def check(config, name, actual):
     """Compare `actual` to tests/golden/expected/<name>.json (or rewrite it with --update-golden)."""
     actual = json.loads(json.dumps(actual, default=str, sort_keys=True))
@@ -90,4 +110,4 @@ def check(config, name, actual):
     assert os.path.exists(path), f"missing snapshot {name}.json (generate with --update-golden)"
     with open(path, encoding="utf-8") as f:
         expected = json.load(f)
-    assert actual == expected, f"snapshot {name} differs"
+    assert actual == expected, f"snapshot {name} differs at: " + "; ".join(differences(expected, actual)[:25])

@@ -26,11 +26,15 @@ vm.runInContext(fs.readFileSync('static/js/charts.js', 'utf8') + '\nthis.DDChart
 const D = sandbox.DDCharts;
 D.horizontalBars(element(), { title: 't', labels: ['a', 'b'], values: [1, 2], legend: [{ label: 'x', color: D.palette[0] }] });
 D.doughnut(element(), { title: 'd', labels: ['a', 'b'], values: [1, 2] });
+// a canvas whose parent is itself the .chart-container (the pipeline's uniqueness chart)
+const box = element(); box.closest = () => box; box.insertAdjacentElement = () => {};
+const boxed = element(); boxed.parentElement = box;
+D.horizontalBars(boxed, { title: 'u', labels: ['a', 'b'], values: [1, 2] });
 const bars = created[0], ring = created[1];
 console.log(JSON.stringify({
     palette: D.palette.slice(0, 3), barColor: bars.data.datasets[0].backgroundColor[0], grid: bars.options.scales.x.grid.color,
     ringColors: ring.data.datasets[0].backgroundColor, ringBorder: ring.data.datasets[0].borderColor,
-    legendColor: ring.options.plugins.legend.labels.color, text: Chart.defaults.color, listens: Object.keys(listeners),
+    boxHeight: box.style.height, legendColor: ring.options.plugins.legend.labels.color, text: Chart.defaults.color, listens: Object.keys(listeners),
 }));
 """
 
@@ -45,3 +49,5 @@ def test_bar_and_doughnut_charts_build_with_token_colours():
     assert result["ringColors"] == ["#111111", "#222222"] and result["ringBorder"] == "#555555"
     assert result["legendColor"] == "#333333" and result["text"] == "#333333"
     assert "dd:themechange" in result["listens"]
+    # the box around a bar chart keeps a fixed height; with `auto` a responsive chart grows without end
+    assert result["boxHeight"] == "180px"

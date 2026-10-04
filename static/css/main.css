@@ -591,6 +591,20 @@ textarea {
     color: var(--dd-on-primary);
 }
 
+/* One primary action at a time. Once a result with its own primary action (the download) is showing, the button
+   that started the run steps back to the default look. It still works, for running again. */
+.main-content:has(.results.show :is(.btn-primary, .download-btn)) .btn-primary:not(.results *) {
+    background: var(--dd-surface);
+    border-color: var(--dd-line);
+    color: var(--dd-ink);
+}
+
+.main-content:has(.results.show :is(.btn-primary, .download-btn)) .btn-primary:not(.results *):hover:not(:disabled) {
+    background: var(--dd-sunken);
+    border-color: var(--dd-line);
+    color: var(--dd-ink);
+}
+
 .btn-ghost {
     background: transparent;
     border-color: transparent;
@@ -937,11 +951,23 @@ button.cached-file-item {
     font-variant-numeric: tabular-nums;
 }
 
-.main-content th {
+.main-content table th {
     background: var(--dd-sunken);
     color: var(--dd-ink-2);
     font-weight: 500;
 }
+
+.main-content td.num,
+.main-content th.num { text-align: right; }
+
+/* The box a tool renders its result table into: scroll in both directions rather than squeeze the columns */
+#resultsTableContainer {
+    max-width: 100%;
+    max-height: 520px;
+    overflow: auto;
+}
+
+#resultsTableContainer > table { margin-top: 0; }
 
 /* ---------------------------------------------------------------------------------------------------------
  * Badges
