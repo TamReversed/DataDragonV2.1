@@ -13,8 +13,7 @@ PAGE = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DataDragon design system: Ember &amp; Ink</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..700;1,9..144,400..700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Pixelify+Sans:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../static/css/fonts.css">
 <style>{{ tokens }}</style>
 <style>
 *{box-sizing:border-box;margin:0}

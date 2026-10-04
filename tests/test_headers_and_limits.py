@@ -79,3 +79,16 @@ def test_with_the_proxy_setting_forwarded_host_and_address_are_used():
 
     body = client.get("/_whoami", headers={"X-Forwarded-For": "9.9.9.9", "X-Forwarded-Host": "tools.example.org"}).get_json()
     assert body == {"ip": "9.9.9.9", "host": "tools.example.org"}
+
+
+def test_fonts_are_self_hosted_and_the_policy_allows_no_font_host(client):
+    import glob
+    import re
+    policy = client.get("/").headers["Content-Security-Policy"]
+    assert "font-src 'self'" in policy and "fonts.g" not in policy
+    css = open("static/css/fonts.css", encoding="utf-8").read()
+    files = re.findall(r"url\('\.\./fonts/([^']+)'\)", css)
+    assert len(files) == 10 and sorted(files) == sorted(f.split("/")[-1] for f in glob.glob("static/fonts/*.woff2"))
+    for path in glob.glob("templates/*.html") + ["static/css/main.css", "static/css/tokens.css"]:
+        assert "fonts.googleapis.com" not in open(path, encoding="utf-8").read(), path
+    assert client.get("/static/fonts/" + files[0]).status_code == 200

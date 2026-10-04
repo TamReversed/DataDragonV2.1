@@ -58,7 +58,8 @@ are also told apart by order, labels and direct value labels, not colour alone.
 | Pixel | Pixelify Sans, 12–13 px only | Step counters, progress percent, small labels. Never sentences |
 
 Scale: 12, 13, 15 (body), 18, 24, 36, and a fluid 44–72 px hub headline. Line height 1.55 for text, 1.1 for display.
-The fonts are loaded from Google Fonts for now (the app's CSP already allows it); self-hosting them is a follow-up.
+The fonts are self-hosted: `static/fonts/` (Latin and Latin Extended, about 385 KB in total, loaded on demand) with
+`static/css/fonts.css`. No request leaves the server for them, and the CSP allows fonts from the app only.
 
 ## Space, shape, elevation, motion
 

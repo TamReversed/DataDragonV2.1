@@ -1208,8 +1208,8 @@ CONTENT_SECURITY_POLICY = "; ".join([
     "default-src 'self'",
     # Inline scripts and styles are still used by every page (technical debt: move them to files, then drop 'unsafe-inline')
     "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",                          # the fonts are served from static/fonts
     "img-src 'self' data: blob:",
     "media-src 'self'",
     "connect-src 'self'",
