@@ -1,3 +1,5 @@
+> **STALE - scheduled for deletion.** This describes the original Excel Splitter (`app.py`, Flask 3.1.2, port 5000) and no longer matches DataDragon. It is kept only until the owner confirms its removal in Phase 4 (decision D6). See `README.md`.
+
 # Excel File Splitter - Project Summary
 
 **Created:** November 3, 2025  

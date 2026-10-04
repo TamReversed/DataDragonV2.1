@@ -294,7 +294,7 @@
                 libraries from public CDNs, which is code only, never your data). Uploaded files are deleted
                 as soon as their data is loaded (the longer-running tools remove the upload when the job finishes). Result files can be downloaded repeatedly for 30 minutes and are then
                 deleted whether or not you downloaded them. While they exist, files sit unencrypted on the
-                disk of the machine running DataDragon, and cell values are not written to its logs.
+                disk of the machine running DataDragon. Cell values are never written to its logs on purpose; error details are logged, and a library can put a value into its error text, so treat the logs as sensitive.
             </p>
         </div>
     </div>
