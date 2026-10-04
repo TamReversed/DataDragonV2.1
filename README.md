@@ -12,13 +12,18 @@ It is a small Flask application: you upload a file, a tool processes it in memor
 | | Duplicate Finder | Duplicate rows on chosen columns, with a removal list |
 | | Natural Key Finder | Smallest column combinations that identify every row |
 | | Data Validation | Required, numeric, range, list, pattern and length rules |
-| | Column Normalizer | Currency, numbers, dates, booleans and percentages to proper types |
+| Clean | Column Normalizer | Currency, numbers, dates, booleans and percentages to proper types |
+| | Text Cleaner | Stray spaces, hidden characters, case, accents and punctuation, in bulk |
+| | Fill Missing | Fill blanks with a value, the row above or below, the average, median or most common value; or drop the rows |
+| | Remove Duplicates | The cleaned file, with the removed rows on a second sheet |
+| | Find & Replace | Text replacement, with regular expressions |
 | | Data Anonymizer | Replaces values with consistent placeholders, optionally exporting the mapping |
-| Transformation | Transpose, Pivot Table Generator | Flip rows and columns; pivot tables |
-| | File Splitter | Splits a big workbook into chunks (for example 40,000 rows) in a ZIP |
-| | Find & Replace, Row Filter | Text replacement (with regex), AND/OR row filters |
+| Reshape | Row Filter | AND/OR row filters |
+| | Sort, Rank & Sample | Sort by up to three columns, add a rank, keep the top rows or a repeatable random sample |
 | | Column Operations, Calculated Columns | Reorder, rename, split, merge columns; formula columns |
-| Comparison and merging | Data Merge, Data Comparison, Schema Comparison | Joins; added/removed/changed rows; column structure differences |
+| | Pivot Table Generator, Transpose | Pivot tables; flip rows and columns |
+| | File Splitter | Splits a big workbook into chunks (for example 40,000 rows) in a ZIP |
+| Combine and compare | Data Merge, Data Comparison, Schema Comparison | Joins; added/removed/changed rows; column structure differences |
 | Documents | PDF to Word | Converts a PDF to an editable Word file |
 
 Results of one tool can be picked as the input of the next ("earlier results" on each page) without uploading them again.
@@ -71,7 +76,7 @@ gunicorn -k gthread -w 1 --threads 8 -t 0 -b 0.0.0.0:${PORT:-5002} datadragon:ap
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q                      # the suite (about 90 seconds)
-.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py datadragon_report.py
+.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py datadragon_report.py datadragon_tools.py
 .venv/bin/pip-audit -r requirements.txt            # known vulnerabilities in the dependencies
 .venv/bin/python scripts/check_innerhtml.py        # file-derived text must be escaped in the page scripts
 .venv/bin/python scripts/contrast.py               # WCAG contrast of the colour tokens, light and dark
@@ -102,6 +107,7 @@ datadragon_formula.py    Safe evaluator for Calculated Columns (no eval)
 datadragon_regex.py      Time-limited regular expressions for Find & Replace and Validation
 datadragon_logging.py    JSON-style logging with the job id
 datadragon_report.py     The Data Readiness Report (branded PDF with charts)
+datadragon_tools.py      Simple tools on one scaffold: a description plus one function on a table
 report_assets/           Fonts and images the report embeds (not served)
 templates/               One page per tool; base.html is the shell (sidebar, theme), _tools.html the tool list,
                          brand/ the inline SVG mark and illustrations

@@ -256,15 +256,29 @@ These already hold for the existing tools and are what "done" means here.
 
 ---
 
-## 8. Decisions needed
+## 8. Decisions
 
-1. **Scope:** all five phases, or Phases A and B first and then decide?
-2. **Recipes early?** Pulling E1 forward costs about two weeks before the fuzzy-matching work, and is my
-   recommendation.
-3. **New dependency for matching:** edit distance in pure Python is slow. A small compiled library (for example
-   RapidFuzz) would be the first new runtime dependency since the hardening work. Accept it, or stay pure Python
-   with tighter caps?
-4. **Formats:** is Parquet wanted at all for this audience, or only delimited text and JSON?
-5. **The hub at 30 tools:** the sidebar tree holds 18 comfortably. With 14 more, the "Transformation" group needs
-   splitting (Clean, Reshape, Combine). Agree the grouping before Phase A ships.
-6. **Scale target:** is "comfortable at one million rows" the goal, or is a few hundred thousand enough?
+Made on 4 October 2026:
+
+1. **Scope:** all five phases.
+2. **Recipes early:** yes. E1 moves to right after Phase A.
+3. **Matching library:** RapidFuzz (added when Phase C starts).
+4. **Hub grouping:** "Transformation" is split into Clean, Reshape, and Combine & compare (done with Phase A).
+
+Still open:
+
+5. **Formats:** is Parquet wanted for this audience, or only delimited text and JSON?
+6. **Scale target:** comfortable at one million rows, or are a few hundred thousand enough?
+
+## 9. Progress
+
+| Item | Status |
+|---|---|
+| A1 tool scaffold | Done: `datadragon_tools.py`, `templates/tool.html`, `static/js/tool.js`, generic routes. Proven by four new tools. **Not done:** moving an existing tool (Transpose) onto it, which the plan named as the acceptance check; the existing pages were left alone to avoid risk to working tools. |
+| A2 column picker | Done, inside the scaffold: search, all / none / text / number, name with kind and sample values. The existing pages still use their own checkbox grids. |
+| A3 step log as data | Done for scaffold tools: the log sheet has a `Step` row (tool and settings; typed literals recorded by length only). **Not done:** the 18 existing tools do not write a step yet; that moves into the recipes work (E1), which needs it. |
+| A4 Text Cleaner | Done |
+| A5 Fill Missing | Done |
+| A6 Remove Duplicates | Done |
+| A7 Sort, Rank & Sample | Done |
+| A8 preview before apply | Done for scaffold tools ("Preview the changes": counts and a few changed cells, before and after). **Not done:** the existing transforming tools. |
