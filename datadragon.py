@@ -1392,6 +1392,7 @@ def security_info():
     return render_template('security_info.html')
 
 @app.route('/data-scrubber')
+@app.route('/data-anonymizer')          # the name shown on the landing page
 def data_scrubber():
     return render_template('data_scrubber.html')
 
@@ -2498,6 +2499,7 @@ def duplicate_finder():
     return render_template('duplicate_finder.html')
 
 @app.route('/unique-identifier-finder')
+@app.route('/natural-key-finder')        # the name shown on the landing page
 def unique_identifier_finder():
     return render_template('unique_identifier_finder.html')
 

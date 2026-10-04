@@ -178,6 +178,29 @@
             stroke: #fb923c;
         }
 
+
+        [hidden] { display: none !important; }
+
+        .tool-search {
+            max-width: 480px;
+            margin: 0 auto var(--space-6, 24px);
+        }
+
+        .tool-search input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+            font-size: 15px;
+            font-family: inherit;
+        }
+
+        .tool-search input::placeholder { color: rgba(255, 255, 255, 0.6); }
+
+        .tool-search-status { text-align: center; font-size: 13px; color: rgba(255, 255, 255, 0.7); min-height: 18px; margin-top: 8px; }
+
         .category-title {
             color: var(--text-primary);
             font-size: 20px;
@@ -609,6 +632,12 @@
                 </div>
             </header>
 
+            <div class="tool-search" role="search">
+                <label for="toolSearch" class="visually-hidden">Search tools</label>
+                <input type="search" id="toolSearch" placeholder="Search tools (press / to focus)" autocomplete="off">
+                <div class="tool-search-status" id="toolSearchStatus" role="status" aria-live="polite"></div>
+            </div>
+
             <!-- Data Pipelines -->
             <div class="category-section category-pipelines">
                 <div class="category-header">
@@ -920,7 +949,42 @@
             if (event.target === modal) {
                 closeTestFileModal();
             }
-        }
+        };
+
+        // Tool search: filters the cards by name and description; "/" focuses the box
+        (function () {
+            const box = document.getElementById('toolSearch');
+            const status = document.getElementById('toolSearchStatus');
+            const cards = Array.from(document.querySelectorAll('.app-card'));
+            const sections = Array.from(document.querySelectorAll('.category-section'));
+            function filter() {
+                const words = box.value.toLowerCase().split(/\s+/).filter(Boolean);
+                let shown = 0;
+                cards.forEach(card => {
+                    const text = card.textContent.toLowerCase();
+                    const match = words.every(word => text.includes(word));
+                    card.hidden = !match;
+                    if (match) shown += 1;
+                });
+                sections.forEach(section => {
+                    section.hidden = !section.querySelector('.app-card:not([hidden])');
+                });
+                status.textContent = words.length ? (shown ? shown + (shown === 1 ? ' tool' : ' tools') + ' found' : 'No tool matches') : '';
+            }
+            box.addEventListener('input', filter);
+            box.addEventListener('keydown', event => {
+                if (event.key === 'Escape') { box.value = ''; filter(); }
+            });
+            document.addEventListener('keydown', event => {
+                const target = event.target;
+                const typing = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+                if (event.key === '/' && !typing && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                    event.preventDefault();
+                    box.focus();
+                    box.select();
+                }
+            });
+        })();
     </script>
 </body>
 </html>
