@@ -7,6 +7,7 @@ from werkzeug.datastructures import FileStorage, ImmutableMultiDict, MultiDict
 from werkzeug.utils import cached_property, secure_filename
 import shutil
 from datetime import date, datetime, timedelta
+import inspect
 import traceback
 import json
 from queue import Queue, Empty
@@ -14,6 +15,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import secrets
 import time
+from contextlib import contextmanager
 from functools import wraps
 from collections import defaultdict
 import math
@@ -207,7 +209,148 @@ executor = ThreadPoolExecutor(max_workers=MAX_JOBS, thread_name_prefix='job')
 def _log_job_failure(future):
     error = future.exception()
     if error is not None:   # jobs report their own errors to the user; this only catches what escaped them
-        print(f"Background job crashed: {error!r}")
+        log.error("background job crashed: %r", error)
+
+
+# ------------------------------------------------------------------ logging and error hygiene
+from datadragon_logging import current_job_id, log
+
+
+class UserError(ValueError):
+    """A problem with the user's input, worded for the user. Only these messages (and FormulaError / PatternError)
+    are sent to the browser; any other exception is logged and the browser gets a generic message with a reference."""
+
+
+def user_message(error, ref):
+    """What the browser may be told about ``error``. Unexpected errors are logged in full under ``ref`` only."""
+    if isinstance(error, (UserError, FormulaError, PatternError, PatternTooComplex)):
+        return str(error)
+    log.error('unexpected error (ref %s): %s: %s\n%s', ref, type(error).__name__, error,
+              ''.join(traceback.format_exception(type(error), error, error.__traceback__)))
+    return f'Processing failed (ref {ref})'
+
+
+def progress_sender(progress_queue, session_id):
+    """The standard `send_progress(stage, current, total, message, percentage=None)` callable of a job."""
+    def send_progress(stage, current, total, message, percentage=None):
+        if not (progress_queue and session_id):
+            return
+        progress_queue.put({
+            'stage': stage,
+            'current': current,
+            'total': total,
+            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
+            'message': message,
+        })
+    return send_progress
+
+
+def job_worker(*input_files, discard_job_dir=False):
+    """Decorator for background job functions taking `progress_queue` and `session_id` arguments.
+
+    A failure is turned into an error message on the progress queue (user-worded for UserError, generic with a
+    reference otherwise), the named input-file arguments are deleted, and everything logged inside carries the job id.
+    """
+    def decorate(function):
+        signature = inspect.signature(function)
+
+        @wraps(function)
+        def run(*args, **kwargs):
+            bound = signature.bind(*args, **kwargs)
+            bound.apply_defaults()
+            queue, job_id = bound.arguments['progress_queue'], bound.arguments['session_id']
+            token = current_job_id.set(job_id or '-')
+            try:
+                return function(*args, **kwargs)
+            except Exception as error:      # JobCancelled is an Exception too: it ends the job with its message
+                message = 'Cancelled' if isinstance(error, JobCancelled) else user_message(error, job_id)
+                for name in input_files:
+                    discard_upload(bound.arguments.get(name))
+                if discard_job_dir:
+                    shutil.rmtree(job_dir(job_id, create=False), ignore_errors=True)   # a failed job keeps nothing
+                queue.put({'stage': 'error', 'message': message})
+            finally:
+                current_job_id.reset(token)
+        return run
+    return decorate
+
+
+@contextmanager
+def temporary_upload(file, prefix='temp'):
+    """Save an upload just long enough to read it; the file is removed afterwards, whatever happens."""
+    path = os.path.join(app.config['UPLOAD_FOLDER'],
+                        f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(8)}_{secure_filename(file.filename)}")
+    file.save(path)
+    try:
+        yield path
+    finally:
+        discard_upload(path)
+
+
+def check_upload(field, allowed, bad_type_message):
+    """The uploaded file in form field ``field``, or a UserError (400) if it is missing or the wrong type."""
+    if field not in request.files:
+        raise UserError('No file uploaded')
+    file = request.files[field]
+    if file.filename == '':
+        raise UserError('No file selected')
+    if not file.filename.lower().endswith(allowed):
+        raise UserError(bad_type_message)
+    return file
+
+
+def store_upload(file, prefix):
+    """Save an upload under a new random job id. Returns (job_id, path, safe_filename)."""
+    filename = secure_filename(file.filename)
+    job_id = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{secrets.token_hex(8)}"
+    path = os.path.join(app.config['UPLOAD_FOLDER'], f"{job_id}_{filename}")
+    save_upload(file, path, job_id)
+    return job_id, path, filename
+
+
+def open_job(job_id):
+    """Create and register the progress channel of a new job."""
+    progress_queue = Queue()
+    register_job(job_id, progress_queue)
+    return progress_queue
+
+
+def job_started(job_id):
+    """The JSON answer of a route that started a background job: the browser then follows /progress/<id>."""
+    return jsonify({'success': True, 'session_id': job_id})
+
+
+def guarded_job(progress_queue, job_id):
+    """Decorator for a job function defined inside a route: like job_worker, but for a closure without arguments."""
+    def decorate(function):
+        @wraps(function)
+        def run():
+            token = current_job_id.set(job_id)
+            try:
+                return function()
+            except Exception as error:
+                message = 'Cancelled' if isinstance(error, JobCancelled) else user_message(error, job_id)
+                progress_queue.put({'stage': 'error', 'message': message})
+            finally:
+                current_job_id.reset(token)
+        return run
+    return decorate
+
+
+def api_errors(view):
+    """Decorator for JSON routes: input problems come back as 400/422 with their own message; anything unexpected is
+    logged with a reference and the browser gets 'Processing failed (ref ...)'."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        try:
+            return view(*args, **kwargs)
+        except PatternTooComplex as error:
+            return jsonify({'error': str(error)}), 422
+        except (UserError, FormulaError, PatternError) as error:
+            return jsonify({'error': str(error)}), 400
+        except Exception as error:
+            return jsonify({'error': user_message(error, secrets.token_hex(4))}), 500
+    return wrapped
 
 
 def start_job(function, *args):
@@ -278,7 +421,7 @@ def cleanup_old_analysis_results():
     for session_id, data in list(analysis_results.items()):
         if current_time - data.get('timestamp', 0) > 3600:
             analysis_results.pop(session_id, None)
-            print(f"Cleaned up expired analysis session: {session_id}")
+            log.info(f"Cleaned up expired analysis session: {session_id}")
 
 
 def _tree_mtime(path):
@@ -403,7 +546,7 @@ def cleanup_session_cache():
                     os.remove(file_info['path'])
             except OSError:
                 pass
-            print(f"Cleaned up expired cache: {cache_id}")
+            log.info(f"Cleaned up expired cache: {cache_id}")
 
 # =============================================================================
 # DATA READINESS PIPELINE - Guided multi-stage data assessment workflow
@@ -461,7 +604,7 @@ def evict_pipeline_session(session_id):
         return
     discard_upload(state.file_path)
     state.df = None
-    print(f"Removed pipeline session: {session_id}")
+    log.info(f"Removed pipeline session: {session_id}")
 
 
 def make_room_for_pipeline(owner):
@@ -553,7 +696,7 @@ def read_data_file(file_path, mode='lossless', sheet_name=0, **kwargs):
                 return pd.read_csv(file_path, encoding=encoding, **options)
             except UnicodeDecodeError:
                 continue
-        raise ValueError("Could not read CSV file with any supported encoding")
+        raise UserError("Could not read CSV file with any supported encoding")
 
     elif ext in ('xlsx', 'xls'):
         options = dict(kwargs)
@@ -562,7 +705,7 @@ def read_data_file(file_path, mode='lossless', sheet_name=0, **kwargs):
         return pd.read_excel(file_path, sheet_name=sheet_name, **options)
 
     else:
-        raise ValueError(f"Unsupported file format: {ext}. Supported formats: xlsx, xls, csv")
+        raise UserError(f"Unsupported file format: {ext}. Supported formats: xlsx, xls, csv")
 
 
 def inferred_copy(df):
@@ -677,7 +820,7 @@ def write_excel(df, path, sheet_name='Sheet1', **kwargs):
             df.to_excel(writer, sheet_name=sheet_name, **kwargs)
         return
     if len(df) + 1 > EXCEL_MAX_ROWS or len(df.columns) > EXCEL_MAX_COLUMNS:
-        raise ValueError(f"This sheet is too large for Excel ({len(df):,} rows x {len(df.columns):,} columns; the "
+        raise UserError(f"This sheet is too large for Excel ({len(df):,} rows x {len(df.columns):,} columns; the "
                          f"limit is {EXCEL_MAX_ROWS:,} rows x {EXCEL_MAX_COLUMNS:,} columns).")
     import xlsxwriter
     workbook = xlsxwriter.Workbook(path, {'strings_to_formulas': False, 'strings_to_urls': False,
@@ -814,20 +957,7 @@ def get_file_preview(file_path, max_rows=20):
             full_df = read_data_file(file_path, usecols=[0])  # Read just first column for count
             total_rows = len(full_df)
 
-        # Convert preview to JSON-serializable format
-        preview_df = df.head(max_rows)
-        rows = []
-        for _, row in preview_df.iterrows():
-            row_data = {}
-            for col in preview_df.columns:
-                val = row[col]
-                if pd.isna(val):
-                    row_data[col] = None
-                elif isinstance(val, (datetime, pd.Timestamp)):
-                    row_data[col] = val.strftime('%Y-%m-%d %H:%M:%S')
-                else:
-                    row_data[col] = str(val) if not isinstance(val, (int, float, bool)) else val
-            rows.append(row_data)
+        rows = df_preview(df, max_rows)
 
         return {
             'columns': list(df.columns),
@@ -837,7 +967,7 @@ def get_file_preview(file_path, max_rows=20):
             'total_cols': len(df.columns)
         }
     except Exception as e:
-        raise ValueError(f"Error reading file preview: {str(e)}")
+        raise UserError(f"Error reading file preview: {str(e)}")
 
 
 def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_filename=None, progress_queue=None, session_id=None):
@@ -896,7 +1026,7 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
         
         write_excel(chunk_df, output_path)
         output_files.append(output_path)
-        print(f"Created {filename} with records {start_idx + 1} to {end_idx}")
+        log.info(f"Created {filename} with records {start_idx + 1} to {end_idx}")
     
     # Don't send 'complete' here - wait until after zipping
     
@@ -1039,17 +1169,16 @@ def generate_test_file():
             try:
                 if os.path.exists(file_path) and os.path.isfile(file_path):
                     os.remove(file_path)
-                    print(f"Cleaned up test file: {filename}")
+                    log.info(f"Cleaned up test file: {filename}")
             except Exception as e:
-                print(f"Error cleaning up test file {filename}: {str(e)}")
+                log.warning(f"Error cleaning up test file {filename}: {str(e)}")
             return response
         
         return send_file(file_path, as_attachment=True, download_name=download_filename)
         
     except Exception as e:
-        print(f"Error generating test file: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': f'Failed to generate test file: {str(e)}'}), 500
+        log.exception("Error generating test file")
+        return jsonify({'error': 'Failed to generate the test file'}), 500
 
 @app.route('/excel-splitter')
 def excel_splitter():
@@ -1086,11 +1215,11 @@ def progress(session_id):
             time.sleep(0.1)  # Wait 100ms between attempts
         
         if not q:
-            print(f"Session {session_id} not found in progress_queues after waiting")
+            log.warning(f"Session {session_id} not found in progress_queues after waiting")
             yield f"data: {json.dumps({'error': 'Session not found'})}\n\n"
             return
         
-        print(f"SSE connection established for session {session_id}")
+        log.debug(f"SSE connection established for session {session_id}")
         last_ping = time.time()
         empty_queue_count = 0
         
@@ -1106,11 +1235,11 @@ def progress(session_id):
                     if time.time() - last_ping > 15:
                         yield ": keep-alive\n\n"
                         last_ping = time.time()
-                        print(f"Keep-alive sent for session {session_id}")
+                        log.debug(f"Keep-alive sent for session {session_id}")
                     
                     # If queue has been empty for too long (2 minutes), close connection
                     if empty_queue_count > 24:  # 24 * 5 seconds = 2 minutes
-                        print(f"Queue empty for too long, closing connection for session {session_id}")
+                        log.debug(f"Queue empty for too long, closing connection for session {session_id}")
                         break
                     continue
                 
@@ -1120,7 +1249,7 @@ def progress(session_id):
                 
                 # Log what we're sending
                 stage = progress_data.get('stage', 'unknown')
-                print(f"Sending progress update: stage={stage}, percentage={progress_data.get('percentage', 0)}")
+                log.debug(f"Sending progress update: stage={stage}, percentage={progress_data.get('percentage', 0)}")
                 
                 # Serialize the data - handle large analysis objects
                 try:
@@ -1128,30 +1257,29 @@ def progress(session_id):
                     yield f"data: {json_data}\n\n"
                     last_ping = time.time()
                 except Exception as json_err:
-                    print(f"JSON serialization error: {json_err}")
+                    log.warning(f"JSON serialization error: {json_err}")
                     # Try sending without analysis if it's too large
                     if 'analysis' in progress_data:
-                        print("Attempting to send without analysis data...")
+                        log.info("Attempting to send without analysis data...")
                         progress_data_no_analysis = {k: v for k, v in progress_data.items() if k != 'analysis'}
                         json_data = json.dumps(progress_data_no_analysis, default=str)
                         yield f"data: {json_data}\n\n"
                         # Send analysis separately in chunks if needed
                         if progress_data.get('stage') == 'done':
-                            print("Analysis data too large, will need alternative delivery method")
+                            log.warning("Analysis data too large, will need alternative delivery method")
                 
                 # If done, wait a bit to ensure message is sent, then exit
                 if progress_data.get('stage') in ['done', 'error']:
-                    print(f"Final stage reached: {stage}, closing connection")
+                    log.debug(f"Final stage reached: {stage}, closing connection")
                     time.sleep(0.5)  # Give time for message to be sent
                     break
         except Exception as e:
-            print(f"SSE error: {e}")
-            print(traceback.format_exc())
+            log.exception("SSE error")
         
         # Clean up the queue, but only the one this stream served: the next pipeline stage may already have
         # registered a new queue under the same session id
         if progress_queues.get(session_id) is q:
-            print(f"Cleaning up session {session_id}")
+            log.debug(f"Cleaning up session {session_id}")
             del progress_queues[session_id]
             progress_queue_created.pop(session_id, None)
     
@@ -1160,142 +1288,121 @@ def progress(session_id):
         'X-Accel-Buffering': 'no'
     })
 
+@job_worker(discard_job_dir=True)
 def process_file_async(upload_path, output_folder, chunk_size, base_filename, timestamp, progress_queue, session_id):
     """Process file in background thread"""
-    try:
-        # Split the file
-        print("Starting file split...")
-        output_files, total_rows, num_splits = split_excel_file(
-            upload_path, output_folder, chunk_size, base_filename, progress_queue, session_id
-        )
-        print(f"Split complete: {num_splits} files, {total_rows} rows")
+    # Split the file
+    log.info("Starting file split...")
+    output_files, total_rows, num_splits = split_excel_file(
+        upload_path, output_folder, chunk_size, base_filename, progress_queue, session_id
+    )
+    log.info(f"Split complete: {num_splits} files, {total_rows} rows")
         
-        # Create a zip file
-        zip_filename = f"split_files_{timestamp}.zip"
-        zip_path = job_output_path(session_id, zip_filename)
-        print(f"Creating zip: {zip_path}")
+    # Create a zip file
+    zip_filename = f"split_files_{timestamp}.zip"
+    zip_path = job_output_path(session_id, zip_filename)
+    log.info(f"Creating zip: {zip_path}")
         
-        progress_queue.put({
-            'stage': 'zipping',
-            'current': 0,
-            'total': num_splits,
-            'percentage': 95,
-            'message': 'Creating ZIP file...'
-        })
+    progress_queue.put({
+        'stage': 'zipping',
+        'current': 0,
+        'total': num_splits,
+        'percentage': 95,
+        'message': 'Creating ZIP file...'
+    })
         
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for file_path in output_files:
-                zipf.write(file_path, os.path.basename(file_path))
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for file_path in output_files:
+            zipf.write(file_path, os.path.basename(file_path))
         
-        # Clean up individual files
-        print("Cleaning up temporary files...")
-        shutil.rmtree(output_folder)
-        os.remove(upload_path)
+    # Clean up individual files
+    log.info("Cleaning up temporary files...")
+    shutil.rmtree(output_folder)
+    os.remove(upload_path)
         
-        # Send final completion message
-        progress_queue.put({
-            'stage': 'done',
-            'current': num_splits,
-            'total': num_splits,
-            'percentage': 100,
-            'message': 'Complete!',
-            'total_rows': total_rows,
-            'num_files': num_splits,
-            'download_url': job_download_url(session_id, zip_filename),
-            'zip_filename': zip_filename
-        })
+    # Send final completion message
+    progress_queue.put({
+        'stage': 'done',
+        'current': num_splits,
+        'total': num_splits,
+        'percentage': 100,
+        'message': 'Complete!',
+        'total_rows': total_rows,
+        'num_files': num_splits,
+        'download_url': job_download_url(session_id, zip_filename),
+        'zip_filename': zip_filename
+    })
         
-        print("Success!")
+    log.info("Success!")
         
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        shutil.rmtree(job_dir(session_id, create=False), ignore_errors=True)  # a failed split keeps nothing
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
-
 @app.route('/upload', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def upload_file():
+    log.info("Upload request received")
+        
+    if 'file' not in request.files:
+        log.info("No file in request")
+        return jsonify({'error': 'No file uploaded'}), 400
+        
+    file = request.files['file']
+    log.info(f"File received: {file.filename}")
+        
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+        
+    # Validate file extension
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        return jsonify({'error': 'Please upload an Excel file (.xlsx or .xls)'}), 400
+        
+    # Validate MIME type (additional security)
+    allowed_mimes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
+        'application/vnd.ms-excel'  # .xls
+    ]
+    if hasattr(file, 'content_type') and file.content_type and file.content_type not in allowed_mimes:
+        # Allow if content_type is not set (some browsers don't send it)
+        if file.content_type and not file.content_type.startswith('application/'):
+            return jsonify({'error': 'Invalid file type. Please upload an Excel file.'}), 400
+        
+    # Get chunk size and base filename from form
     try:
-        print("Upload request received")
+        chunk_size = int(request.form.get('chunk_size', 40000))
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Invalid chunk size'}), 400
         
-        if 'file' not in request.files:
-            print("No file in request")
-            return jsonify({'error': 'No file uploaded'}), 400
+    # Validate chunk_size (prevent DoS)
+    if chunk_size < 1 or chunk_size > 1000000:  # Reasonable limits
+        return jsonify({'error': 'Chunk size must be between 1 and 1,000,000'}), 400
         
-        file = request.files['file']
-        print(f"File received: {file.filename}")
+    base_filename = request.form.get('base_filename', '').strip()
         
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+    # Sanitize base_filename to prevent path traversal
+    if base_filename:
+        base_filename = secure_filename(base_filename)
+        # Remove any remaining dangerous characters
+        base_filename = ''.join(c for c in base_filename if c.isalnum() or c in ('_', '-'))
         
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls')):
-            return jsonify({'error': 'Please upload an Excel file (.xlsx or .xls)'}), 400
+    log.info(f"Chunk size: {chunk_size}")
+    log.info(f"Base filename: {base_filename if base_filename else 'split (default)'}")
         
-        # Validate MIME type (additional security)
-        allowed_mimes = [
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
-            'application/vnd.ms-excel'  # .xls
-        ]
-        if hasattr(file, 'content_type') and file.content_type and file.content_type not in allowed_mimes:
-            # Allow if content_type is not set (some browsers don't send it)
-            if file.content_type and not file.content_type.startswith('application/'):
-                return jsonify({'error': 'Invalid file type. Please upload an Excel file.'}), 400
+    # Save uploaded file
+    filename = secure_filename(file.filename)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    session_id = f"{timestamp}_{secrets.token_hex(8)}"  # Use secure random session ID
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    log.info(f"Saving to: {upload_path}")
+    save_upload(file, upload_path, session_id)
         
-        # Get chunk size and base filename from form
-        try:
-            chunk_size = int(request.form.get('chunk_size', 40000))
-        except (ValueError, TypeError):
-            return jsonify({'error': 'Invalid chunk size'}), 400
+    # Create output folder for this session
+    output_folder = os.path.join(job_dir(session_id, create=False), 'chunks')  # created by the job itself
+    log.info(f"Output folder: {output_folder}")
         
-        # Validate chunk_size (prevent DoS)
-        if chunk_size < 1 or chunk_size > 1000000:  # Reasonable limits
-            return jsonify({'error': 'Chunk size must be between 1 and 1,000,000'}), 400
+    progress_queue = open_job(session_id)
+    start_job(process_file_async, upload_path, output_folder, chunk_size, base_filename, timestamp, progress_queue, session_id)
         
-        base_filename = request.form.get('base_filename', '').strip()
-        
-        # Sanitize base_filename to prevent path traversal
-        if base_filename:
-            base_filename = secure_filename(base_filename)
-            # Remove any remaining dangerous characters
-            base_filename = ''.join(c for c in base_filename if c.isalnum() or c in ('_', '-'))
-        
-        print(f"Chunk size: {chunk_size}")
-        print(f"Base filename: {base_filename if base_filename else 'split (default)'}")
-        
-        # Save uploaded file
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"{timestamp}_{secrets.token_hex(8)}"  # Use secure random session ID
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        print(f"Saving to: {upload_path}")
-        save_upload(file, upload_path, session_id)
-        
-        # Create output folder for this session
-        output_folder = os.path.join(job_dir(session_id, create=False), 'chunks')  # created by the job itself
-        print(f"Output folder: {output_folder}")
-        
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(process_file_async, upload_path, output_folder, chunk_size, base_filename, timestamp, progress_queue, session_id)
-        
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/download/<job_id>/<filename>')
 def download_file(job_id, filename):
     # Both segments must be plain names (no separators or traversal)
@@ -1328,94 +1435,66 @@ def download_file(job_id, filename):
     return send_file(file_path, as_attachment=True)
 
 def make_json_serializable(obj):
-    """Recursively convert objects to JSON-serializable types"""
+    """Recursively convert objects to JSON-serializable types. Blanks and non-finite numbers (NaN, inf) become
+    None: JSON has no NaN, and a bare `NaN` token would make the whole response unreadable in a browser."""
     if isinstance(obj, dict):
         return {str(k): make_json_serializable(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple)):
+    if isinstance(obj, (list, tuple)):
         return [make_json_serializable(item) for item in obj]
-    elif isinstance(obj, (pd.Timestamp, pd.DatetimeTZDtype)):
-        return str(obj)
-    elif hasattr(obj, 'item'):  # numpy scalars
-        return obj.item()
-    elif hasattr(obj, 'tolist'):  # numpy arrays
-        return obj.tolist()
-    elif pd.api.types.is_integer(obj):
-        return int(obj)
-    elif pd.api.types.is_float(obj):
-        return float(obj)
-    elif pd.api.types.is_bool(obj):
-        return bool(obj)
-    elif obj is pd.NA or pd.isna(obj):
+    if isinstance(obj, np.ndarray):                      # before the scalar checks: arrays also have .item()
+        return make_json_serializable(obj.tolist())
+    if obj is None or obj is pd.NA or obj is pd.NaT:
         return None
-    elif isinstance(obj, type):  # pandas dtypes
-        return str(obj)
-    else:
-        # Try to convert to native Python type
-        try:
-            if isinstance(obj, (int, float, str, bool)) or obj is None:
-                return obj
-            return str(obj)
-        except:
-            return str(obj)
+    if isinstance(obj, (bool, np.bool_)):
+        return bool(obj)
+    if isinstance(obj, (int, np.integer)):
+        return int(obj)
+    if isinstance(obj, (float, np.floating)):
+        number = float(obj)
+        return number if math.isfinite(number) else None
+    if isinstance(obj, str):
+        return obj
+    return str(obj)                                      # timestamps, dtypes, anything else: its text
+
+
+def df_preview(df, n=20):
+    """The first ``n`` rows as JSON-ready dicts: numbers and booleans stay numbers, dates become text, blanks None."""
+    head = df.head(n)
+
+    def cell(value):
+        if pd.isna(value):
+            return None
+        if isinstance(value, (datetime, pd.Timestamp)):
+            return value.strftime('%Y-%m-%d %H:%M:%S')
+        return value if isinstance(value, (int, float, bool, np.integer, np.floating, np.bool_)) else str(value)
+
+    return make_json_serializable([{col: cell(row[col]) for col in head.columns} for _, row in head.iterrows()])
+
+
+def df_preview_text(df, n=20):
+    """The first ``n`` rows as dicts of text (blank cells None), as the result previews show them."""
+    head = df.head(n)
+    return [{col: None if pd.isna(row[col]) else str(row[col]) for col in head.columns} for _, row in head.iterrows()]
+
 
 @app.route('/fetch-analysis/<session_id>')
+@api_errors
 def fetch_analysis(session_id):
     """Fetch analysis results for a session - used when analysis is too large for SSE"""
-    try:
-        # Validate session_id format (basic check)
-        if not session_id or len(session_id) < 10:
-            return jsonify({'error': 'Invalid session ID'}), 400
-        
-        if job_registry.owner_of(session_id) != current_owner():
-            return jsonify({'error': 'Analysis results not found or expired'}), 404
-
-        if session_id not in analysis_results:
-            print(f"Analysis results not found for session: {session_id}")
-            return jsonify({'error': 'Analysis results not found or expired'}), 404
-        
-        # Check if expired
-        result_data = analysis_results[session_id]
-        if time.time() - result_data.get('timestamp', 0) > 3600:
-            del analysis_results[session_id]
-            return jsonify({'error': 'Analysis results expired'}), 404
-        
-        analysis = result_data.get('data', result_data)  # Support both old and new format
-        print(f"Found analysis for session {session_id}")
-        
-        # Analysis should already be serializable, but double-check
-        if not isinstance(analysis, dict):
-            raise ValueError("Analysis data is not in expected format")
-        
-        # Try to verify it's JSON-serializable by doing a test serialization
-        try:
-            import json
-            test_json = json.dumps(analysis, default=str)
-            # If that worked, use jsonify which will handle it properly
-            serializable_analysis = json.loads(test_json)
-            print("Analysis verified as JSON-serializable")
-        except Exception as json_err:
-            print(f"Analysis not JSON-serializable, attempting conversion: {json_err}")
-            # Convert if needed
-            try:
-                serializable_analysis = make_json_serializable(analysis)
-                print("Analysis converted successfully")
-            except Exception as convert_err:
-                print(f"Error converting analysis: {convert_err}")
-                print(traceback.format_exc())
-                raise convert_err
-        
-        # Clean up after fetching
+    if not session_id or len(session_id) < 10:
+        return jsonify({'error': 'Invalid session ID'}), 400
+    entry = analysis_results.get(session_id)
+    if job_registry.owner_of(session_id) != current_owner() or entry is None:
+        return jsonify({'error': 'Analysis results not found or expired'}), 404
+    if time.time() - entry.get('timestamp', 0) > 3600:
         del analysis_results[session_id]
-        print("Analysis results cleaned up")
-        
-        return jsonify({
-            'success': True,
-            'analysis': serializable_analysis
-        })
-    except Exception as e:
-        print(f"Error fetching analysis: {e}")
-        print(traceback.format_exc())
-        return jsonify({'error': f'Failed to serialize analysis: {str(e)}'}), 500
+        return jsonify({'error': 'Analysis results expired'}), 404
+    analysis = entry.get('data', entry)           # both the old and the new storage format
+    if not isinstance(analysis, dict):
+        raise UserError('Analysis data is not in the expected format')
+    del analysis_results[session_id]              # fetched once
+    return jsonify({'success': True, 'analysis': make_json_serializable(analysis)})
+
 
 _DATE_FORMATS = (
     '%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d', '%d-%m-%Y', '%m-%d-%Y', '%Y.%m.%d', '%d.%m.%Y', '%m.%d.%Y',
@@ -1773,176 +1852,74 @@ def analyze_dataframe(df, progress_queue=None, session_id=None):
     
     return analysis
 
+@job_worker('upload_path')
 def analyze_file_async(upload_path, progress_queue, session_id):
     """Analyze file in background thread with progress tracking"""
+    send_progress = progress_sender(progress_queue, session_id)
+        
+    send_progress('loading', 0, 100, 'Reading file into memory...', 5)
+        
+    # Read file into memory
+    filename = os.path.basename(upload_path)
+    df = read_data_file(upload_path, mode='infer')
+        
+    send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
+        
+    # Analyze the dataframe
+    analysis = analyze_dataframe(df, progress_queue, session_id)
+        
+    log.info('analysis complete: %d columns', len(analysis['columns']))
+
+    # Clean up: explicitly delete dataframe and remove temp file
+    del df
+    os.remove(upload_path)
+
+    # Keep the analysis for a while so a large one can be fetched separately (cleaned up after fetch or timeout)
     try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
-        
-        send_progress('loading', 0, 100, 'Reading file into memory...', 5)
-        
-        # Read file into memory
-        filename = os.path.basename(upload_path)
-        df = read_data_file(upload_path, mode='infer')
-        
-        send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
-        
-        # Analyze the dataframe
-        analysis = analyze_dataframe(df, progress_queue, session_id)
-        
-        print(f"Analysis complete. Columns analyzed: {len(analysis['columns'])}")
-        
-        # Clean up: explicitly delete dataframe and remove temp file
-        del df
-        os.remove(upload_path)
-        
-        # Store analysis results temporarily (will be cleaned up after fetch or timeout)
-        # Convert to JSON-serializable format before storing
-        try:
-            serializable_analysis = make_json_serializable(analysis)
-            analysis_results[session_id] = {
-                'data': serializable_analysis,
-                'timestamp': time.time()
-            }
-            print("Analysis stored in JSON-serializable format")
-        except Exception as convert_err:
-            print(f"Warning: Could not convert analysis to JSON-serializable format: {convert_err}")
-            # Store original and convert on fetch
-            analysis_results[session_id] = {
-                'data': analysis,
-                'timestamp': time.time()
-            }
-        
-        # Try to send analysis via SSE, but if it's too large, send a fetch URL instead
-        print("Sending completion message with analysis data...")
-        
-        # Estimate size of analysis data
-        try:
-            import sys
-            analysis_size = sys.getsizeof(json.dumps(analysis, default=str))
-            analysis_size_mb = analysis_size / (1024 * 1024)
-            print(f"Analysis data size: {analysis_size_mb:.2f} MB")
-            
-            # If analysis is larger than 5MB, send via separate endpoint
-            if analysis_size_mb > 5:
-                print("Analysis too large for SSE, using separate endpoint")
-                final_message = {
-                    'stage': 'done',
-                    'current': 100,
-                    'total': 100,
-                    'percentage': 100,
-                    'message': 'Complete!',
-                    'analysis_fetch_url': f'/fetch-analysis/{session_id}',
-                    'analysis_too_large': True
-                }
-            else:
-                final_message = {
-                    'stage': 'done',
-                    'current': 100,
-                    'total': 100,
-                    'percentage': 100,
-                    'message': 'Complete!',
-                    'analysis': analysis
-                }
-        except Exception as size_err:
-            print(f"Could not estimate size, sending fetch URL: {size_err}")
-            # If we can't estimate size, use fetch URL to be safe
-            final_message = {
-                'stage': 'done',
-                'current': 100,
-                'total': 100,
-                'percentage': 100,
-                'message': 'Complete!',
-                'analysis_fetch_url': f'/fetch-analysis/{session_id}',
-                'analysis_too_large': True
-            }
-        
-        # Try to send - if queue is full or closed, log it
-        try:
-            progress_queue.put(final_message, timeout=5)
-            print("Completion message sent successfully")
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            # Try one more time without timeout
-            try:
-                progress_queue.put_nowait(final_message)
-                print("Completion message sent (nowait)")
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
-        
-        print("Analysis complete!")
-        
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Clean up on error
-        if 'upload_path' in locals() and os.path.exists(upload_path):
-            os.remove(upload_path)
-        if 'df' in locals():
-            del df
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
+        stored = make_json_serializable(analysis)
+    except Exception:
+        log.warning('analysis could not be made JSON-serializable up front; it will be converted on fetch')
+        stored = analysis
+    analysis_results[session_id] = {'data': stored, 'timestamp': time.time()}
+
+    # Send the analysis in the final message unless it is large (or cannot be sized): then send a fetch URL
+    try:
+        too_large = len(json.dumps(analysis, default=str)) / (1024 * 1024) > 5
+    except Exception:
+        too_large = True
+    final_message = {'stage': 'done', 'current': 100, 'total': 100, 'percentage': 100, 'message': 'Complete!'}
+    if too_large:
+        final_message.update({'analysis_fetch_url': f'/fetch-analysis/{session_id}', 'analysis_too_large': True})
+    else:
+        final_message['analysis'] = analysis
+    progress_queue.put(final_message)
+
 
 @app.route('/analyze', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def analyze_file():
     """Analyze uploaded file - returns session_id for progress tracking - NO data stored"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file')
         
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+    # Validate MIME type
+    allowed_mimes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
+        'application/vnd.ms-excel',  # .xls
+        'text/csv',  # .csv
+        'application/csv'
+    ]
+    if hasattr(file, 'content_type') and file.content_type and file.content_type not in allowed_mimes:
+        if file.content_type and not (file.content_type.startswith('text/') or file.content_type.startswith('application/')):
+            return jsonify({'error': 'Invalid file type. Please upload an Excel or CSV file.'}), 400
         
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
+    session_id, upload_path, filename = store_upload(file, 'analyze')
         
-        # Validate MIME type
-        allowed_mimes = [
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
-            'application/vnd.ms-excel',  # .xls
-            'text/csv',  # .csv
-            'application/csv'
-        ]
-        if hasattr(file, 'content_type') and file.content_type and file.content_type not in allowed_mimes:
-            if file.content_type and not (file.content_type.startswith('text/') or file.content_type.startswith('application/')):
-                return jsonify({'error': 'Invalid file type. Please upload an Excel or CSV file.'}), 400
+    progress_queue = open_job(session_id)
+    start_job(analyze_file_async, upload_path, progress_queue, session_id)
         
-        # Save temporarily
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"analyze_{timestamp}_{secrets.token_hex(8)}"  # Use secure random session ID
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        save_upload(file, upload_path, session_id)
-        
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(analyze_file_async, upload_path, progress_queue, session_id)
-        
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 def generate_prefix(column_name):
     """Generate prefix from column name - simplifies column name and uses appropriate separator"""
     # Simplify column name by removing common suffixes
@@ -2000,7 +1977,7 @@ def scrub_dataframe(df, columns_to_scrub, relationship_preserve=False, progress_
 
     valid_columns = [col for col in dict.fromkeys(columns_to_scrub) if col in df.columns]
     if not valid_columns:
-        raise ValueError("No valid columns selected for anonymization")
+        raise UserError("No valid columns selected for anonymization")
     send_progress('preparing', 50, 100, f'Found {len(valid_columns)} columns to anonymize...', 10)
 
     anonymized_df = df.copy()
@@ -2060,235 +2037,118 @@ def verify_anonymized(source_df, result_df, columns, records):
             allowed[col].add(record['pseudonym'])
     for col in columns:
         if col not in result_df.columns:
-            raise ValueError(f"Anonymization verification failed: column '{col}' is missing. Nothing was saved.")
+            raise UserError(f"Anonymization verification failed: column '{col}' is missing. Nothing was saved.")
         if int(result_df[col].isna().sum()) != int(source_df[col].isna().sum()):
-            raise ValueError(f"Anonymization verification failed: blank cells changed in column '{col}'. "
+            raise UserError(f"Anonymization verification failed: blank cells changed in column '{col}'. "
                              f"Nothing was saved.")
         not_replaced = int((~result_df[col].dropna().astype(str).isin(allowed[col])).sum())
         if not_replaced:
-            raise ValueError(f"Anonymization verification failed: {not_replaced} value(s) in column '{col}' are not "
+            raise UserError(f"Anonymization verification failed: {not_replaced} value(s) in column '{col}' are not "
                              f"anonymized. Nothing was saved.")
 
 
+@job_worker('upload_path')
 def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, export_mapping, progress_queue, session_id):
     """Scrub file in background thread with progress tracking"""
+    send_progress = progress_sender(progress_queue, session_id)
+        
+    send_progress('loading', 0, 100, 'Reading file into memory...', 5)
+        
+    # Read file into memory
+    filename = os.path.basename(upload_path)
+    df = read_data_file(upload_path)
+        
+    send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
+        
+    # Scrub the dataframe
+    anonymized_df, mapping_records = scrub_dataframe(df, columns_to_scrub, relationship_preserve, progress_queue, session_id)
+    scrubbed_columns = [col for col in dict.fromkeys(columns_to_scrub) if col in df.columns]
+    log.info(f"Anonymization complete. Columns scrubbed: {len(scrubbed_columns)}")
+        
+    # Nothing is saved unless every value in the scrubbed columns is a pseudonym
+    verify_anonymized(df, anonymized_df, scrubbed_columns, mapping_records)
+        
+    # Save anonymized file
+    send_progress('saving', 0, 100, 'Saving anonymized data...', 90)
+        
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_filename = f"anonymized_{timestamp}"
+        
+    if filename.endswith('.csv'):
+        output_path = job_output_path(session_id, f"{output_filename}.csv")
+        sanitize_csv(anonymized_df).to_csv(output_path, index=False)
+        download_url = job_download_url(session_id, f"{output_filename}.csv")
+    else:
+        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
+        write_excel(anonymized_df, output_path)
+        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
+        
+    # Read the saved file back and check it too: what the user downloads is what must be anonymous
     try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+        verify_anonymized(df, read_data_file(output_path), scrubbed_columns, mapping_records)
+    except Exception:
+        os.remove(output_path)
+        raise
         
-        send_progress('loading', 0, 100, 'Reading file into memory...', 5)
+    send_progress('saving', 50, 100, 'Anonymized data saved...', 95)
         
-        # Read file into memory
-        filename = os.path.basename(upload_path)
-        df = read_data_file(upload_path)
+    # Save mapping key if requested: one record per distinct value (or combination), nothing is lost
+    mapping_url = None
+    if export_mapping and mapping_records:
+        mapping_path = job_output_path(session_id, f"mapping_key_{timestamp}.json")
+        with open(mapping_path, 'w') as f:
+            json.dump({'relationship_preserved': bool(relationship_preserve and len(scrubbed_columns) > 1),
+                       'mappings': mapping_records}, f, indent=2, default=str)
+        mapping_url = job_download_url(session_id, f"mapping_key_{timestamp}.json")
+        send_progress('saving', 100, 100, 'Mapping key saved...', 98)
+    else:
+        send_progress('saving', 100, 100, 'Complete...', 98)
         
-        send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
+    # Clean up: explicitly delete dataframes and remove temp file
+    del df
+    del anonymized_df
+    os.remove(upload_path)
         
-        # Scrub the dataframe
-        anonymized_df, mapping_records = scrub_dataframe(df, columns_to_scrub, relationship_preserve, progress_queue, session_id)
-        scrubbed_columns = [col for col in dict.fromkeys(columns_to_scrub) if col in df.columns]
-        print(f"Anonymization complete. Columns scrubbed: {len(scrubbed_columns)}")
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': 100,
+        'total': 100,
+        'percentage': 100,
+        'message': 'Complete!',
+        'download_url': download_url,
+        'mapping_url': mapping_url,
+        'output_filename': os.path.basename(output_path)
+    }
         
-        # Nothing is saved unless every value in the scrubbed columns is a pseudonym
-        verify_anonymized(df, anonymized_df, scrubbed_columns, mapping_records)
+    progress_queue.put(final_message)
         
-        # Save anonymized file
-        send_progress('saving', 0, 100, 'Saving anonymized data...', 90)
         
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"anonymized_{timestamp}"
-        
-        if filename.endswith('.csv'):
-            output_path = job_output_path(session_id, f"{output_filename}.csv")
-            sanitize_csv(anonymized_df).to_csv(output_path, index=False)
-            download_url = job_download_url(session_id, f"{output_filename}.csv")
-        else:
-            output_path = job_output_path(session_id, f"{output_filename}.xlsx")
-            write_excel(anonymized_df, output_path)
-            download_url = job_download_url(session_id, f"{output_filename}.xlsx")
-        
-        # Read the saved file back and check it too: what the user downloads is what must be anonymous
-        try:
-            verify_anonymized(df, read_data_file(output_path), scrubbed_columns, mapping_records)
-        except Exception:
-            os.remove(output_path)
-            raise
-        
-        send_progress('saving', 50, 100, 'Anonymized data saved...', 95)
-        
-        # Save mapping key if requested: one record per distinct value (or combination), nothing is lost
-        mapping_url = None
-        if export_mapping and mapping_records:
-            mapping_path = job_output_path(session_id, f"mapping_key_{timestamp}.json")
-            with open(mapping_path, 'w') as f:
-                json.dump({'relationship_preserved': bool(relationship_preserve and len(scrubbed_columns) > 1),
-                           'mappings': mapping_records}, f, indent=2, default=str)
-            mapping_url = job_download_url(session_id, f"mapping_key_{timestamp}.json")
-            send_progress('saving', 100, 100, 'Mapping key saved...', 98)
-        else:
-            send_progress('saving', 100, 100, 'Complete...', 98)
-        
-        # Clean up: explicitly delete dataframes and remove temp file
-        del df
-        del anonymized_df
-        os.remove(upload_path)
-        
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': 100,
-            'total': 100,
-            'percentage': 100,
-            'message': 'Complete!',
-            'download_url': download_url,
-            'mapping_url': mapping_url,
-            'output_filename': os.path.basename(output_path)
-        }
-        
-        try:
-            progress_queue.put(final_message, timeout=5)
-            print("Completion message sent successfully")
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-                print("Completion message sent (nowait)")
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
-        
-        print("Anonymization complete!")
-        
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Clean up on error
-        if 'upload_path' in locals() and os.path.exists(upload_path):
-            os.remove(upload_path)
-        if 'df' in locals():
-            del df
-        if 'anonymized_df' in locals():
-            del anonymized_df
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
-
 @app.route('/get-columns', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def get_columns():
     """Get column names from uploaded file for column selection"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
-        
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-        
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
-        
-        # Save temporarily
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        temp_id = f"temp_{timestamp}_{secrets.token_hex(8)}"
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{temp_id}_{filename}")
-        file.save(upload_path)
-        
-        try:
-            # Read file to get columns
-            df = read_data_file(upload_path, nrows=0)
-            
-            columns_info = []
-            for col in df.columns:
-                col_info = {
-                    'name': str(col),
-                    'dtype': str(df[col].dtype)
-                }
-                columns_info.append(col_info)
-            
-            # Clean up temp file
-            os.remove(upload_path)
-            
-            return jsonify({
-                'success': True,
-                'columns': columns_info
-            })
-        except Exception as e:
-            if os.path.exists(upload_path):
-                os.remove(upload_path)
-            raise e
-    
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file')
+    with temporary_upload(file) as path:
+        df = read_data_file(path, nrows=0)
+    return jsonify({'success': True, 'columns': [{'name': str(col), 'dtype': str(df[col].dtype)} for col in df.columns]})
+
 
 @app.route('/get-columns-with-samples', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def get_columns_with_samples():
     """Get column names with sample values from uploaded file"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
-        
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-        
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
-        
-        # Save temporarily
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        temp_id = f"temp_{timestamp}_{secrets.token_hex(8)}"
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{temp_id}_{filename}")
-        file.save(upload_path)
-        
-        try:
-            # Read file to get columns and sample values (first 10 rows)
-            df = read_data_file(upload_path, nrows=10)
-            
-            columns_info = []
-            for col in df.columns:
-                # Get sample values (first 10 non-null values)
-                sample_values = df[col].dropna().head(10).tolist()
-                # Convert to strings for JSON serialization
-                sample_values = [str(val) if pd.notna(val) else '' for val in sample_values]
-                
-                col_info = {
-                    'name': str(col),
-                    'dtype': str(df[col].dtype),
-                    'sample_values': sample_values[:10]  # Limit to 10 samples
-                }
-                columns_info.append(col_info)
-            
-            # Clean up temp file
-            os.remove(upload_path)
-            
-            return jsonify({
-                'success': True,
-                'columns': columns_info
-            })
-        except Exception as e:
-            if os.path.exists(upload_path):
-                os.remove(upload_path)
-            raise e
-    
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file')
+    with temporary_upload(file) as path:
+        df = read_data_file(path, nrows=10)
+    columns_info = [{
+        'name': str(col),
+        'dtype': str(df[col].dtype),
+        'sample_values': [str(val) for val in df[col].dropna().head(10).tolist()],
+    } for col in df.columns]
+    return jsonify({'success': True, 'columns': columns_info})
 
 
 # =============================================================================
@@ -2297,43 +2157,13 @@ def get_columns_with_samples():
 
 @app.route('/preview-data', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def preview_data():
     """Get a preview of uploaded file data (first 20 rows)"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-
-        # Validate file extension
-        if not allowed_file(file.filename):
-            return jsonify({'error': 'Please upload an Excel or CSV file (.xlsx, .xls, .csv)'}), 400
-
-        # Save temporarily
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        temp_id = f"preview_{timestamp}_{secrets.token_hex(8)}"
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{temp_id}_{filename}")
-        file.save(upload_path)
-
-        try:
-            preview = get_file_preview(upload_path, max_rows=20)
-            return jsonify({
-                'success': True,
-                'filename': filename,
-                **preview
-            })
-        finally:
-            # Clean up temp file
-            if os.path.exists(upload_path):
-                os.remove(upload_path)
-
-    except Exception as e:
-        print(f"Error in preview_data: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file (.xlsx, .xls, .csv)')
+    with temporary_upload(file, 'preview') as path:
+        preview = get_file_preview(path, max_rows=20)
+    return jsonify({'success': True, 'filename': secure_filename(file.filename), **preview})
 
 
 @app.route('/jobs/<job_id>/cancel', methods=['POST'])
@@ -2346,157 +2176,116 @@ def cancel_job(job_id):
 
 
 @app.route('/get-cached-files', methods=['GET'])
+@api_errors
 def get_cached_files_endpoint():
     """Get list of cached files from recent tool operations"""
-    try:
-        # Clean up old caches first
-        cleanup_session_cache()
+    # Clean up old caches first
+    cleanup_session_cache()
 
-        # Format for frontend display with cache IDs
-        files = []
-        owner = current_owner()
-        for cache_id, f in list(file_cache.items()):
-            if f.get('owner') != owner:
-                continue
-            if os.path.exists(f.get('path', '')):
-                # Format timestamp for display
-                from datetime import datetime
-                cached_at = datetime.fromtimestamp(f['timestamp']).strftime('%H:%M:%S')
-                files.append({
-                    'cache_id': cache_id,
-                    'filename': f['name'],
-                    'rows': f['rows'],
-                    'cols': f['cols'],
-                    'timestamp': f['timestamp'],
-                    'cached_at': cached_at,
-                    'source_tool': f.get('source_tool', 'Unknown'),
-                    'age_seconds': int(time.time() - f['timestamp'])
-                })
+    # Format for frontend display with cache IDs
+    files = []
+    owner = current_owner()
+    for cache_id, f in list(file_cache.items()):
+        if f.get('owner') != owner:
+            continue
+        if os.path.exists(f.get('path', '')):
+            # Format timestamp for display
+            from datetime import datetime
+            cached_at = datetime.fromtimestamp(f['timestamp']).strftime('%H:%M:%S')
+            files.append({
+                'cache_id': cache_id,
+                'filename': f['name'],
+                'rows': f['rows'],
+                'cols': f['cols'],
+                'timestamp': f['timestamp'],
+                'cached_at': cached_at,
+                'source_tool': f.get('source_tool', 'Unknown'),
+                'age_seconds': int(time.time() - f['timestamp'])
+            })
 
-        # Sort by timestamp descending (most recent first)
-        files.sort(key=lambda x: x['timestamp'], reverse=True)
+    # Sort by timestamp descending (most recent first)
+    files.sort(key=lambda x: x['timestamp'], reverse=True)
 
-        return jsonify({'success': True, 'files': files})
-
-    except Exception as e:
-        print(f"Error in get_cached_files: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
+    return jsonify({'success': True, 'files': files})
 
 @app.route('/use-cached-file', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def use_cached_file():
     """Use a previously cached file result in a new tool operation"""
-    try:
-        data = request.get_json()
-        cache_id = data.get('cache_id', '')
+    data = request.get_json()
+    cache_id = data.get('cache_id', '')
 
-        if not cache_id:
-            return jsonify({'error': 'No cache ID provided'}), 400
+    if not cache_id:
+        return jsonify({'error': 'No cache ID provided'}), 400
 
-        file_info = get_cached_file_by_id(cache_id)
-        if not file_info:
-            return jsonify({'error': 'Cached file not found'}), 400
+    file_info = get_cached_file_by_id(cache_id)
+    if not file_info:
+        return jsonify({'error': 'Cached file not found'}), 400
 
-        if not os.path.exists(file_info.get('path', '')):
-            return jsonify({'error': 'Cached file no longer exists'}), 400
+    if not os.path.exists(file_info.get('path', '')):
+        return jsonify({'error': 'Cached file no longer exists'}), 400
 
-        # Return file info for the frontend to use
-        preview = get_file_preview(file_info['path'], max_rows=20)
+    # Return file info for the frontend to use
+    preview = get_file_preview(file_info['path'], max_rows=20)
 
-        return jsonify({
-            'success': True,
-            'filename': file_info['name'],
-            'preview': preview
-        })
-
-    except Exception as e:
-        print(f"Error in use_cached_file: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
+    return jsonify({
+        'success': True,
+        'filename': file_info['name'],
+        'preview': preview
+    })
 
 @app.route('/download-cached-file/<cache_id>', methods=['GET'])
+@api_errors
 def download_cached_file(cache_id):
     """Download a cached file by its cache ID"""
-    try:
-        file_info = get_cached_file_by_id(cache_id)
-        if not file_info:
-            return jsonify({'error': 'Cached file not found'}), 404
+    file_info = get_cached_file_by_id(cache_id)
+    if not file_info:
+        return jsonify({'error': 'Cached file not found'}), 404
 
-        file_path = file_info.get('path', '')
-        if not os.path.exists(file_path):
-            return jsonify({'error': 'Cached file no longer exists'}), 404
+    file_path = file_info.get('path', '')
+    if not os.path.exists(file_path):
+        return jsonify({'error': 'Cached file no longer exists'}), 404
 
-        return send_file(
-            file_path,
-            as_attachment=True,
-            download_name=file_info['name']
-        )
-
-    except Exception as e:
-        print(f"Error downloading cached file: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
+    return send_file(
+        file_path,
+        as_attachment=True,
+        download_name=file_info['name']
+    )
 
 @app.route('/scrub-data', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def scrub_data():
     """Scrub uploaded file - returns session_id for progress tracking - NO data stored"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file')
         
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+    # Validate MIME type
+    allowed_mimes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
+        'application/vnd.ms-excel',  # .xls
+        'text/csv',  # .csv
+        'application/csv'
+    ]
+    if hasattr(file, 'content_type') and file.content_type and file.content_type not in allowed_mimes:
+        if file.content_type and not (file.content_type.startswith('text/') or file.content_type.startswith('application/')):
+            return jsonify({'error': 'Invalid file type. Please upload an Excel or CSV file.'}), 400
         
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
+    # Get columns to scrub and options
+    columns_to_scrub = request.form.getlist('columns[]')
+    if not columns_to_scrub:
+        return jsonify({'error': 'No columns selected for anonymization'}), 400
         
-        # Validate MIME type
-        allowed_mimes = [
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
-            'application/vnd.ms-excel',  # .xls
-            'text/csv',  # .csv
-            'application/csv'
-        ]
-        if hasattr(file, 'content_type') and file.content_type and file.content_type not in allowed_mimes:
-            if file.content_type and not (file.content_type.startswith('text/') or file.content_type.startswith('application/')):
-                return jsonify({'error': 'Invalid file type. Please upload an Excel or CSV file.'}), 400
+    relationship_preserve = request.form.get('relationship_preserve', 'false').lower() == 'true'
+    export_mapping = request.form.get('export_mapping', 'false').lower() == 'true'
         
-        # Get columns to scrub and options
-        columns_to_scrub = request.form.getlist('columns[]')
-        if not columns_to_scrub:
-            return jsonify({'error': 'No columns selected for anonymization'}), 400
+    session_id, upload_path, filename = store_upload(file, 'scrub')
         
-        relationship_preserve = request.form.get('relationship_preserve', 'false').lower() == 'true'
-        export_mapping = request.form.get('export_mapping', 'false').lower() == 'true'
+    progress_queue = open_job(session_id)
+    start_job(scrub_file_async, upload_path, columns_to_scrub, relationship_preserve, export_mapping, progress_queue, session_id)
         
-        # Save temporarily
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"scrub_{timestamp}_{secrets.token_hex(8)}"
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        save_upload(file, upload_path, session_id)
-        
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(scrub_file_async, upload_path, columns_to_scrub, relationship_preserve, export_mapping, progress_queue, session_id)
-        
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/duplicate-finder')
 def duplicate_finder():
     return render_template('duplicate_finder.html')
@@ -2505,216 +2294,160 @@ def duplicate_finder():
 def unique_identifier_finder():
     return render_template('unique_identifier_finder.html')
 
+@job_worker('upload_path')
 def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_queue, session_id, treat_blank_as_value=True):
     """Find rows that are identical in all selected columns, in a background thread with progress tracking.
 
     treat_blank_as_value=True: rows blank in the same selected columns count as duplicates of each other.
     False: a row with a blank in any selected column is never reported as a duplicate."""
-    try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+    send_progress = progress_sender(progress_queue, session_id)
         
-        send_progress('loading', 0, 100, 'Reading file into memory...', 5)
+    send_progress('loading', 0, 100, 'Reading file into memory...', 5)
         
-        # Read file into memory
-        filename = os.path.basename(upload_path)
-        df = read_data_file(upload_path)
+    # Read file into memory
+    filename = os.path.basename(upload_path)
+    df = read_data_file(upload_path)
         
-        send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
+    send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
         
-        # Validate ID column exists
-        if not id_column or id_column not in df.columns:
-            raise ValueError(f"ID column '{id_column}' not found in file. Please select a valid ID column.")
+    # Validate ID column exists
+    if not id_column or id_column not in df.columns:
+        raise UserError(f"ID column '{id_column}' not found in file. Please select a valid ID column.")
         
-        # Validate duplicate columns exist
-        if not duplicate_columns:
-            raise ValueError("Please select at least one column to check for duplicates.")
+    # Validate duplicate columns exist
+    if not duplicate_columns:
+        raise UserError("Please select at least one column to check for duplicates.")
         
-        invalid_columns = [col for col in duplicate_columns if col not in df.columns]
-        if invalid_columns:
-            raise ValueError(f"Columns not found in file: {', '.join(invalid_columns)}")
+    invalid_columns = [col for col in duplicate_columns if col not in df.columns]
+    if invalid_columns:
+        raise UserError(f"Columns not found in file: {', '.join(invalid_columns)}")
         
-        # Ensure ID column is not in duplicate columns (we use it separately)
-        duplicate_columns = [col for col in duplicate_columns if col != id_column]
+    # Ensure ID column is not in duplicate columns (we use it separately)
+    duplicate_columns = [col for col in duplicate_columns if col != id_column]
         
-        if not duplicate_columns:
-            raise ValueError("Please select at least one column (other than the ID column) to check for duplicates.")
+    if not duplicate_columns:
+        raise UserError("Please select at least one column (other than the ID column) to check for duplicates.")
         
-        send_progress('analyzing', 0, 100, f'Comparing rows on {len(duplicate_columns)} selected column(s)...', 20)
+    send_progress('analyzing', 0, 100, f'Comparing rows on {len(duplicate_columns)} selected column(s)...', 20)
         
-        # Rows are duplicates when their VALUES are equal in every selected column (no joined-string signature,
-        # so values that merely contain a separator can never be mistaken for each other).
-        candidates = df if treat_blank_as_value else df[~df[duplicate_columns].isna().any(axis=1)]
-        duplicated = candidates[candidates.duplicated(subset=duplicate_columns, keep=False)]
+    # Rows are duplicates when their VALUES are equal in every selected column (no joined-string signature,
+    # so values that merely contain a separator can never be mistaken for each other).
+    candidates = df if treat_blank_as_value else df[~df[duplicate_columns].isna().any(axis=1)]
+    duplicated = candidates[candidates.duplicated(subset=duplicate_columns, keep=False)]
         
-        send_progress('analyzing', 30, 100, 'Finding duplicate rows...', 40)
+    send_progress('analyzing', 30, 100, 'Finding duplicate rows...', 40)
         
-        group_numbers = duplicated.groupby(duplicate_columns, dropna=False, sort=False).ngroup()
-        ids_by_group = duplicated[id_column].groupby(group_numbers, sort=False).agg(list)
-        first_rows = duplicated.groupby(group_numbers, sort=False).head(1)
+    group_numbers = duplicated.groupby(duplicate_columns, dropna=False, sort=False).ngroup()
+    ids_by_group = duplicated[id_column].groupby(group_numbers, sort=False).agg(list)
+    first_rows = duplicated.groupby(group_numbers, sort=False).head(1)
         
-        send_progress('analyzing', 60, 100, f'Found {len(ids_by_group)} duplicate row groups...', 60)
+    send_progress('analyzing', 60, 100, f'Found {len(ids_by_group)} duplicate row groups...', 60)
         
-        def shown(value):
-            return '' if pd.isna(value) else value
+    def shown(value):
+        return '' if pd.isna(value) else value
         
-        # Build results (groups in order of first appearance; ids in file order)
-        results = []
-        all_ids_to_remove = []
-        sample_values = first_rows[duplicate_columns].to_numpy(dtype=object)
-        for position, ids in enumerate(ids_by_group.tolist()):
-            row_preview = ', '.join(f"{col}={shown(value)}" for col, value in zip(duplicate_columns, sample_values[position]))
-            ids_to_remove = ids[1:]
-            all_ids_to_remove.extend(ids_to_remove)
-            results.append({
-                'row_preview': row_preview,
-                'count': len(ids),
-                'ids': ids,
-                'ids_to_remove': ids_to_remove,
-                'keep_id': ids[0] if ids else None
-            })
-        
-        send_progress('analyzing', 100, 100, f'Analysis complete: {len(results)} duplicate groups found', 70)
-        
-        # Create results DataFrame
-        results_data = []
-        
-        for result in results:
-            ids_str = ', '.join(str(shown(id_val)) for id_val in result['ids'])
-            ids_to_remove_str = ', '.join(str(shown(id_val)) for id_val in result['ids_to_remove'])
-            
-            results_data.append({
-                'Row Preview': result['row_preview'],
-                'Count': result['count'],
-                'Keep ID (Original)': result['keep_id'],
-                'All IDs': ids_str,
-                'IDs to Remove': ids_to_remove_str
-            })
-        
-        results_df = pd.DataFrame(results_data)
-        
-        send_progress('saving', 0, 100, 'Saving results...', 80)
-        
-        # Save results to Excel
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"duplicates_{timestamp}"
-        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
-        
-        output_path = write_sheets(output_path, [
-            ('Duplicates', results_df),
-            # IDs to remove: a single column for easy copy/paste
-            ('IDs to Remove', pd.DataFrame({'ID': all_ids_to_remove}) if all_ids_to_remove else None),
-        ], session_id)
-
-        download_url = job_download_url(session_id, os.path.basename(output_path))
-        
-        send_progress('saving', 100, 100, 'Results saved...', 95)
-        
-        # Clean up
-        del df
-        del results_df
-        os.remove(upload_path)
-        
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': 100,
-            'total': 100,
-            'percentage': 100,
-            'message': 'Complete!',
-            'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
-            'results': results_data[:100],  # Send first 100 for preview
-            'total_duplicates': len(results),
-            'total_ids_to_remove': len(all_ids_to_remove),
-            'treat_blank_as_value': bool(treat_blank_as_value)
-        }
-        
-        try:
-            progress_queue.put(final_message, timeout=5)
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
-        
-        print("Duplicate finding complete!")
-        
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Clean up on error
-        if 'upload_path' in locals() and os.path.exists(upload_path):
-            os.remove(upload_path)
-        if 'df' in locals():
-            del df
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
+    # Build results (groups in order of first appearance; ids in file order)
+    results = []
+    all_ids_to_remove = []
+    sample_values = first_rows[duplicate_columns].to_numpy(dtype=object)
+    for position, ids in enumerate(ids_by_group.tolist()):
+        row_preview = ', '.join(f"{col}={shown(value)}" for col, value in zip(duplicate_columns, sample_values[position]))
+        ids_to_remove = ids[1:]
+        all_ids_to_remove.extend(ids_to_remove)
+        results.append({
+            'row_preview': row_preview,
+            'count': len(ids),
+            'ids': ids,
+            'ids_to_remove': ids_to_remove,
+            'keep_id': ids[0] if ids else None
         })
+        
+    send_progress('analyzing', 100, 100, f'Analysis complete: {len(results)} duplicate groups found', 70)
+        
+    # Create results DataFrame
+    results_data = []
+        
+    for result in results:
+        ids_str = ', '.join(str(shown(id_val)) for id_val in result['ids'])
+        ids_to_remove_str = ', '.join(str(shown(id_val)) for id_val in result['ids_to_remove'])
+            
+        results_data.append({
+            'Row Preview': result['row_preview'],
+            'Count': result['count'],
+            'Keep ID (Original)': result['keep_id'],
+            'All IDs': ids_str,
+            'IDs to Remove': ids_to_remove_str
+        })
+        
+    results_df = pd.DataFrame(results_data)
+        
+    send_progress('saving', 0, 100, 'Saving results...', 80)
+        
+    # Save results to Excel
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_filename = f"duplicates_{timestamp}"
+    output_path = job_output_path(session_id, f"{output_filename}.xlsx")
+        
+    output_path = write_sheets(output_path, [
+        ('Duplicates', results_df),
+        # IDs to remove: a single column for easy copy/paste
+        ('IDs to Remove', pd.DataFrame({'ID': all_ids_to_remove}) if all_ids_to_remove else None),
+    ], session_id)
 
+    download_url = job_download_url(session_id, os.path.basename(output_path))
+        
+    send_progress('saving', 100, 100, 'Results saved...', 95)
+        
+    # Clean up
+    del df
+    del results_df
+    os.remove(upload_path)
+        
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': 100,
+        'total': 100,
+        'percentage': 100,
+        'message': 'Complete!',
+        'download_url': download_url,
+        'output_filename': os.path.basename(output_path),
+        'results': results_data[:100],  # Send first 100 for preview
+        'total_duplicates': len(results),
+        'total_ids_to_remove': len(all_ids_to_remove),
+        'treat_blank_as_value': bool(treat_blank_as_value)
+    }
+        
+    progress_queue.put(final_message)
+        
+        
 @app.route('/find-duplicates', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def find_duplicates():
     """Find duplicates in uploaded file - returns session_id for progress tracking"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file')
         
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+    # Get ID column selection (required)
+    id_column = request.form.get('id_column', '').strip()
         
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
+    if not id_column:
+        return jsonify({'error': 'Please select an ID column to identify duplicate records'}), 400
         
-        # Get ID column selection (required)
-        id_column = request.form.get('id_column', '').strip()
+    # Get duplicate columns selection (required, can be multiple)
+    duplicate_columns = request.form.getlist('duplicate_columns[]')
+    treat_blank_as_value = request.form.get('treat_blank_as_value', 'true').lower() != 'false'
         
-        if not id_column:
-            return jsonify({'error': 'Please select an ID column to identify duplicate records'}), 400
+    if not duplicate_columns:
+        return jsonify({'error': 'Please select at least one column to check for duplicates'}), 400
         
-        # Get duplicate columns selection (required, can be multiple)
-        duplicate_columns = request.form.getlist('duplicate_columns[]')
-        treat_blank_as_value = request.form.get('treat_blank_as_value', 'true').lower() != 'false'
+    session_id, upload_path, filename = store_upload(file, 'duplicates')
         
-        if not duplicate_columns:
-            return jsonify({'error': 'Please select at least one column to check for duplicates'}), 400
+    progress_queue = open_job(session_id)
+    start_job(find_duplicates_async, upload_path, id_column, duplicate_columns, progress_queue, session_id, treat_blank_as_value)
         
-        # Save temporarily
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"duplicates_{timestamp}_{secrets.token_hex(8)}"
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        save_upload(file, upload_path, session_id)
-        
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(find_duplicates_async, upload_path, id_column, duplicate_columns, progress_queue, session_id, treat_blank_as_value)
-        
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
-
 def generate_natural_key_report(output_path, original_rows, duplicate_count, rows_analyzed,
                                  selected_columns, minimal_combinations, primary_combo,
                                  sample_data, source_filename):
@@ -3085,260 +2818,205 @@ def find_minimal_keys(df, columns, max_size=5, max_keys=10, max_candidates=20000
     return {'keys': found, 'truncated': truncated, 'reason': reason}
 
 
+@job_worker('upload_path')
 def find_unique_identifier_async(upload_path, selected_columns, progress_queue, session_id, allow_null_keys=False):
     """Find minimal set of columns that create unique identifiers in background thread with progress tracking"""
-    try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+    send_progress = progress_sender(progress_queue, session_id)
         
-        send_progress('loading', 0, 100, 'Reading file into memory...', 5)
+    send_progress('loading', 0, 100, 'Reading file into memory...', 5)
         
-        # Read file into memory
-        filename = os.path.basename(upload_path)
-        df = read_data_file(upload_path)
+    # Read file into memory
+    filename = os.path.basename(upload_path)
+    df = read_data_file(upload_path)
         
-        original_row_count = len(df)
-        send_progress('loading', 50, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
+    original_row_count = len(df)
+    send_progress('loading', 50, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 10)
         
-        # Step 1: Filter out fully duplicate rows
-        send_progress('filtering', 0, 100, 'Identifying fully duplicate rows...', 15)
-        duplicate_count = int(df.duplicated().sum())
+    # Step 1: Filter out fully duplicate rows
+    send_progress('filtering', 0, 100, 'Identifying fully duplicate rows...', 15)
+    duplicate_count = int(df.duplicated().sum())
         
-        keyed = df
-        if duplicate_count > 0:
-            # Keys are searched on the de-duplicated rows; the export keeps every row and flags the repeats
-            keyed = df.drop_duplicates(keep='first')
-            send_progress('filtering', 100, 100, f'{duplicate_count:,} fully duplicate rows excluded from the key search. {len(keyed):,} rows analyzed.', 20)
-        else:
-            send_progress('filtering', 100, 100, 'No fully duplicate rows found.', 20)
+    keyed = df
+    if duplicate_count > 0:
+        # Keys are searched on the de-duplicated rows; the export keeps every row and flags the repeats
+        keyed = df.drop_duplicates(keep='first')
+        send_progress('filtering', 100, 100, f'{duplicate_count:,} fully duplicate rows excluded from the key search. {len(keyed):,} rows analyzed.', 20)
+    else:
+        send_progress('filtering', 100, 100, 'No fully duplicate rows found.', 20)
         
-        # Validate selected columns exist
-        if not selected_columns:
-            raise ValueError("Please select at least one column to analyze.")
+    # Validate selected columns exist
+    if not selected_columns:
+        raise UserError("Please select at least one column to analyze.")
         
-        invalid_columns = [col for col in selected_columns if col not in df.columns]
-        if invalid_columns:
-            raise ValueError(f"Columns not found in file: {', '.join(invalid_columns)}")
+    invalid_columns = [col for col in selected_columns if col not in df.columns]
+    if invalid_columns:
+        raise UserError(f"Columns not found in file: {', '.join(invalid_columns)}")
         
-        # Columns with blanks make poor keys; skip them unless the owner allows it
-        skipped_null_columns = [] if allow_null_keys else [c for c in selected_columns if keyed[c].isna().any()]
-        selected_columns = [c for c in selected_columns if c not in skipped_null_columns]
-        if skipped_null_columns:
-            send_progress('analyzing', 0, 100, f'Skipping {len(skipped_null_columns)} column(s) with blank values', 24)
-        if not selected_columns:
-            raise ValueError("Every selected column contains blank values, so none can be used as a key. "
-                             "Select other columns or allow blank values in keys.")
+    # Columns with blanks make poor keys; skip them unless the owner allows it
+    skipped_null_columns = [] if allow_null_keys else [c for c in selected_columns if keyed[c].isna().any()]
+    selected_columns = [c for c in selected_columns if c not in skipped_null_columns]
+    if skipped_null_columns:
+        send_progress('analyzing', 0, 100, f'Skipping {len(skipped_null_columns)} column(s) with blank values', 24)
+    if not selected_columns:
+        raise UserError("Every selected column contains blank values, so none can be used as a key. "
+                         "Select other columns or allow blank values in keys.")
 
-        # Step 2: Find minimal unique combinations using Apriori pruning algorithm
-        # This algorithm ensures we find truly MINIMAL keys by only expanding non-unique combinations
-        send_progress('analyzing', 0, 100, f'Analyzing {len(selected_columns)} selected columns using Apriori algorithm...', 25)
+    # Step 2: Find minimal unique combinations using Apriori pruning algorithm
+    # This algorithm ensures we find truly MINIMAL keys by only expanding non-unique combinations
+    send_progress('analyzing', 0, 100, f'Analyzing {len(selected_columns)} selected columns using Apriori algorithm...', 25)
 
-        def search_progress(stage, pct, message, current=0, total=0):
-            send_progress('analyzing', pct, 100, message, 30 + int(pct * 0.4))
+    def search_progress(stage, pct, message, current=0, total=0):
+        send_progress('analyzing', pct, 100, message, 30 + int(pct * 0.4))
 
-        search = find_minimal_keys(keyed, selected_columns, progress=search_progress)
-        minimal_combinations = search['keys']
+    search = find_minimal_keys(keyed, selected_columns, progress=search_progress)
+    minimal_combinations = search['keys']
+    if search['truncated']:
+        note_warning(session_id, f"The key search stopped early ({search['reason']}), so there may be more keys.")
+
+    if not minimal_combinations:
         if search['truncated']:
-            note_warning(session_id, f"The key search stopped early ({search['reason']}), so there may be more keys.")
-
-        if not minimal_combinations:
-            if search['truncated']:
-                raise ValueError(f"No key was found before the search stopped ({search['reason']}). "
-                                 "Select fewer columns, or include a column that is already close to unique.")
-            raise ValueError("No combination of selected columns can create unique identifiers for all rows.")
+            raise UserError(f"No key was found before the search stopped ({search['reason']}). "
+                             "Select fewer columns, or include a column that is already close to unique.")
+        raise UserError("No combination of selected columns can create unique identifiers for all rows.")
         
-        send_progress('analyzing', 100, 100, f'Found {len(minimal_combinations)} minimal key candidate(s)', 70)
+    send_progress('analyzing', 100, 100, f'Found {len(minimal_combinations)} minimal key candidate(s)', 70)
 
-        # Step 3: Generate results
-        send_progress('saving', 0, 100, 'Preparing output files...', 75)
+    # Step 3: Generate results
+    send_progress('saving', 0, 100, 'Preparing output files...', 75)
 
-        # Use first minimal combination to create unique IDs
-        primary_combo = minimal_combinations[0]
-        # New columns never overwrite the user's own columns of the same name
-        id_col = _free_name('Unique_ID', df.columns)
-        dup_col = _free_name('_is_duplicate', list(df.columns) + [id_col])
-        original_columns = list(df.columns)
-        df[id_col] = df[primary_combo].apply(
-            lambda row: '|||'.join(str(v) if pd.notna(v) else '' for v in row),
-            axis=1
-        )
-        # Every row is kept; exact repeats of an earlier row are flagged instead of silently dropped
-        df[dup_col] = df[original_columns].duplicated(keep='first')
+    # Use first minimal combination to create unique IDs
+    primary_combo = minimal_combinations[0]
+    # New columns never overwrite the user's own columns of the same name
+    id_col = _free_name('Unique_ID', df.columns)
+    dup_col = _free_name('_is_duplicate', list(df.columns) + [id_col])
+    original_columns = list(df.columns)
+    df[id_col] = df[primary_combo].apply(
+        lambda row: '|||'.join(str(v) if pd.notna(v) else '' for v in row),
+        axis=1
+    )
+    # Every row is kept; exact repeats of an earlier row are flagged instead of silently dropped
+    df[dup_col] = df[original_columns].duplicated(keep='first')
 
-        # Sample of unique IDs for PDF report
-        sample_df = df[primary_combo + [id_col]].head(100).copy()
+    # Sample of unique IDs for PDF report
+    sample_df = df[primary_combo + [id_col]].head(100).copy()
 
-        # Get source filename for report
-        source_filename = os.path.basename(upload_path)
-        # Remove session prefix if present
-        if '_' in source_filename:
-            source_filename = '_'.join(source_filename.split('_')[2:]) or source_filename
+    # Get source filename for report
+    source_filename = os.path.basename(upload_path)
+    # Remove session prefix if present
+    if '_' in source_filename:
+        source_filename = '_'.join(source_filename.split('_')[2:]) or source_filename
 
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_basename = f"natural_key_analysis_{timestamp}"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_basename = f"natural_key_analysis_{timestamp}"
 
-        # Generate PDF Report
-        send_progress('saving', 25, 100, 'Generating PDF report...', 80)
-        pdf_path = job_output_path(session_id, f"{output_basename}_report.pdf")
+    # Generate PDF Report
+    send_progress('saving', 25, 100, 'Generating PDF report...', 80)
+    pdf_path = job_output_path(session_id, f"{output_basename}_report.pdf")
 
-        generate_natural_key_report(
-            output_path=pdf_path,
-            original_rows=original_row_count,
-            duplicate_count=duplicate_count,
-            rows_analyzed=len(keyed),
-            selected_columns=selected_columns,
-            minimal_combinations=minimal_combinations,
-            primary_combo=primary_combo,
-            sample_data=sample_df,
-            source_filename=source_filename
-        )
+    generate_natural_key_report(
+        output_path=pdf_path,
+        original_rows=original_row_count,
+        duplicate_count=duplicate_count,
+        rows_analyzed=len(keyed),
+        selected_columns=selected_columns,
+        minimal_combinations=minimal_combinations,
+        primary_combo=primary_combo,
+        sample_data=sample_df,
+        source_filename=source_filename
+    )
 
-        # Generate Excel Data File
-        send_progress('saving', 60, 100, 'Generating Excel data file...', 88)
-        excel_path = job_output_path(session_id, f"{output_basename}_data.xlsx")
+    # Generate Excel Data File
+    send_progress('saving', 60, 100, 'Generating Excel data file...', 88)
+    excel_path = job_output_path(session_id, f"{output_basename}_data.xlsx")
 
-        alternatives_data = []
-        for idx, combo in enumerate(minimal_combinations, 1):
-            alternatives_data.append({
-                'Candidate': f'#{idx}' if idx > 1 else 'Primary',
-                'Key Columns': ', '.join(combo),
-                'Column Count': len(combo)
-            })
-        alternatives_df = pd.DataFrame(alternatives_data)
-        data_too_big = sheet_too_big(df)
-        if data_too_big:
-            # More rows than an Excel sheet holds: the data goes into the zip as CSV instead
-            excel_path = job_output_path(session_id, f"{output_basename}_data.csv")
-            sanitize_csv(df).to_csv(excel_path, index=False)
-            note_warning(session_id, f"The data has {len(df):,} rows, more than an Excel sheet can hold, so it is "
-                                     "included as a CSV file (the key candidates are in a second CSV).")
-        else:
-            with excel_writer(excel_path) as writer:
-                df.to_excel(writer, sheet_name='Data with Unique IDs', index=False)
-                alternatives_df.to_excel(writer, sheet_name='Key Candidates', index=False)
-
-        # Create ZIP package containing both files
-        send_progress('saving', 85, 100, 'Packaging results...', 93)
-        zip_path = job_output_path(session_id, f"{output_basename}.zip")
-
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            zipf.write(pdf_path, f"{output_basename}_report.pdf")
-            zipf.write(excel_path, f"{output_basename}_data.{'csv' if data_too_big else 'xlsx'}")
-            if data_too_big:
-                zipf.writestr(f"{output_basename}_key_candidates.csv", sanitize_csv(alternatives_df).to_csv(index=False))
-
-        # Clean up individual files (keep only ZIP)
-        os.remove(pdf_path)
-        os.remove(excel_path)
-
-        download_url = job_download_url(session_id, f"{output_basename}.zip")
-
-        send_progress('saving', 100, 100, 'Results packaged successfully', 95)
-
-        # Clean up DataFrames
-        del df
-        del alternatives_df
-        del sample_df
-        os.remove(upload_path)
-
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': 100,
-            'total': 100,
-            'percentage': 100,
-            'message': 'Analysis complete',
-            'download_url': download_url,
-            'output_filename': f"{output_basename}.zip",
-            'original_rows': original_row_count,
-            'duplicate_rows_removed': duplicate_count,
-            'rows_after_filtering': original_row_count - duplicate_count,
-            'selected_columns_count': len(selected_columns),
-            'minimal_columns_count': len(primary_combo),
-            'minimal_columns': primary_combo,
-            'alternatives_count': len(minimal_combinations),
-            'alternatives': minimal_combinations
-        }
-
-        try:
-            progress_queue.put(final_message, timeout=5)
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
-
-        print("Natural key analysis complete!")
-        
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Clean up on error
-        if 'upload_path' in locals() and os.path.exists(upload_path):
-            os.remove(upload_path)
-        if 'df' in locals():
-            del df
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
+    alternatives_data = []
+    for idx, combo in enumerate(minimal_combinations, 1):
+        alternatives_data.append({
+            'Candidate': f'#{idx}' if idx > 1 else 'Primary',
+            'Key Columns': ', '.join(combo),
+            'Column Count': len(combo)
         })
+    alternatives_df = pd.DataFrame(alternatives_data)
+    data_too_big = sheet_too_big(df)
+    if data_too_big:
+        # More rows than an Excel sheet holds: the data goes into the zip as CSV instead
+        excel_path = job_output_path(session_id, f"{output_basename}_data.csv")
+        sanitize_csv(df).to_csv(excel_path, index=False)
+        note_warning(session_id, f"The data has {len(df):,} rows, more than an Excel sheet can hold, so it is "
+                                 "included as a CSV file (the key candidates are in a second CSV).")
+    else:
+        with excel_writer(excel_path) as writer:
+            df.to_excel(writer, sheet_name='Data with Unique IDs', index=False)
+            alternatives_df.to_excel(writer, sheet_name='Key Candidates', index=False)
 
+    # Create ZIP package containing both files
+    send_progress('saving', 85, 100, 'Packaging results...', 93)
+    zip_path = job_output_path(session_id, f"{output_basename}.zip")
+
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        zipf.write(pdf_path, f"{output_basename}_report.pdf")
+        zipf.write(excel_path, f"{output_basename}_data.{'csv' if data_too_big else 'xlsx'}")
+        if data_too_big:
+            zipf.writestr(f"{output_basename}_key_candidates.csv", sanitize_csv(alternatives_df).to_csv(index=False))
+
+    # Clean up individual files (keep only ZIP)
+    os.remove(pdf_path)
+    os.remove(excel_path)
+
+    download_url = job_download_url(session_id, f"{output_basename}.zip")
+
+    send_progress('saving', 100, 100, 'Results packaged successfully', 95)
+
+    # Clean up DataFrames
+    del df
+    del alternatives_df
+    del sample_df
+    os.remove(upload_path)
+
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': 100,
+        'total': 100,
+        'percentage': 100,
+        'message': 'Analysis complete',
+        'download_url': download_url,
+        'output_filename': f"{output_basename}.zip",
+        'original_rows': original_row_count,
+        'duplicate_rows_removed': duplicate_count,
+        'rows_after_filtering': original_row_count - duplicate_count,
+        'selected_columns_count': len(selected_columns),
+        'minimal_columns_count': len(primary_combo),
+        'minimal_columns': primary_combo,
+        'alternatives_count': len(minimal_combinations),
+        'alternatives': minimal_combinations
+    }
+
+    progress_queue.put(final_message)
+
+        
 @app.route('/find-unique-identifier', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def find_unique_identifier():
     """Find unique identifier columns in uploaded file - returns session_id for progress tracking"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file')
         
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+    # Get selected columns (required, can be multiple)
+    selected_columns = request.form.getlist('selected_columns[]')
         
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
+    if not selected_columns:
+        return jsonify({'error': 'Please select at least one column to analyze'}), 400
         
-        # Get selected columns (required, can be multiple)
-        selected_columns = request.form.getlist('selected_columns[]')
+    session_id, upload_path, filename = store_upload(file, 'unique_id')
         
-        if not selected_columns:
-            return jsonify({'error': 'Please select at least one column to analyze'}), 400
+    progress_queue = open_job(session_id)
+    allow_null_keys = request.form.get('allow_null_keys', '').lower() in ('1', 'true', 'on', 'yes')
+    start_job(find_unique_identifier_async, upload_path, selected_columns, progress_queue, session_id,
+              allow_null_keys)
         
-        # Save temporarily
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"unique_id_{timestamp}_{secrets.token_hex(8)}"
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        save_upload(file, upload_path, session_id)
-        
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        allow_null_keys = request.form.get('allow_null_keys', '').lower() in ('1', 'true', 'on', 'yes')
-        start_job(find_unique_identifier_async, upload_path, selected_columns, progress_queue, session_id,
-                  allow_null_keys)
-        
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/data-merge')
 def data_merge():
     return render_template('data_merge.html')
@@ -3391,308 +3069,251 @@ def _free_name(wanted, taken):
     return name
 
 
+@job_worker('left_file_path', 'right_file_path')
 def merge_files_async(left_file_path, right_file_path, left_key, right_key, join_type, left_columns, right_columns, duplicate_handling, progress_queue, session_id):
     """Merge two files in background thread with progress tracking"""
-    try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+    send_progress = progress_sender(progress_queue, session_id)
         
-        send_progress('loading', 0, 100, 'Reading left file...', 5)
+    send_progress('loading', 0, 100, 'Reading left file...', 5)
         
-        # Read left file
-        df_left = read_data_file(left_file_path)
+    # Read left file
+    df_left = read_data_file(left_file_path)
         
-        send_progress('loading', 50, 100, 'Reading right file...', 10)
+    send_progress('loading', 50, 100, 'Reading right file...', 10)
         
-        # Read right file
-        df_right = read_data_file(right_file_path)
-        align_key_types(df_left, [left_key], df_right, [right_key])
+    # Read right file
+    df_right = read_data_file(right_file_path)
+    align_key_types(df_left, [left_key], df_right, [right_key])
         
-        send_progress('loading', 100, 100, f'Files loaded: Left {len(df_left):,} rows, Right {len(df_right):,} rows', 15)
+    send_progress('loading', 100, 100, f'Files loaded: Left {len(df_left):,} rows, Right {len(df_right):,} rows', 15)
         
-        # Validate key columns exist
-        if left_key not in df_left.columns:
-            raise ValueError(f"Key column '{left_key}' not found in left file")
-        if right_key not in df_right.columns:
-            raise ValueError(f"Key column '{right_key}' not found in right file")
+    # Validate key columns exist
+    if left_key not in df_left.columns:
+        raise UserError(f"Key column '{left_key}' not found in left file")
+    if right_key not in df_right.columns:
+        raise UserError(f"Key column '{right_key}' not found in right file")
         
-        # Validate selected columns exist
-        if left_columns:
-            invalid_left = [col for col in left_columns if col not in df_left.columns]
-            if invalid_left:
-                raise ValueError(f"Columns not found in left file: {', '.join(invalid_left)}")
+    # Validate selected columns exist
+    if left_columns:
+        invalid_left = [col for col in left_columns if col not in df_left.columns]
+        if invalid_left:
+            raise UserError(f"Columns not found in left file: {', '.join(invalid_left)}")
         
-        if right_columns:
-            invalid_right = [col for col in right_columns if col not in df_right.columns]
-            if invalid_right:
-                raise ValueError(f"Columns not found in right file: {', '.join(invalid_right)}")
+    if right_columns:
+        invalid_right = [col for col in right_columns if col not in df_right.columns]
+        if invalid_right:
+            raise UserError(f"Columns not found in right file: {', '.join(invalid_right)}")
         
-        send_progress('preparing', 0, 100, 'Preparing data for merge...', 20)
+    send_progress('preparing', 0, 100, 'Preparing data for merge...', 20)
         
-        # Select columns to include (if specified)
-        if left_columns:
-            # Always include the key column
-            if left_key not in left_columns:
-                left_columns = [left_key] + left_columns
-            df_left = df_left[left_columns]
+    # Select columns to include (if specified)
+    if left_columns:
+        # Always include the key column
+        if left_key not in left_columns:
+            left_columns = [left_key] + left_columns
+        df_left = df_left[left_columns]
         
-        if right_columns:
-            # Always include the key column
-            if right_key not in right_columns:
-                right_columns = [right_key] + right_columns
-            df_right = df_right[right_columns]
+    if right_columns:
+        # Always include the key column
+        if right_key not in right_columns:
+            right_columns = [right_key] + right_columns
+        df_right = df_right[right_columns]
         
-        # Handle duplicate keys. Blank keys are not keys: rows without one are never duplicates of each other.
-        left_has_key = df_left[left_key].notna()
-        right_has_key = df_right[right_key].notna()
-        if duplicate_handling == 'error':
-            left_dupes = int((left_has_key & df_left[left_key].duplicated()).sum())
-            right_dupes = int((right_has_key & df_right[right_key].duplicated()).sum())
-            if left_dupes > 0 or right_dupes > 0:
-                raise ValueError(f"Duplicate keys found: Left file has {left_dupes} duplicates, Right file has {right_dupes} duplicates. Please handle duplicates first.")
-        elif duplicate_handling == 'keep_first':
-            df_left = df_left[~(left_has_key & df_left[left_key].duplicated(keep='first'))]
-            df_right = df_right[~(right_has_key & df_right[right_key].duplicated(keep='first'))]
+    # Handle duplicate keys. Blank keys are not keys: rows without one are never duplicates of each other.
+    left_has_key = df_left[left_key].notna()
+    right_has_key = df_right[right_key].notna()
+    if duplicate_handling == 'error':
+        left_dupes = int((left_has_key & df_left[left_key].duplicated()).sum())
+        right_dupes = int((right_has_key & df_right[right_key].duplicated()).sum())
+        if left_dupes > 0 or right_dupes > 0:
+            raise UserError(f"Duplicate keys found: Left file has {left_dupes} duplicates, Right file has {right_dupes} duplicates. Please handle duplicates first.")
+    elif duplicate_handling == 'keep_first':
+        df_left = df_left[~(left_has_key & df_left[left_key].duplicated(keep='first'))]
+        df_right = df_right[~(right_has_key & df_right[right_key].duplicated(keep='first'))]
         
-        send_progress('merging', 0, 100, f'Performing {join_type} join...', 30)
+    send_progress('merging', 0, 100, f'Performing {join_type} join...', 30)
         
-        # Perform merge
-        # Map join types
-        join_type_map = {
-            'left': 'left',
-            'right': 'right',
-            'inner': 'inner',
-            'outer': 'outer'
-        }
-        how = join_type_map.get(join_type, 'inner')
+    # Perform merge
+    # Map join types
+    join_type_map = {
+        'left': 'left',
+        'right': 'right',
+        'inner': 'inner',
+        'outer': 'outer'
+    }
+    how = join_type_map.get(join_type, 'inner')
         
-        # Blank keys never match: they are swapped for unique placeholders for the join and restored after.
-        indicator = _free_name('__dd_merge__', list(df_left.columns) + list(df_right.columns))
-        left_for_merge = df_left.copy()
-        right_for_merge = df_right.copy()
-        left_for_merge[left_key] = _null_safe_keys(df_left[left_key])
-        right_for_merge[right_key] = _null_safe_keys(df_right[right_key])
-        merged_df = pd.merge(
-            left_for_merge,
-            right_for_merge,
-            left_on=left_key,
-            right_on=right_key,
-            how=how,
-            suffixes=('_left', '_right'),
-            indicator=indicator
-        )
-        _restore_blank_keys(merged_df, [left_key, right_key])
-        matched = int((merged_df[indicator] == 'both').sum())
-        merged_df = merged_df.drop(columns=[indicator])
-        del left_for_merge, right_for_merge
+    # Blank keys never match: they are swapped for unique placeholders for the join and restored after.
+    indicator = _free_name('__dd_merge__', list(df_left.columns) + list(df_right.columns))
+    left_for_merge = df_left.copy()
+    right_for_merge = df_right.copy()
+    left_for_merge[left_key] = _null_safe_keys(df_left[left_key])
+    right_for_merge[right_key] = _null_safe_keys(df_right[right_key])
+    merged_df = pd.merge(
+        left_for_merge,
+        right_for_merge,
+        left_on=left_key,
+        right_on=right_key,
+        how=how,
+        suffixes=('_left', '_right'),
+        indicator=indicator
+    )
+    _restore_blank_keys(merged_df, [left_key, right_key])
+    matched = int((merged_df[indicator] == 'both').sum())
+    merged_df = merged_df.drop(columns=[indicator])
+    del left_for_merge, right_for_merge
         
-        send_progress('merging', 100, 100, f'Merged: {len(merged_df):,} rows', 60)
+    send_progress('merging', 100, 100, f'Merged: {len(merged_df):,} rows', 60)
         
-        # Join statistics, counted on the input rows so they can never go negative
-        left_total = len(df_left)
-        right_total = len(df_right)
-        merged_total = len(merged_df)
-        left_keys = df_left[left_key]
-        right_keys = df_right[right_key]
-        left_present = left_keys.notna()
-        right_present = right_keys.notna()
-        left_with_partner = int((left_present & left_keys.isin(right_keys[right_present])).sum())
-        right_with_partner = int((right_present & right_keys.isin(left_keys[left_present])).sum())
-        unmatched_left = left_total - left_with_partner
-        unmatched_right = right_total - right_with_partner
+    # Join statistics, counted on the input rows so they can never go negative
+    left_total = len(df_left)
+    right_total = len(df_right)
+    merged_total = len(merged_df)
+    left_keys = df_left[left_key]
+    right_keys = df_right[right_key]
+    left_present = left_keys.notna()
+    right_present = right_keys.notna()
+    left_with_partner = int((left_present & left_keys.isin(right_keys[right_present])).sum())
+    right_with_partner = int((right_present & right_keys.isin(left_keys[left_present])).sum())
+    unmatched_left = left_total - left_with_partner
+    unmatched_right = right_total - right_with_partner
         
-        # Repeated keys multiply rows: the file being joined onto (left; right for a right join) gets more merged
-        # rows than it has rows with a partner. A many-to-one lookup (orders -> customers) does not trigger this.
-        if how == 'right':
-            base_with_partner, base_side, other_side = right_with_partner, 'right', 'left'
-        else:
-            base_with_partner, base_side, other_side = left_with_partner, 'left', 'right'
-        multiplication_factor = round(matched / base_with_partner, 2) if base_with_partner else 1.0
-        merge_warning = None
-        if matched > base_with_partner:
-            merge_warning = (f"Some keys appear more than once in the {other_side} file, so rows were multiplied: "
-                             f"{base_with_partner:,} {base_side} rows with a partner produced {matched:,} merged rows. "
-                             f"Choose 'keep first' or 'error' for duplicates to avoid this.")
+    # Repeated keys multiply rows: the file being joined onto (left; right for a right join) gets more merged
+    # rows than it has rows with a partner. A many-to-one lookup (orders -> customers) does not trigger this.
+    if how == 'right':
+        base_with_partner, base_side, other_side = right_with_partner, 'right', 'left'
+    else:
+        base_with_partner, base_side, other_side = left_with_partner, 'left', 'right'
+    multiplication_factor = round(matched / base_with_partner, 2) if base_with_partner else 1.0
+    merge_warning = None
+    if matched > base_with_partner:
+        merge_warning = (f"Some keys appear more than once in the {other_side} file, so rows were multiplied: "
+                         f"{base_with_partner:,} {base_side} rows with a partner produced {matched:,} merged rows. "
+                         f"Choose 'keep first' or 'error' for duplicates to avoid this.")
         
-        send_progress('saving', 0, 100, 'Saving results...', 70)
+    send_progress('saving', 0, 100, 'Saving results...', 70)
         
-        # Create summary DataFrame
-        summary_data = {
-            'Metric': [
-                'Left File Rows',
-                'Right File Rows',
-                'Merged Rows',
-                'Matched Rows',
-                'Unmatched (Left)',
-                'Unmatched (Right)',
-                'Join Type'
-            ],
-            'Value': [
-                left_total,
-                right_total,
-                merged_total,
-                matched,
-                unmatched_left,
-                unmatched_right,
-                join_type.upper()
-            ]
-        }
-        summary_df = pd.DataFrame(summary_data)
+    # Create summary DataFrame
+    summary_data = {
+        'Metric': [
+            'Left File Rows',
+            'Right File Rows',
+            'Merged Rows',
+            'Matched Rows',
+            'Unmatched (Left)',
+            'Unmatched (Right)',
+            'Join Type'
+        ],
+        'Value': [
+            left_total,
+            right_total,
+            merged_total,
+            matched,
+            unmatched_left,
+            unmatched_right,
+            join_type.upper()
+        ]
+    }
+    summary_df = pd.DataFrame(summary_data)
         
-        # Save to Excel
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"merged_{timestamp}"
-        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
+    # Save to Excel
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_filename = f"merged_{timestamp}"
+    output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        output_path = write_sheets(output_path, [('Merged Data', merged_df), ('Join Summary', summary_df)], session_id)
+    output_path = write_sheets(output_path, [('Merged Data', merged_df), ('Join Summary', summary_df)], session_id)
 
-        download_url = job_download_url(session_id, os.path.basename(output_path))
+    download_url = job_download_url(session_id, os.path.basename(output_path))
         
-        send_progress('saving', 100, 100, 'Results saved...', 95)
+    send_progress('saving', 100, 100, 'Results saved...', 95)
         
-        # Prepare preview data before cleanup
-        preview_data = []
-        if len(merged_df) > 0:
-            preview_df = merged_df.head(100)
-            # Convert to dict, handling NaN values
-            for _, row in preview_df.iterrows():
-                row_dict = {}
-                for col in preview_df.columns:
-                    val = row[col]
-                    if pd.isna(val):
-                        row_dict[col] = None
-                    else:
-                        row_dict[col] = str(val)
-                preview_data.append(row_dict)
+    # Prepare preview data before cleanup
+    preview_data = df_preview_text(merged_df, 100)
         
-        # Clean up
-        del df_left
-        del df_right
-        del merged_df
-        os.remove(left_file_path)
-        os.remove(right_file_path)
+    # Clean up
+    del df_left
+    del df_right
+    del merged_df
+    os.remove(left_file_path)
+    os.remove(right_file_path)
         
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': 100,
-            'total': 100,
-            'percentage': 100,
-            'message': 'Complete!',
-            'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
-            'summary': {
-                'left_rows': int(left_total),
-                'right_rows': int(right_total),
-                'merged_rows': int(merged_total),
-                'matched': int(matched),
-                'unmatched_left': int(unmatched_left),
-                'unmatched_right': int(unmatched_right),
-                'multiplication_factor': multiplication_factor,
-                'join_type': join_type
-            },
-            'preview': preview_data
-        }
-        if merge_warning:
-            final_message['warning'] = merge_warning
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': 100,
+        'total': 100,
+        'percentage': 100,
+        'message': 'Complete!',
+        'download_url': download_url,
+        'output_filename': os.path.basename(output_path),
+        'summary': {
+            'left_rows': int(left_total),
+            'right_rows': int(right_total),
+            'merged_rows': int(merged_total),
+            'matched': int(matched),
+            'unmatched_left': int(unmatched_left),
+            'unmatched_right': int(unmatched_right),
+            'multiplication_factor': multiplication_factor,
+            'join_type': join_type
+        },
+        'preview': preview_data
+    }
+    if merge_warning:
+        final_message['warning'] = merge_warning
         
-        try:
-            progress_queue.put(final_message, timeout=5)
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
+    progress_queue.put(final_message)
         
-        print("Merge complete!")
         
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Clean up on error
-        if 'left_file_path' in locals() and os.path.exists(left_file_path):
-            os.remove(left_file_path)
-        if 'right_file_path' in locals() and os.path.exists(right_file_path):
-            os.remove(right_file_path)
-        if 'df_left' in locals():
-            del df_left
-        if 'df_right' in locals():
-            del df_right
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
-
 @app.route('/merge-data', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def merge_data():
     """Merge two uploaded files - returns session_id for progress tracking"""
-    try:
-        if 'left_file' not in request.files or 'right_file' not in request.files:
-            return jsonify({'error': 'Please upload both left and right files'}), 400
+    if 'left_file' not in request.files or 'right_file' not in request.files:
+        return jsonify({'error': 'Please upload both left and right files'}), 400
         
-        left_file = request.files['left_file']
-        right_file = request.files['right_file']
+    left_file = request.files['left_file']
+    right_file = request.files['right_file']
         
-        if left_file.filename == '' or right_file.filename == '':
-            return jsonify({'error': 'Both files must be selected'}), 400
+    if left_file.filename == '' or right_file.filename == '':
+        return jsonify({'error': 'Both files must be selected'}), 400
         
-        # Validate file extensions
-        if not (left_file.filename.endswith(('.xlsx', '.xls', '.csv')) and 
-                right_file.filename.endswith(('.xlsx', '.xls', '.csv'))):
-            return jsonify({'error': 'Please upload Excel or CSV files'}), 400
+    # Validate file extensions
+    if not (left_file.filename.endswith(('.xlsx', '.xls', '.csv')) and 
+            right_file.filename.endswith(('.xlsx', '.xls', '.csv'))):
+        return jsonify({'error': 'Please upload Excel or CSV files'}), 400
         
-        # Get merge parameters
-        left_key = request.form.get('left_key', '').strip()
-        right_key = request.form.get('right_key', '').strip()
-        join_type = request.form.get('join_type', 'inner').strip()
-        duplicate_handling = request.form.get('duplicate_handling', 'keep_first').strip()
+    # Get merge parameters
+    left_key = request.form.get('left_key', '').strip()
+    right_key = request.form.get('right_key', '').strip()
+    join_type = request.form.get('join_type', 'inner').strip()
+    duplicate_handling = request.form.get('duplicate_handling', 'keep_first').strip()
         
-        if not left_key or not right_key:
-            return jsonify({'error': 'Please select key columns from both files'}), 400
+    if not left_key or not right_key:
+        return jsonify({'error': 'Please select key columns from both files'}), 400
         
-        # Get selected columns (optional)
-        left_columns = request.form.getlist('left_columns[]')
-        right_columns = request.form.getlist('right_columns[]')
+    # Get selected columns (optional)
+    left_columns = request.form.getlist('left_columns[]')
+    right_columns = request.form.getlist('right_columns[]')
         
-        # Save files temporarily
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"merge_{timestamp}_{secrets.token_hex(8)}"
+    # Save files temporarily
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    session_id = f"merge_{timestamp}_{secrets.token_hex(8)}"
         
-        left_filename = secure_filename(left_file.filename)
-        right_filename = secure_filename(right_file.filename)
+    left_filename = secure_filename(left_file.filename)
+    right_filename = secure_filename(right_file.filename)
         
-        left_file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_left_{left_filename}")
-        right_file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_right_{right_filename}")
+    left_file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_left_{left_filename}")
+    right_file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_right_{right_filename}")
         
-        save_upload(left_file, left_file_path, session_id)
-        save_upload(right_file, right_file_path, session_id)
+    save_upload(left_file, left_file_path, session_id)
+    save_upload(right_file, right_file_path, session_id)
         
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(merge_files_async, left_file_path, right_file_path, left_key, right_key, join_type, left_columns, right_columns, duplicate_handling, progress_queue, session_id)
+    progress_queue = open_job(session_id)
+    start_job(merge_files_async, left_file_path, right_file_path, left_key, right_key, join_type, left_columns, right_columns, duplicate_handling, progress_queue, session_id)
         
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/data-comparison')
 def data_comparison():
     return render_template('data_comparison.html')
@@ -3708,769 +3329,657 @@ def _comparable_text(value):
     return _canonical_key_text(value)
 
 
+@job_worker('file1_path', 'file2_path')
 def compare_files_async(file1_path, file2_path, key_columns, compare_columns, progress_queue, session_id):
     """Compare two files in background thread with progress tracking"""
-    try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+    send_progress = progress_sender(progress_queue, session_id)
         
-        send_progress('loading', 0, 100, 'Reading file 1...', 5)
+    send_progress('loading', 0, 100, 'Reading file 1...', 5)
         
-        # Read file 1
-        df1 = read_data_file(file1_path)
+    # Read file 1
+    df1 = read_data_file(file1_path)
         
-        send_progress('loading', 50, 100, 'Reading file 2...', 10)
+    send_progress('loading', 50, 100, 'Reading file 2...', 10)
         
-        # Read file 2
-        df2 = read_data_file(file2_path)
-        align_key_types(df1, key_columns, df2, key_columns)
+    # Read file 2
+    df2 = read_data_file(file2_path)
+    align_key_types(df1, key_columns, df2, key_columns)
         
-        send_progress('loading', 100, 100, f'Files loaded: File 1 {len(df1):,} rows, File 2 {len(df2):,} rows', 15)
+    send_progress('loading', 100, 100, f'Files loaded: File 1 {len(df1):,} rows, File 2 {len(df2):,} rows', 15)
         
-        # Validate key columns exist
+    # Validate key columns exist
+    for key_col in key_columns:
+        if key_col not in df1.columns:
+            raise UserError(f"Key column '{key_col}' not found in file 1")
+        if key_col not in df2.columns:
+            raise UserError(f"Key column '{key_col}' not found in file 2")
+        
+    # Validate compare columns exist (if specified)
+    if compare_columns:
+        invalid_cols = [col for col in compare_columns if col not in df1.columns or col not in df2.columns]
+        if invalid_cols:
+            raise UserError(f"Columns not found in both files: {', '.join(invalid_cols)}")
+        
+    send_progress('preparing', 0, 100, 'Preparing data for comparison...', 20)
+        
+    # Determine which columns to compare
+    if compare_columns:
+        # Exclude key columns from compare_columns if they're in there
+        compare_cols = [col for col in compare_columns if col not in key_columns]
+        # Always include key columns
+        cols_to_compare = key_columns + compare_cols
+    else:
+        # Compare all columns except key columns (we'll add them back)
+        cols_to_compare = [col for col in df1.columns if col in df2.columns]
+        # Ensure key columns are included
         for key_col in key_columns:
-            if key_col not in df1.columns:
-                raise ValueError(f"Key column '{key_col}' not found in file 1")
-            if key_col not in df2.columns:
-                raise ValueError(f"Key column '{key_col}' not found in file 2")
+            if key_col not in cols_to_compare:
+                cols_to_compare.insert(0, key_col)
         
-        # Validate compare columns exist (if specified)
-        if compare_columns:
-            invalid_cols = [col for col in compare_columns if col not in df1.columns or col not in df2.columns]
-            if invalid_cols:
-                raise ValueError(f"Columns not found in both files: {', '.join(invalid_cols)}")
+    # Select only columns that exist in both files
+    cols_to_compare = [col for col in cols_to_compare if col in df1.columns and col in df2.columns]
         
-        send_progress('preparing', 0, 100, 'Preparing data for comparison...', 20)
+    df1_compare = df1[cols_to_compare].copy()
+    df2_compare = df2[cols_to_compare].copy()
+    compare_cols_only = [col for col in cols_to_compare if col not in key_columns]
         
-        # Determine which columns to compare
-        if compare_columns:
-            # Exclude key columns from compare_columns if they're in there
-            compare_cols = [col for col in compare_columns if col not in key_columns]
-            # Always include key columns
-            cols_to_compare = key_columns + compare_cols
-        else:
-            # Compare all columns except key columns (we'll add them back)
-            cols_to_compare = [col for col in df1.columns if col in df2.columns]
-            # Ensure key columns are included
-            for key_col in key_columns:
-                if key_col not in cols_to_compare:
-                    cols_to_compare.insert(0, key_col)
+    send_progress('comparing', 0, 100, 'Comparing files...', 30)
         
-        # Select only columns that exist in both files
-        cols_to_compare = [col for col in cols_to_compare if col in df1.columns and col in df2.columns]
+    # Rows are matched on the real key columns plus "which occurrence of this key" (1st with 1st, 2nd with
+    # 2nd...), so repeated keys are all compared. A row whose key columns are ALL blank has no key: it cannot
+    # be paired with anything, so it is set aside and reported instead of being called added or removed.
+    occurrence = _free_name('_occ', cols_to_compare)
         
-        df1_compare = df1[cols_to_compare].copy()
-        df2_compare = df2[cols_to_compare].copy()
-        compare_cols_only = [col for col in cols_to_compare if col not in key_columns]
+    def key_frame(df):
+        keys = df[key_columns].copy()
+        keys[occurrence] = keys.groupby(key_columns, dropna=False, sort=False).cumcount()
+        return keys, keys[key_columns].isna().all(axis=1).to_numpy()
         
-        send_progress('comparing', 0, 100, 'Comparing files...', 30)
+    keys1, keyless1 = key_frame(df1_compare)
+    keys2, keyless2 = key_frame(df2_compare)
+    repeated1 = int(((keys1[occurrence] > 0) & ~keyless1).sum())
+    repeated2 = int(((keys2[occurrence] > 0) & ~keyless2).sum())
         
-        # Rows are matched on the real key columns plus "which occurrence of this key" (1st with 1st, 2nd with
-        # 2nd...), so repeated keys are all compared. A row whose key columns are ALL blank has no key: it cannot
-        # be paired with anything, so it is set aside and reported instead of being called added or removed.
-        occurrence = _free_name('_occ', cols_to_compare)
+    valid1, valid2 = df1_compare[~keyless1], df2_compare[~keyless2]
+    keys1, keys2 = keys1[~keyless1], keys2[~keyless2]
         
-        def key_frame(df):
-            keys = df[key_columns].copy()
-            keys[occurrence] = keys.groupby(key_columns, dropna=False, sort=False).cumcount()
-            return keys, keys[key_columns].isna().all(axis=1).to_numpy()
+    # One group id per distinct (key, occurrence) across both files; equal ids = the same row in both
+    group_ids = pd.concat([keys1, keys2], ignore_index=True).groupby(
+        key_columns + [occurrence], dropna=False, sort=False).ngroup().to_numpy()
+    ids1, ids2 = group_ids[:len(keys1)], group_ids[len(keys1):]
+    position_in_2 = pd.Series(np.arange(len(ids2)), index=ids2)
+    has_partner = np.isin(ids1, ids2)
+    matched1 = np.nonzero(has_partner)[0]                      # file 1 order
+    matched2 = position_in_2.loc[ids1[matched1]].to_numpy()
+    removed_idx = np.nonzero(~has_partner)[0]
+    added_idx = np.nonzero(~np.isin(ids2, ids1))[0]
         
-        keys1, keyless1 = key_frame(df1_compare)
-        keys2, keyless2 = key_frame(df2_compare)
-        repeated1 = int(((keys1[occurrence] > 0) & ~keyless1).sum())
-        repeated2 = int(((keys2[occurrence] > 0) & ~keyless2).sum())
+    common_count, added_count, removed_count = len(matched1), len(added_idx), len(removed_idx)
+    send_progress('comparing', 50, 100, f'Found {common_count} common rows, {added_count} added, {removed_count} removed...', 50)
         
-        valid1, valid2 = df1_compare[~keyless1], df2_compare[~keyless2]
-        keys1, keys2 = keys1[~keyless1], keys2[~keyless2]
+    added_df = valid2.iloc[added_idx].reset_index(drop=True)
+    removed_df = valid1.iloc[removed_idx].reset_index(drop=True)
+    rows1, rows2 = valid1.iloc[matched1], valid2.iloc[matched2]
         
-        # One group id per distinct (key, occurrence) across both files; equal ids = the same row in both
-        group_ids = pd.concat([keys1, keys2], ignore_index=True).groupby(
-            key_columns + [occurrence], dropna=False, sort=False).ngroup().to_numpy()
-        ids1, ids2 = group_ids[:len(keys1)], group_ids[len(keys1):]
-        position_in_2 = pd.Series(np.arange(len(ids2)), index=ids2)
-        has_partner = np.isin(ids1, ids2)
-        matched1 = np.nonzero(has_partner)[0]                      # file 1 order
-        matched2 = position_in_2.loc[ids1[matched1]].to_numpy()
-        removed_idx = np.nonzero(~has_partner)[0]
-        added_idx = np.nonzero(~np.isin(ids2, ids1))[0]
+    # Which compared cells differ (blank equals blank; values compared by canonical text)
+    different = np.zeros((common_count, len(compare_cols_only)), dtype=bool)
+    for j, col in enumerate(compare_cols_only):
+        a = rows1[col].map(_comparable_text).to_numpy(dtype=object)
+        b = rows2[col].map(_comparable_text).to_numpy(dtype=object)
+        a_blank, b_blank = pd.isna(a), pd.isna(b)
+        different[:, j] = ~((a_blank & b_blank) | (~a_blank & ~b_blank & (a == b)))
+    row_changed = different.any(axis=1) if different.shape[1] else np.zeros(common_count, dtype=bool)
         
-        common_count, added_count, removed_count = len(matched1), len(added_idx), len(removed_idx)
-        send_progress('comparing', 50, 100, f'Found {common_count} common rows, {added_count} added, {removed_count} removed...', 50)
-        
-        added_df = valid2.iloc[added_idx].reset_index(drop=True)
-        removed_df = valid1.iloc[removed_idx].reset_index(drop=True)
-        rows1, rows2 = valid1.iloc[matched1], valid2.iloc[matched2]
-        
-        # Which compared cells differ (blank equals blank; values compared by canonical text)
-        different = np.zeros((common_count, len(compare_cols_only)), dtype=bool)
+    changed_rows = []
+    old_values = rows1[compare_cols_only].to_numpy(dtype=object)
+    new_values = rows2[compare_cols_only].to_numpy(dtype=object)
+    key_values = rows1[key_columns].to_numpy(dtype=object)
+    for i in np.nonzero(row_changed)[0]:
+        change_row = {col: key_values[i, k] for k, col in enumerate(key_columns)}
         for j, col in enumerate(compare_cols_only):
-            a = rows1[col].map(_comparable_text).to_numpy(dtype=object)
-            b = rows2[col].map(_comparable_text).to_numpy(dtype=object)
-            a_blank, b_blank = pd.isna(a), pd.isna(b)
-            different[:, j] = ~((a_blank & b_blank) | (~a_blank & ~b_blank & (a == b)))
-        row_changed = different.any(axis=1) if different.shape[1] else np.zeros(common_count, dtype=bool)
+            if different[i, j]:
+                change_row[f'{col} (Old)'] = None if pd.isna(old_values[i, j]) else old_values[i, j]
+                change_row[f'{col} (New)'] = None if pd.isna(new_values[i, j]) else new_values[i, j]
+            else:
+                change_row[col] = old_values[i, j]
+        changed_rows.append(change_row)
+    unchanged_df = rows1[~row_changed][cols_to_compare].reset_index(drop=True)
+    changed_count, unchanged_count = len(changed_rows), len(unchanged_df)
         
-        changed_rows = []
-        old_values = rows1[compare_cols_only].to_numpy(dtype=object)
-        new_values = rows2[compare_cols_only].to_numpy(dtype=object)
-        key_values = rows1[key_columns].to_numpy(dtype=object)
-        for i in np.nonzero(row_changed)[0]:
-            change_row = {col: key_values[i, k] for k, col in enumerate(key_columns)}
-            for j, col in enumerate(compare_cols_only):
-                if different[i, j]:
-                    change_row[f'{col} (Old)'] = None if pd.isna(old_values[i, j]) else old_values[i, j]
-                    change_row[f'{col} (New)'] = None if pd.isna(new_values[i, j]) else new_values[i, j]
-                else:
-                    change_row[col] = old_values[i, j]
-            changed_rows.append(change_row)
-        unchanged_df = rows1[~row_changed][cols_to_compare].reset_index(drop=True)
-        changed_count, unchanged_count = len(changed_rows), len(unchanged_df)
+    send_progress('comparing', 100, 100, f'Comparison complete: {changed_count} changed rows found', 70)
         
-        send_progress('comparing', 100, 100, f'Comparison complete: {changed_count} changed rows found', 70)
+    send_progress('saving', 0, 100, 'Saving comparison results...', 75)
         
-        send_progress('saving', 0, 100, 'Saving comparison results...', 75)
+    # Rows without a key, and repeated keys, are reported rather than silently mis-compared
+    keyless_count1, keyless_count2 = int(keyless1.sum()), int(keyless2.sum())
+    notes = []
+    if keyless_count1 or keyless_count2:
+        sides = [f"{n} row(s) in {label}" for n, label in ((keyless_count1, 'file 1'), (keyless_count2, 'file 2')) if n]
+        notes.append(f"{' and '.join(sides)} have no key value and were not compared "
+                     f"(see the 'Rows Without Key' sheet).")
+    for label, repeated_rows in (('File 1', repeated1), ('File 2', repeated2)):
+        if repeated_rows:
+            notes.append(f"{label} has {repeated_rows} row(s) whose key repeats; repeated rows are compared in order of "
+                         f"appearance (1st with 1st, 2nd with 2nd, ...).")
+    compare_warning = ' '.join(notes) if notes else None
         
-        # Rows without a key, and repeated keys, are reported rather than silently mis-compared
-        keyless_count1, keyless_count2 = int(keyless1.sum()), int(keyless2.sum())
-        notes = []
-        if keyless_count1 or keyless_count2:
-            sides = [f"{n} row(s) in {label}" for n, label in ((keyless_count1, 'file 1'), (keyless_count2, 'file 2')) if n]
-            notes.append(f"{' and '.join(sides)} have no key value and were not compared "
-                         f"(see the 'Rows Without Key' sheet).")
-        for label, repeated_rows in (('File 1', repeated1), ('File 2', repeated2)):
-            if repeated_rows:
-                notes.append(f"{label} has {repeated_rows} row(s) whose key repeats; repeated rows are compared in order of "
-                             f"appearance (1st with 1st, 2nd with 2nd, ...).")
-        compare_warning = ' '.join(notes) if notes else None
+    metrics = [
+        ('File 1 Total Rows', len(df1)),
+        ('File 2 Total Rows', len(df2)),
+        ('Common Rows', common_count),
+        ('Added Rows (in File 2 only)', added_count),
+        ('Removed Rows (in File 1 only)', removed_count),
+        ('Changed Rows', changed_count),
+        ('Unchanged Rows', unchanged_count),
+    ]
+    if keyless_count1 or keyless_count2:
+        metrics += [('Rows Without Key (File 1)', keyless_count1), ('Rows Without Key (File 2)', keyless_count2)]
+    if repeated1 or repeated2:
+        metrics += [('Repeated-Key Rows (File 1)', repeated1), ('Repeated-Key Rows (File 2)', repeated2)]
+    summary_df = pd.DataFrame({'Metric': [m for m, _ in metrics], 'Value': [v for _, v in metrics]})
         
-        metrics = [
-            ('File 1 Total Rows', len(df1)),
-            ('File 2 Total Rows', len(df2)),
-            ('Common Rows', common_count),
-            ('Added Rows (in File 2 only)', added_count),
-            ('Removed Rows (in File 1 only)', removed_count),
-            ('Changed Rows', changed_count),
-            ('Unchanged Rows', unchanged_count),
-        ]
-        if keyless_count1 or keyless_count2:
-            metrics += [('Rows Without Key (File 1)', keyless_count1), ('Rows Without Key (File 2)', keyless_count2)]
-        if repeated1 or repeated2:
-            metrics += [('Repeated-Key Rows (File 1)', repeated1), ('Repeated-Key Rows (File 2)', repeated2)]
-        summary_df = pd.DataFrame({'Metric': [m for m, _ in metrics], 'Value': [v for _, v in metrics]})
+    changed_df = pd.DataFrame(changed_rows) if len(changed_rows) > 0 else pd.DataFrame()
+    if keyless_count1 or keyless_count2:
+        source_col = _free_name('File', cols_to_compare)
+        keyless_df = pd.concat([
+            df1_compare[keyless1].head(100).assign(**{source_col: 'File 1'}),
+            df2_compare[keyless2].head(100).assign(**{source_col: 'File 2'}),
+        ], ignore_index=True)[[source_col] + cols_to_compare]
+    else:
+        keyless_df = pd.DataFrame()
         
-        changed_df = pd.DataFrame(changed_rows) if len(changed_rows) > 0 else pd.DataFrame()
-        if keyless_count1 or keyless_count2:
-            source_col = _free_name('File', cols_to_compare)
-            keyless_df = pd.concat([
-                df1_compare[keyless1].head(100).assign(**{source_col: 'File 1'}),
-                df2_compare[keyless2].head(100).assign(**{source_col: 'File 2'}),
-            ], ignore_index=True)[[source_col] + cols_to_compare]
-        else:
-            keyless_df = pd.DataFrame()
+    # Save to Excel
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_filename = f"comparison_{timestamp}"
+    output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        # Save to Excel
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"comparison_{timestamp}"
-        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
-        
-        output_path = write_sheets(output_path, [
-            ('Summary', summary_df),
-            ('Added Rows', added_df if len(added_df) > 0 else None),
-            ('Removed Rows', removed_df if len(removed_df) > 0 else None),
-            ('Changed Rows', changed_df if len(changed_df) > 0 else None),
-            ('Unchanged Rows', unchanged_df if len(unchanged_df) > 0 else None),
-            ('Rows Without Key', keyless_df if len(keyless_df) > 0 else None),
-        ], session_id)
+    output_path = write_sheets(output_path, [
+        ('Summary', summary_df),
+        ('Added Rows', added_df if len(added_df) > 0 else None),
+        ('Removed Rows', removed_df if len(removed_df) > 0 else None),
+        ('Changed Rows', changed_df if len(changed_df) > 0 else None),
+        ('Unchanged Rows', unchanged_df if len(unchanged_df) > 0 else None),
+        ('Rows Without Key', keyless_df if len(keyless_df) > 0 else None),
+    ], session_id)
 
-        download_url = job_download_url(session_id, os.path.basename(output_path))
+    download_url = job_download_url(session_id, os.path.basename(output_path))
         
-        send_progress('saving', 100, 100, 'Results saved...', 95)
+    send_progress('saving', 100, 100, 'Results saved...', 95)
         
-        # Store summary data before cleanup
-        file1_total = len(df1)
-        file2_total = len(df2)
+    # Store summary data before cleanup
+    file1_total = len(df1)
+    file2_total = len(df2)
         
-        # Prepare preview data (handle NaN values)
-        def prepare_preview(df, max_rows=50):
-            if len(df) == 0:
-                return []
-            preview_df = df.head(max_rows)
-            preview_list = []
-            for _, row in preview_df.iterrows():
-                row_dict = {}
-                for col in preview_df.columns:
-                    val = row[col]
-                    if pd.isna(val):
-                        row_dict[col] = None
-                    else:
-                        row_dict[col] = str(val)
-                preview_list.append(row_dict)
-            return preview_list
+    # Prepare preview data (handle NaN values)
+    def prepare_preview(df, max_rows=50):
+        if len(df) == 0:
+            return []
+        return df_preview_text(df, max_rows)
         
-        preview_data = {
-            'added': prepare_preview(added_df),
-            'removed': prepare_preview(removed_df),
-            'changed': prepare_preview(changed_df)
-        }
+    preview_data = {
+        'added': prepare_preview(added_df),
+        'removed': prepare_preview(removed_df),
+        'changed': prepare_preview(changed_df)
+    }
         
-        # Clean up
-        del df1
-        del df2
-        del df1_compare
-        del df2_compare
-        os.remove(file1_path)
-        os.remove(file2_path)
+    # Clean up
+    del df1
+    del df2
+    del df1_compare
+    del df2_compare
+    os.remove(file1_path)
+    os.remove(file2_path)
         
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': 100,
-            'total': 100,
-            'percentage': 100,
-            'message': 'Complete!',
-            'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
-            'summary': {
-                'file1_rows': int(file1_total),
-                'file2_rows': int(file2_total),
-                'common': int(common_count),
-                'added': int(added_count),
-                'removed': int(removed_count),
-                'changed': int(changed_count),
-                'unchanged': int(unchanged_count),
-                'rows_without_key_file1': keyless_count1,
-                'rows_without_key_file2': keyless_count2,
-                'repeated_key_rows_file1': repeated1,
-                'repeated_key_rows_file2': repeated2
-            },
-            'preview': preview_data
-        }
-        if compare_warning:
-            final_message['warning'] = compare_warning
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': 100,
+        'total': 100,
+        'percentage': 100,
+        'message': 'Complete!',
+        'download_url': download_url,
+        'output_filename': os.path.basename(output_path),
+        'summary': {
+            'file1_rows': int(file1_total),
+            'file2_rows': int(file2_total),
+            'common': int(common_count),
+            'added': int(added_count),
+            'removed': int(removed_count),
+            'changed': int(changed_count),
+            'unchanged': int(unchanged_count),
+            'rows_without_key_file1': keyless_count1,
+            'rows_without_key_file2': keyless_count2,
+            'repeated_key_rows_file1': repeated1,
+            'repeated_key_rows_file2': repeated2
+        },
+        'preview': preview_data
+    }
+    if compare_warning:
+        final_message['warning'] = compare_warning
         
-        try:
-            progress_queue.put(final_message, timeout=5)
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
+    progress_queue.put(final_message)
         
-        print("Comparison complete!")
         
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Clean up on error
-        if 'file1_path' in locals() and os.path.exists(file1_path):
-            os.remove(file1_path)
-        if 'file2_path' in locals() and os.path.exists(file2_path):
-            os.remove(file2_path)
-        if 'df1' in locals():
-            del df1
-        if 'df2' in locals():
-            del df2
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
-
 @app.route('/compare-data', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def compare_data():
     """Compare two uploaded files - returns session_id for progress tracking"""
-    try:
-        if 'file1' not in request.files or 'file2' not in request.files:
-            return jsonify({'error': 'Please upload both files'}), 400
+    if 'file1' not in request.files or 'file2' not in request.files:
+        return jsonify({'error': 'Please upload both files'}), 400
         
-        file1 = request.files['file1']
-        file2 = request.files['file2']
+    file1 = request.files['file1']
+    file2 = request.files['file2']
         
-        if file1.filename == '' or file2.filename == '':
-            return jsonify({'error': 'Both files must be selected'}), 400
+    if file1.filename == '' or file2.filename == '':
+        return jsonify({'error': 'Both files must be selected'}), 400
         
-        # Validate file extensions
-        if not (file1.filename.endswith(('.xlsx', '.xls', '.csv')) and 
-                file2.filename.endswith(('.xlsx', '.xls', '.csv'))):
-            return jsonify({'error': 'Please upload Excel or CSV files'}), 400
+    # Validate file extensions
+    if not (file1.filename.endswith(('.xlsx', '.xls', '.csv')) and 
+            file2.filename.endswith(('.xlsx', '.xls', '.csv'))):
+        return jsonify({'error': 'Please upload Excel or CSV files'}), 400
         
-        # Get comparison parameters
-        key_columns = request.form.getlist('key_columns[]')
-        compare_columns = request.form.getlist('compare_columns[]')  # Optional
+    # Get comparison parameters
+    key_columns = request.form.getlist('key_columns[]')
+    compare_columns = request.form.getlist('compare_columns[]')  # Optional
         
-        if not key_columns:
-            return jsonify({'error': 'Please select at least one key column'}), 400
+    if not key_columns:
+        return jsonify({'error': 'Please select at least one key column'}), 400
         
-        # Save files temporarily
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"compare_{timestamp}_{secrets.token_hex(8)}"
+    # Save files temporarily
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    session_id = f"compare_{timestamp}_{secrets.token_hex(8)}"
         
-        file1_filename = secure_filename(file1.filename)
-        file2_filename = secure_filename(file2.filename)
+    file1_filename = secure_filename(file1.filename)
+    file2_filename = secure_filename(file2.filename)
         
-        file1_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file1_{file1_filename}")
-        file2_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file2_{file2_filename}")
+    file1_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file1_{file1_filename}")
+    file2_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file2_{file2_filename}")
         
-        save_upload(file1, file1_path, session_id)
-        save_upload(file2, file2_path, session_id)
+    save_upload(file1, file1_path, session_id)
+    save_upload(file2, file2_path, session_id)
         
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(compare_files_async, file1_path, file2_path, key_columns, compare_columns, progress_queue, session_id)
+    progress_queue = open_job(session_id)
+    start_job(compare_files_async, file1_path, file2_path, key_columns, compare_columns, progress_queue, session_id)
         
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/pivot-generator')
 def pivot_generator():
     return render_template('pivot_generator.html')
 
+@job_worker('file_path')
 def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, progress_queue, session_id):
     """Generate pivot table in background thread with progress tracking"""
+    send_progress = progress_sender(progress_queue, session_id)
+        
+    send_progress('loading', 0, 100, 'Reading file...', 5)
+        
+    # Read file
+    df = read_data_file(file_path)
+        
+    send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows', 15)
+        
+    # Validate columns exist
+    all_cols = (rows or []) + (columns or []) + (values or []) + list((filters or {}).keys())
+    invalid_cols = [col for col in all_cols if col not in df.columns]
+    if invalid_cols:
+        raise UserError(f"Columns not found in file: {', '.join(invalid_cols)}")
+        
+    send_progress('preparing', 0, 100, 'Preparing data for pivot...', 20)
+
+    # Apply filters if any
+    if filters:
+        for filter_col, filter_value in filters.items():
+            if filter_value:
+                # Compare as canonical text so a number filter ("2023") matches 2023, 2023.0 and '2023'
+                wanted = str(filter_value).strip()
+                df = df[df[filter_col].map(lambda v: (lambda t: isinstance(t, str) and t.strip() == wanted)(_comparable_text(v)))]
+        
+    send_progress('preparing', 50, 100, 'Creating pivot table...', 30)
+        
+    # Validate that we have required parameters
+    if not values:
+        raise UserError("At least one value field must be selected for the pivot table")
+        
+    # The pivot works on its own trimmed copy so the "Source Data" sheet keeps the original values.
+    dimension_cols = list(dict.fromkeys((rows or []) + (columns or [])))
+    pivot_input = df[list(dict.fromkeys(dimension_cols + list(values)))].copy()
+        
+    # A blank row/column label would silently vanish from the table and from the totals
+    for col in dimension_cols:
+        pivot_input[col] = pivot_input[col].where(pivot_input[col].notna(), '(blank)')
+        
+    # Files are read losslessly (values keep their stored type), so the values to add up are converted
+    # explicitly. Anything that is not a number is ignored and reported.
+    ignored_non_numeric = {}
+    if aggfunc not in ('count', 'nunique'):
+        converted = {}
+        for value_col in values:
+            numeric = pd.to_numeric(pivot_input[value_col], errors='coerce')
+            converted[value_col] = (numeric, int((numeric.isna() & pivot_input[value_col].notna()).sum()))
+        if aggfunc or all(ignored == 0 for _, ignored in converted.values()):
+            for value_col, (numeric, ignored) in converted.items():
+                pivot_input[value_col] = numeric
+                if ignored:
+                    ignored_non_numeric[value_col] = ignored
+        
+    # Determine default aggregation if not provided: add up numbers, otherwise count
+    if not aggfunc:
+        aggfunc = 'sum' if all(pd.api.types.is_numeric_dtype(pivot_input[c]) for c in values) else 'count'
+        
+    # Create pivot table
+    pivot_params = {
+        'index': rows if rows else None,
+        'columns': columns if columns else None,
+        'values': values,
+        'aggfunc': aggfunc
+    }
+        
+    # Remove None values from index/columns (but keep values)
+    if pivot_params['index'] is None:
+        del pivot_params['index']
+    if pivot_params['columns'] is None:
+        del pivot_params['columns']
+        
+    # Empty combinations are 0 only where 0 is true (sums and counts); for mean/min/max they stay empty.
+    # dropna=False keeps every row in the totals (the default drops rows with a blank in ANY pivot column).
+    fill_value = 0 if aggfunc in ('sum', 'count', 'nunique') else None
+    margins_added = True
+    used_labels = {str(v) for col in dimension_cols for v in pivot_input[col].unique()}
+    margins_name = next(name for name in ('Total', 'Grand Total', 'Grand Total (all rows)') if name not in used_labels)
     try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
-        
-        send_progress('loading', 0, 100, 'Reading file...', 5)
-        
-        # Read file
-        df = read_data_file(file_path)
-        
-        send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows', 15)
-        
-        # Validate columns exist
-        all_cols = (rows or []) + (columns or []) + (values or []) + list((filters or {}).keys())
-        invalid_cols = [col for col in all_cols if col not in df.columns]
-        if invalid_cols:
-            raise ValueError(f"Columns not found in file: {', '.join(invalid_cols)}")
-        
-        send_progress('preparing', 0, 100, 'Preparing data for pivot...', 20)
-
-        # Apply filters if any
-        if filters:
-            for filter_col, filter_value in filters.items():
-                if filter_value:
-                    # Compare as canonical text so a number filter ("2023") matches 2023, 2023.0 and '2023'
-                    wanted = str(filter_value).strip()
-                    df = df[df[filter_col].map(lambda v: (lambda t: isinstance(t, str) and t.strip() == wanted)(_comparable_text(v)))]
-        
-        send_progress('preparing', 50, 100, 'Creating pivot table...', 30)
-        
-        # Validate that we have required parameters
-        if not values:
-            raise ValueError("At least one value field must be selected for the pivot table")
-        
-        # The pivot works on its own trimmed copy so the "Source Data" sheet keeps the original values.
-        dimension_cols = list(dict.fromkeys((rows or []) + (columns or [])))
-        pivot_input = df[list(dict.fromkeys(dimension_cols + list(values)))].copy()
-        
-        # A blank row/column label would silently vanish from the table and from the totals
-        for col in dimension_cols:
-            pivot_input[col] = pivot_input[col].where(pivot_input[col].notna(), '(blank)')
-        
-        # Files are read losslessly (values keep their stored type), so the values to add up are converted
-        # explicitly. Anything that is not a number is ignored and reported.
-        ignored_non_numeric = {}
-        if aggfunc not in ('count', 'nunique'):
-            converted = {}
-            for value_col in values:
-                numeric = pd.to_numeric(pivot_input[value_col], errors='coerce')
-                converted[value_col] = (numeric, int((numeric.isna() & pivot_input[value_col].notna()).sum()))
-            if aggfunc or all(ignored == 0 for _, ignored in converted.values()):
-                for value_col, (numeric, ignored) in converted.items():
-                    pivot_input[value_col] = numeric
-                    if ignored:
-                        ignored_non_numeric[value_col] = ignored
-        
-        # Determine default aggregation if not provided: add up numbers, otherwise count
-        if not aggfunc:
-            aggfunc = 'sum' if all(pd.api.types.is_numeric_dtype(pivot_input[c]) for c in values) else 'count'
-        
-        # Create pivot table
-        pivot_params = {
-            'index': rows if rows else None,
-            'columns': columns if columns else None,
-            'values': values,
-            'aggfunc': aggfunc
-        }
-        
-        # Remove None values from index/columns (but keep values)
-        if pivot_params['index'] is None:
-            del pivot_params['index']
-        if pivot_params['columns'] is None:
-            del pivot_params['columns']
-        
-        # Empty combinations are 0 only where 0 is true (sums and counts); for mean/min/max they stay empty.
-        # dropna=False keeps every row in the totals (the default drops rows with a blank in ANY pivot column).
-        fill_value = 0 if aggfunc in ('sum', 'count', 'nunique') else None
-        margins_added = True
-        used_labels = {str(v) for col in dimension_cols for v in pivot_input[col].unique()}
-        margins_name = next(name for name in ('Total', 'Grand Total', 'Grand Total (all rows)') if name not in used_labels)
-        try:
-            pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False,
-                                      margins=True, margins_name=margins_name)
-        except Exception as e:
-            # If margins fail, try without
-            margins_added = False
-            print(f"Warning: Could not add totals/margins: {e}")
-            pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False)
-        
-        # dropna=False also invents every combination of the row (and column) labels. Keep only combinations that
-        # exist in the data, plus the margin row/columns (those are always last, so found by position).
-        def last_per_block(labels):
-            last = {}
-            for position, label in enumerate(labels):
-                last[label[0] if isinstance(label, tuple) else None] = position
-            return set(last.values())
-        
-        if rows:
-            observed_rows = set(pivot_input[rows].itertuples(index=False, name=None))
-            labels = list(pivot_df.index)
-            keep_rows = []
-            for position, label in enumerate(labels):
-                is_margin = margins_added and position == len(labels) - 1
-                keep_rows.append(is_margin or (label if isinstance(label, tuple) else (label,)) in observed_rows)
-            pivot_df = pivot_df.loc[keep_rows]
-        if columns:
-            observed_columns = set(pivot_input[columns].itertuples(index=False, name=None))
-            margin_positions = last_per_block(pivot_df.columns) if margins_added else set()
-            keep_columns = [
-                position in margin_positions or tuple(label[1:1 + len(columns)]) in observed_columns
-                for position, label in enumerate(pivot_df.columns)
-            ]
-            pivot_df = pivot_df.loc[:, keep_columns]
-        
-        # Margin columns by position: the last column of each value block when there is a column dimension
-        total_column_positions = last_per_block(pivot_df.columns) if (margins_added and columns) else set()
-        
-        send_progress('preparing', 100, 100, f'Pivot table created: {len(pivot_df):,} rows, {len(pivot_df.columns)} columns', 50)
-        
-        send_progress('saving', 0, 100, 'Saving results...', 60)
-        
-        # Flatten MultiIndex columns if they exist (handle all cases)
-        def flatten_columns(df):
-            """Flatten MultiIndex columns to single level"""
-            if isinstance(df.columns, pd.MultiIndex):
-                # Get column names and flatten them
-                new_columns = []
-                for col in df.columns:
-                    if isinstance(col, tuple):
-                        # Join tuple elements, filtering out empty strings and None
-                        parts = [str(c) for c in col if c is not None and str(c) not in ['', 'nan', 'None']]
-                        flattened = '_'.join(parts) if parts else 'Value'
-                        # Clean up multiple underscores
-                        while '__' in flattened:
-                            flattened = flattened.replace('__', '_')
-                        flattened = flattened.strip('_')
-                        new_columns.append(flattened if flattened else 'Value')
-                    else:
-                        new_columns.append(str(col) if col is not None else 'Value')
-                df.columns = new_columns
-            return df
-        
-        # Flatten MultiIndex columns BEFORE reset_index (if they exist)
-        pivot_df = flatten_columns(pivot_df)
-        
-        # Reset index to make it a proper table structure
-        # Handle MultiIndex index properly
-        if isinstance(pivot_df.index, pd.MultiIndex):
-            pivot_df_reset = pivot_df.reset_index()
-        else:
-            pivot_df_reset = pivot_df.reset_index()
-        
-        # Flatten again after reset in case reset_index created new MultiIndex columns
-        pivot_df_reset = flatten_columns(pivot_df_reset)
-        
-        # Create summary
-        summary_data = {
-            'Metric': [
-                'Source Rows',
-                'Pivot Rows',
-                'Pivot Columns',
-                'Aggregation Function',
-                'Row Dimensions',
-                'Column Dimensions',
-                'Value Fields'
-            ],
-            'Value': [
-                len(df),
-                len(pivot_df_reset),
-                len(pivot_df_reset.columns),
-                aggfunc if aggfunc else 'sum',
-                ', '.join(rows) if rows else 'None',
-                ', '.join(columns) if columns else 'None',
-                ', '.join(values) if values else 'All Numeric'
-            ]
-        }
-        summary_df = pd.DataFrame(summary_data)
-        
-        # Ensure summary_df doesn't have MultiIndex columns
-        summary_df = flatten_columns(summary_df.copy())
-        
-        # Save to Excel with formatting
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"pivot_{timestamp}"
-        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
-        
-        # The workbook is written once, already styled, straight through xlsxwriter (no re-opening it to style cells)
-        import xlsxwriter
-        if isinstance(pivot_df_reset.columns, pd.MultiIndex):
-            pivot_df_reset = flatten_columns(pivot_df_reset)
-        row_header_cols = len(rows) if rows else 0
-        n_rows, n_cols = pivot_df_reset.shape
-        if sheet_too_big(pivot_df_reset):
-            raise ValueError(f"The pivot table has {n_rows:,} rows x {n_cols:,} columns, which is more than an Excel "
-                             "sheet can hold. Use fewer or coarser row/column fields.")
-
-        workbook = xlsxwriter.Workbook(output_path, {'strings_to_formulas': False, 'strings_to_urls': False,
-                                                     'default_date_format': 'yyyy-mm-dd hh:mm:ss'})
-        try:
-            border = {'border': 1, 'border_color': '#4472C4'}
-            number_format = '#,##0' if aggfunc in ('count', 'nunique') else '#,##0.00'
-            formats = {}
-
-            def fmt(**props):
-                key = tuple(sorted(props.items()))
-                if key not in formats:
-                    formats[key] = workbook.add_format(props)
-                return formats[key]
-
-            head_row = dict(bold=True, font_color='#FFFFFF', font_size=11, align='center', valign='vcenter', text_wrap=True)
-            sheet = workbook.add_worksheet('Pivot Table')
-            sheet.set_row(0, 25)
-            for c, name in enumerate(pivot_df_reset.columns):
-                sheet.write_string(0, c, str(name), fmt(bg_color='#2F5597' if c < row_header_cols else '#4472C4', **head_row))
-            send_progress('saving', 0, max(n_rows, 1), 'Writing and formatting the pivot table...', 62)
-
-            total_cols = {row_header_cols + pos for pos in total_column_positions}
-            cells = pivot_df_reset.astype(object).where(pivot_df_reset.notna(), None)
-            for r, row in enumerate(cells.itertuples(index=False, name=None), 1):
-                if r % 2000 == 0:
-                    send_progress('saving', r, n_rows, f'Formatting: {r:,}/{n_rows:,} rows...',
-                                  62 + int(r / max(n_rows, 1) * 28))
-                is_total_row = margins_added and r == n_rows
-                for c, value in enumerate(row):
-                    if c < row_header_cols:
-                        is_when = isinstance(value, (datetime, date))
-                        style = fmt(bg_color='#B4C6E7' if is_total_row else '#D9E1F2', bold=True,
-                                    font_size=11 if is_total_row else 10, align='left', valign='vcenter',
-                                    **({'num_format': 'yyyy-mm-dd hh:mm:ss'} if is_when else {}), **border)
-                        if value is None:
-                            sheet.write_blank(r, c, None, style)
-                        elif is_when:
-                            sheet.write_datetime(r, c, value, style)
-                        else:
-                            sheet.write(r, c, value, style)
-                        continue
-                    total = is_total_row or c in total_cols
-                    base = dict(valign='vcenter', **border)
-                    if total:
-                        base.update(bg_color='#B4C6E7', bold=True, font_size=11)
-                    else:
-                        base.update(font_size=10)
-                        if r % 2 == 0:
-                            base.update(bg_color='#F2F2F2')
-                    if value is None:
-                        sheet.write_blank(r, c, None, fmt(align='center', **base))
-                    elif isinstance(value, float) and value in (float('inf'), float('-inf')):
-                        sheet.write_string(r, c, 'inf' if value > 0 else '-inf', fmt(align='right', **base))
-                    elif isinstance(value, (int, float)) and not isinstance(value, bool):
-                        sheet.write_number(r, c, value, fmt(align='right', num_format=number_format, **base))
-                    elif isinstance(value, (datetime, date)):
-                        sheet.write_datetime(r, c, value, fmt(align='left', num_format='yyyy-mm-dd hh:mm:ss', **base))
-                    else:
-                        sheet.write(r, c, value, fmt(align='left', **base))
-
-            sheet.freeze_panes(1, row_header_cols)
-            # Column widths from the header and the first 1,000 rows
-            send_progress('saving', 0, max(n_cols, 1), 'Adjusting column widths...', 92)
-            sample = pivot_df_reset.head(1000)
-            for c, name in enumerate(pivot_df_reset.columns):
-                longest = max([len(str(name))] + [len(str(v)) for v in sample.iloc[:, c].dropna()])
-                sheet.set_column(c, c, min(max(longest + 2, 12), 50))
-
-            def plain_sheet(name, frame):
-                ws_ = workbook.add_worksheet(name)
-                head = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'top'})
-                ws_.write_row(0, 0, [str(c) for c in frame.columns], head)
-                body = frame.astype(object).where(frame.notna(), None)
-                for r_, row_ in enumerate(body.itertuples(index=False, name=None), 1):
-                    ws_.write_row(r_, 0, row_)
-
-            plain_sheet('Summary', summary_df)
-            if len(df) > PIVOT_SOURCE_SHEET_LIMIT:
-                note_warning(session_id, f"The Source Data sheet was left out because the file has more than "
-                                         f"{PIVOT_SOURCE_SHEET_LIMIT:,} rows.")
-            else:
-                plain_sheet('Source Data', df)
-            send_progress('saving', max(n_cols, 1), max(n_cols, 1), 'Saving file...', 95)
-        finally:
-            workbook.close()
-        
-        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
-        
-        send_progress('saving', 100, 100, 'Results saved...', 95)
-        
-        # Store summary data before cleanup
-        source_rows_total = len(df)
-        pivot_rows_total = len(pivot_df_reset)
-        pivot_cols_total = len(pivot_df_reset.columns)
-        
-        # Prepare preview data
-        preview_data = []
-        if len(pivot_df_reset) > 0:
-            preview_df = pivot_df_reset.head(50)
-            for _, row in preview_df.iterrows():
-                row_dict = {}
-                for col in preview_df.columns:
-                    val = row[col]
-                    if pd.isna(val):
-                        row_dict[col] = None
-                    else:
-                        row_dict[col] = str(val)
-                preview_data.append(row_dict)
-        
-        # Clean up
-        del df
-        del pivot_df
-        os.remove(file_path)
-        
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': 100,
-            'total': 100,
-            'percentage': 100,
-            'message': 'Complete!',
-            'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
-            'summary': {
-                'source_rows': int(source_rows_total),
-                'pivot_rows': int(pivot_rows_total),
-                'pivot_cols': int(pivot_cols_total),
-                'aggfunc': aggfunc if aggfunc else 'sum'
-            },
-            'preview': preview_data
-        }
-        if ignored_non_numeric:
-            final_message['ignored_non_numeric'] = ignored_non_numeric
-            final_message['warning'] = 'Non-numeric values were ignored: ' + ', '.join(
-                f'{count} in {col}' for col, count in ignored_non_numeric.items()) + '.'
-        
-        try:
-            progress_queue.put(final_message, timeout=5)
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
-        
-        print("Pivot table generation complete!")
-        
+        pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False,
+                                  margins=True, margins_name=margins_name)
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
+        # If margins fail, try without
+        margins_added = False
+        log.warning(f"Warning: Could not add totals/margins: {e}")
+        pivot_df = pd.pivot_table(pivot_input, **pivot_params, fill_value=fill_value, dropna=False)
         
-        # Clean up on error
-        if 'file_path' in locals() and os.path.exists(file_path):
-            os.remove(file_path)
-        if 'df' in locals():
-            del df
-        if 'pivot_df' in locals():
-            del pivot_df
-        if 'pivot_df_reset' in locals():
-            del pivot_df_reset
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
+    # dropna=False also invents every combination of the row (and column) labels. Keep only combinations that
+    # exist in the data, plus the margin row/columns (those are always last, so found by position).
+    def last_per_block(labels):
+        last = {}
+        for position, label in enumerate(labels):
+            last[label[0] if isinstance(label, tuple) else None] = position
+        return set(last.values())
+        
+    if rows:
+        observed_rows = set(pivot_input[rows].itertuples(index=False, name=None))
+        labels = list(pivot_df.index)
+        keep_rows = []
+        for position, label in enumerate(labels):
+            is_margin = margins_added and position == len(labels) - 1
+            keep_rows.append(is_margin or (label if isinstance(label, tuple) else (label,)) in observed_rows)
+        pivot_df = pivot_df.loc[keep_rows]
+    if columns:
+        observed_columns = set(pivot_input[columns].itertuples(index=False, name=None))
+        margin_positions = last_per_block(pivot_df.columns) if margins_added else set()
+        keep_columns = [
+            position in margin_positions or tuple(label[1:1 + len(columns)]) in observed_columns
+            for position, label in enumerate(pivot_df.columns)
+        ]
+        pivot_df = pivot_df.loc[:, keep_columns]
+        
+    # Margin columns by position: the last column of each value block when there is a column dimension
+    total_column_positions = last_per_block(pivot_df.columns) if (margins_added and columns) else set()
+        
+    send_progress('preparing', 100, 100, f'Pivot table created: {len(pivot_df):,} rows, {len(pivot_df.columns)} columns', 50)
+        
+    send_progress('saving', 0, 100, 'Saving results...', 60)
+        
+    # Flatten MultiIndex columns if they exist (handle all cases)
+    def flatten_columns(df):
+        """Flatten MultiIndex columns to single level"""
+        if isinstance(df.columns, pd.MultiIndex):
+            # Get column names and flatten them
+            new_columns = []
+            for col in df.columns:
+                if isinstance(col, tuple):
+                    # Join tuple elements, filtering out empty strings and None
+                    parts = [str(c) for c in col if c is not None and str(c) not in ['', 'nan', 'None']]
+                    flattened = '_'.join(parts) if parts else 'Value'
+                    # Clean up multiple underscores
+                    while '__' in flattened:
+                        flattened = flattened.replace('__', '_')
+                    flattened = flattened.strip('_')
+                    new_columns.append(flattened if flattened else 'Value')
+                else:
+                    new_columns.append(str(col) if col is not None else 'Value')
+            df.columns = new_columns
+        return df
+        
+    # Flatten MultiIndex columns BEFORE reset_index (if they exist)
+    pivot_df = flatten_columns(pivot_df)
+        
+    # Reset index to make it a proper table structure
+    # Handle MultiIndex index properly
+    if isinstance(pivot_df.index, pd.MultiIndex):
+        pivot_df_reset = pivot_df.reset_index()
+    else:
+        pivot_df_reset = pivot_df.reset_index()
+        
+    # Flatten again after reset in case reset_index created new MultiIndex columns
+    pivot_df_reset = flatten_columns(pivot_df_reset)
+        
+    # Create summary
+    summary_data = {
+        'Metric': [
+            'Source Rows',
+            'Pivot Rows',
+            'Pivot Columns',
+            'Aggregation Function',
+            'Row Dimensions',
+            'Column Dimensions',
+            'Value Fields'
+        ],
+        'Value': [
+            len(df),
+            len(pivot_df_reset),
+            len(pivot_df_reset.columns),
+            aggfunc if aggfunc else 'sum',
+            ', '.join(rows) if rows else 'None',
+            ', '.join(columns) if columns else 'None',
+            ', '.join(values) if values else 'All Numeric'
+        ]
+    }
+    summary_df = pd.DataFrame(summary_data)
+        
+    # Ensure summary_df doesn't have MultiIndex columns
+    summary_df = flatten_columns(summary_df.copy())
+        
+    # Save to Excel with formatting
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_filename = f"pivot_{timestamp}"
+    output_path = job_output_path(session_id, f"{output_filename}.xlsx")
+        
+    # The workbook is written once, already styled, straight through xlsxwriter (no re-opening it to style cells)
+    import xlsxwriter
+    if isinstance(pivot_df_reset.columns, pd.MultiIndex):
+        pivot_df_reset = flatten_columns(pivot_df_reset)
+    row_header_cols = len(rows) if rows else 0
+    n_rows, n_cols = pivot_df_reset.shape
+    if sheet_too_big(pivot_df_reset):
+        raise UserError(f"The pivot table has {n_rows:,} rows x {n_cols:,} columns, which is more than an Excel "
+                         "sheet can hold. Use fewer or coarser row/column fields.")
 
+    workbook = xlsxwriter.Workbook(output_path, {'strings_to_formulas': False, 'strings_to_urls': False,
+                                                 'default_date_format': 'yyyy-mm-dd hh:mm:ss'})
+    try:
+        border = {'border': 1, 'border_color': '#4472C4'}
+        number_format = '#,##0' if aggfunc in ('count', 'nunique') else '#,##0.00'
+        formats = {}
+
+        def fmt(**props):
+            key = tuple(sorted(props.items()))
+            if key not in formats:
+                formats[key] = workbook.add_format(props)
+            return formats[key]
+
+        head_row = dict(bold=True, font_color='#FFFFFF', font_size=11, align='center', valign='vcenter', text_wrap=True)
+        sheet = workbook.add_worksheet('Pivot Table')
+        sheet.set_row(0, 25)
+        for c, name in enumerate(pivot_df_reset.columns):
+            sheet.write_string(0, c, str(name), fmt(bg_color='#2F5597' if c < row_header_cols else '#4472C4', **head_row))
+        send_progress('saving', 0, max(n_rows, 1), 'Writing and formatting the pivot table...', 62)
+
+        total_cols = {row_header_cols + pos for pos in total_column_positions}
+        cells = pivot_df_reset.astype(object).where(pivot_df_reset.notna(), None)
+        for r, row in enumerate(cells.itertuples(index=False, name=None), 1):
+            if r % 2000 == 0:
+                send_progress('saving', r, n_rows, f'Formatting: {r:,}/{n_rows:,} rows...',
+                              62 + int(r / max(n_rows, 1) * 28))
+            is_total_row = margins_added and r == n_rows
+            for c, value in enumerate(row):
+                if c < row_header_cols:
+                    is_when = isinstance(value, (datetime, date))
+                    style = fmt(bg_color='#B4C6E7' if is_total_row else '#D9E1F2', bold=True,
+                                font_size=11 if is_total_row else 10, align='left', valign='vcenter',
+                                **({'num_format': 'yyyy-mm-dd hh:mm:ss'} if is_when else {}), **border)
+                    if value is None:
+                        sheet.write_blank(r, c, None, style)
+                    elif is_when:
+                        sheet.write_datetime(r, c, value, style)
+                    else:
+                        sheet.write(r, c, value, style)
+                    continue
+                total = is_total_row or c in total_cols
+                base = dict(valign='vcenter', **border)
+                if total:
+                    base.update(bg_color='#B4C6E7', bold=True, font_size=11)
+                else:
+                    base.update(font_size=10)
+                    if r % 2 == 0:
+                        base.update(bg_color='#F2F2F2')
+                if value is None:
+                    sheet.write_blank(r, c, None, fmt(align='center', **base))
+                elif isinstance(value, float) and value in (float('inf'), float('-inf')):
+                    sheet.write_string(r, c, 'inf' if value > 0 else '-inf', fmt(align='right', **base))
+                elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                    sheet.write_number(r, c, value, fmt(align='right', num_format=number_format, **base))
+                elif isinstance(value, (datetime, date)):
+                    sheet.write_datetime(r, c, value, fmt(align='left', num_format='yyyy-mm-dd hh:mm:ss', **base))
+                else:
+                    sheet.write(r, c, value, fmt(align='left', **base))
+
+        sheet.freeze_panes(1, row_header_cols)
+        # Column widths from the header and the first 1,000 rows
+        send_progress('saving', 0, max(n_cols, 1), 'Adjusting column widths...', 92)
+        sample = pivot_df_reset.head(1000)
+        for c, name in enumerate(pivot_df_reset.columns):
+            longest = max([len(str(name))] + [len(str(v)) for v in sample.iloc[:, c].dropna()])
+            sheet.set_column(c, c, min(max(longest + 2, 12), 50))
+
+        def plain_sheet(name, frame):
+            ws_ = workbook.add_worksheet(name)
+            head = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'top'})
+            ws_.write_row(0, 0, [str(c) for c in frame.columns], head)
+            body = frame.astype(object).where(frame.notna(), None)
+            for r_, row_ in enumerate(body.itertuples(index=False, name=None), 1):
+                ws_.write_row(r_, 0, row_)
+
+        plain_sheet('Summary', summary_df)
+        if len(df) > PIVOT_SOURCE_SHEET_LIMIT:
+            note_warning(session_id, f"The Source Data sheet was left out because the file has more than "
+                                     f"{PIVOT_SOURCE_SHEET_LIMIT:,} rows.")
+        else:
+            plain_sheet('Source Data', df)
+        send_progress('saving', max(n_cols, 1), max(n_cols, 1), 'Saving file...', 95)
+    finally:
+        workbook.close()
+        
+    download_url = job_download_url(session_id, f"{output_filename}.xlsx")
+        
+    send_progress('saving', 100, 100, 'Results saved...', 95)
+        
+    # Store summary data before cleanup
+    source_rows_total = len(df)
+    pivot_rows_total = len(pivot_df_reset)
+    pivot_cols_total = len(pivot_df_reset.columns)
+        
+    # Prepare preview data
+    preview_data = df_preview_text(pivot_df_reset, 50)
+        
+    # Clean up
+    del df
+    del pivot_df
+    os.remove(file_path)
+        
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': 100,
+        'total': 100,
+        'percentage': 100,
+        'message': 'Complete!',
+        'download_url': download_url,
+        'output_filename': os.path.basename(output_path),
+        'summary': {
+            'source_rows': int(source_rows_total),
+            'pivot_rows': int(pivot_rows_total),
+            'pivot_cols': int(pivot_cols_total),
+            'aggfunc': aggfunc if aggfunc else 'sum'
+        },
+        'preview': preview_data
+    }
+    if ignored_non_numeric:
+        final_message['ignored_non_numeric'] = ignored_non_numeric
+        final_message['warning'] = 'Non-numeric values were ignored: ' + ', '.join(
+            f'{count} in {col}' for col, count in ignored_non_numeric.items()) + '.'
+        
+    progress_queue.put(final_message)
+        
+        
 @app.route('/generate-pivot', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def generate_pivot():
     """Generate pivot table - returns session_id for progress tracking"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'Please upload a file'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': 'Please upload a file'}), 400
         
-        file = request.files['file']
+    file = request.files['file']
         
-        if file.filename == '':
-            return jsonify({'error': 'File must be selected'}), 400
+    if file.filename == '':
+        return jsonify({'error': 'File must be selected'}), 400
         
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
+    # Validate file extension
+    if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+        return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
         
-        # Get pivot parameters
-        rows = request.form.getlist('rows[]')
-        columns = request.form.getlist('columns[]')
-        values = request.form.getlist('values[]')
-        aggfunc = request.form.get('aggfunc', 'sum').strip()
-        filters = {}
+    # Get pivot parameters
+    rows = request.form.getlist('rows[]')
+    columns = request.form.getlist('columns[]')
+    values = request.form.getlist('values[]')
+    aggfunc = request.form.get('aggfunc', 'sum').strip()
+    filters = {}
         
-        # Get filters (if any)
-        filter_cols = request.form.getlist('filter_columns[]')
-        filter_values = request.form.getlist('filter_values[]')
-        for col, val in zip(filter_cols, filter_values):
-            if col and val:
-                filters[col] = val
+    # Get filters (if any)
+    filter_cols = request.form.getlist('filter_columns[]')
+    filter_values = request.form.getlist('filter_values[]')
+    for col, val in zip(filter_cols, filter_values):
+        if col and val:
+            filters[col] = val
         
-        # At least one dimension required
-        if not rows and not columns:
-            return jsonify({'error': 'Please select at least one row or column dimension'}), 400
+    # At least one dimension required
+    if not rows and not columns:
+        return jsonify({'error': 'Please select at least one row or column dimension'}), 400
         
-        # Save file temporarily
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"pivot_{timestamp}_{secrets.token_hex(8)}"
+    # Save file temporarily
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    session_id = f"pivot_{timestamp}_{secrets.token_hex(8)}"
         
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         
-        save_upload(file, file_path, session_id)
+    save_upload(file, file_path, session_id)
         
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(generate_pivot_async, file_path, rows, columns, values, aggfunc, filters, progress_queue, session_id)
+    progress_queue = open_job(session_id)
+    start_job(generate_pivot_async, file_path, rows, columns, values, aggfunc, filters, progress_queue, session_id)
         
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/data-validation')
 def data_validation():
     return render_template('data_validation.html')
@@ -4498,7 +4007,7 @@ def validation_mask(series, rule, budget, number=0):
         try:
             return cast(float(raw)) if cast is int else float(raw)
         except (TypeError, ValueError):
-            raise ValueError(f"Rule {number} ({col}): the {name} '{raw}' is not a number")
+            raise UserError(f"Rule {number} ({col}): the {name} '{raw}' is not a number")
 
     if rule_type == 'required':
         return blank, lambda v: f"{col}: Required field is empty"
@@ -4549,209 +4058,168 @@ def validation_mask(series, rule, budget, number=0):
     return pd.Series(False, index=series.index), lambda v: ''
 
 
+@job_worker('file_path')
 def validate_data_async(file_path, validation_rules, progress_queue, session_id):
     """Validate data in background thread with progress tracking"""
-    try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+    send_progress = progress_sender(progress_queue, session_id)
         
-        send_progress('loading', 0, 100, 'Reading file...', 5)
+    send_progress('loading', 0, 100, 'Reading file...', 5)
         
-        # Read file
-        df = read_data_file(file_path)
+    # Read file
+    df = read_data_file(file_path)
         
-        send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows', 15)
+    send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows', 15)
         
-        send_progress('validating', 0, 100, 'Validating data...', 20)
+    send_progress('validating', 0, 100, 'Validating data...', 20)
         
-        # Parse validation rules
-        import json
-        rules = json.loads(validation_rules) if isinstance(validation_rules, str) else validation_rules
+    # Parse validation rules
+    import json
+    rules = json.loads(validation_rules) if isinstance(validation_rules, str) else validation_rules
         
-        total_rows = len(df)
-        pattern_budget = datadragon_regex.Budget()
+    total_rows = len(df)
+    pattern_budget = datadragon_regex.Budget()
 
-        # One boolean mask per rule (True = the cell breaks the rule), computed for the whole column at once
-        checks = []   # (column, mask, message(value) -> str)
-        for number, rule in enumerate(rules, 1):
-            col = rule.get('column')
-            if col not in df.columns:
-                continue
-            checks.append((col,) + validation_mask(df[col], rule, pattern_budget, number))
-            send_progress('validating', number, len(rules), f'Checked rule {number} of {len(rules)}',
-                          20 + int(number / len(rules) * 50))
+    # One boolean mask per rule (True = the cell breaks the rule), computed for the whole column at once
+    checks = []   # (column, mask, message(value) -> str)
+    for number, rule in enumerate(rules, 1):
+        col = rule.get('column')
+        if col not in df.columns:
+            continue
+        checks.append((col,) + validation_mask(df[col], rule, pattern_budget, number))
+        send_progress('validating', number, len(rules), f'Checked rule {number} of {len(rules)}',
+                      20 + int(number / len(rules) * 50))
 
-        invalid_mask = pd.Series(False, index=df.index)
-        failures_total = 0
-        for _, mask, _ in checks:
-            invalid_mask |= mask
-            failures_total += int(mask.sum())
-        invalid_count = int(invalid_mask.sum())
-        valid_count = total_rows - invalid_count
+    invalid_mask = pd.Series(False, index=df.index)
+    failures_total = 0
+    for _, mask, _ in checks:
+        invalid_mask |= mask
+        failures_total += int(mask.sum())
+    invalid_count = int(invalid_mask.sum())
+    valid_count = total_rows - invalid_count
 
-        send_progress('validating', len(rules), len(rules),
-                      f'Validation complete: {invalid_count:,} invalid rows, {failures_total:,} rule failures', 70)
-        send_progress('saving', 0, 100, 'Saving validation results...', 75)
+    send_progress('validating', len(rules), len(rules),
+                  f'Validation complete: {invalid_count:,} invalid rows, {failures_total:,} rule failures', 70)
+    send_progress('saving', 0, 100, 'Saving validation results...', 75)
 
-        # Row-level detail is written for the first VALIDATION_DETAIL_LIMIT invalid rows only
-        positions = np.flatnonzero(invalid_mask.to_numpy())
-        truncated = len(positions) > VALIDATION_DETAIL_LIMIT
-        shown = positions[:VALIDATION_DETAIL_LIMIT]
-        shown_pos = {int(p): n for n, p in enumerate(shown)}
-        messages = [[] for _ in shown]
-        for col, mask, message in checks:
-            hit = np.flatnonzero(mask.to_numpy()[shown])
-            values = df[col].iloc[shown[hit]]
-            for n, value in zip(hit, values):
-                messages[int(n)].append(message(value))
-        errors = [{'row': int(p) + 2, 'errors': messages[n]} for p, n in shown_pos.items()]   # spreadsheet row number
+    # Row-level detail is written for the first VALIDATION_DETAIL_LIMIT invalid rows only
+    positions = np.flatnonzero(invalid_mask.to_numpy())
+    truncated = len(positions) > VALIDATION_DETAIL_LIMIT
+    shown = positions[:VALIDATION_DETAIL_LIMIT]
+    shown_pos = {int(p): n for n, p in enumerate(shown)}
+    messages = [[] for _ in shown]
+    for col, mask, message in checks:
+        hit = np.flatnonzero(mask.to_numpy()[shown])
+        values = df[col].iloc[shown[hit]]
+        for n, value in zip(hit, values):
+            messages[int(n)].append(message(value))
+    errors = [{'row': int(p) + 2, 'errors': messages[n]} for p, n in shown_pos.items()]   # spreadsheet row number
 
-        summary_data = {
-            'Metric': ['Total Rows', 'Valid Rows', 'Invalid Rows', 'Error Rate (%)', 'Total Rule Failures'],
-            'Value': [total_rows, valid_count, invalid_count,
-                      round((invalid_count / total_rows * 100) if total_rows > 0 else 0, 2), failures_total],
-        }
-        if truncated:
-            summary_data['Metric'].append('Note')
-            summary_data['Value'].append(f'Details shown for the first {VALIDATION_DETAIL_LIMIT:,} of {invalid_count:,} invalid rows')
-        write_valid = valid_count <= VALIDATION_VALID_SHEET_LIMIT
-        if not write_valid:
-            summary_data['Metric'].append('Note')
-            summary_data['Value'].append(f'Valid Records sheet omitted: more than {VALIDATION_VALID_SHEET_LIMIT:,} valid rows '
-                                         '(they are your original rows minus the invalid ones)')
-        summary_df = pd.DataFrame(summary_data)
+    summary_data = {
+        'Metric': ['Total Rows', 'Valid Rows', 'Invalid Rows', 'Error Rate (%)', 'Total Rule Failures'],
+        'Value': [total_rows, valid_count, invalid_count,
+                  round((invalid_count / total_rows * 100) if total_rows > 0 else 0, 2), failures_total],
+    }
+    if truncated:
+        summary_data['Metric'].append('Note')
+        summary_data['Value'].append(f'Details shown for the first {VALIDATION_DETAIL_LIMIT:,} of {invalid_count:,} invalid rows')
+    write_valid = valid_count <= VALIDATION_VALID_SHEET_LIMIT
+    if not write_valid:
+        summary_data['Metric'].append('Note')
+        summary_data['Value'].append(f'Valid Records sheet omitted: more than {VALIDATION_VALID_SHEET_LIMIT:,} valid rows '
+                                     '(they are your original rows minus the invalid ones)')
+    summary_df = pd.DataFrame(summary_data)
 
-        errors_df = (pd.DataFrame([{'Row Number': e['row'], 'Errors': '; '.join(e['errors'])} for e in errors])
-                     if errors else pd.DataFrame(columns=['Row Number', 'Errors']))
-        invalid_df = df.iloc[shown]
-        valid_df = df[~invalid_mask] if valid_count <= VALIDATION_VALID_SHEET_LIMIT else None
+    errors_df = (pd.DataFrame([{'Row Number': e['row'], 'Errors': '; '.join(e['errors'])} for e in errors])
+                 if errors else pd.DataFrame(columns=['Row Number', 'Errors']))
+    invalid_df = df.iloc[shown]
+    valid_df = df[~invalid_mask] if valid_count <= VALIDATION_VALID_SHEET_LIMIT else None
 
-        # Save to Excel
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"validation_{timestamp}"
-        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
+    # Save to Excel
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_filename = f"validation_{timestamp}"
+    output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with excel_writer(output_path) as writer:
-            summary_df.to_excel(writer, sheet_name='Validation Summary', index=False)
-            errors_df.to_excel(writer, sheet_name='Error Details', index=False)
-            if len(invalid_df) > 0:
-                invalid_df.to_excel(writer, sheet_name='Invalid Records', index=False)
-            if write_valid and len(valid_df) > 0:
-                valid_df.to_excel(writer, sheet_name='Valid Records', index=False)
+    with excel_writer(output_path) as writer:
+        summary_df.to_excel(writer, sheet_name='Validation Summary', index=False)
+        errors_df.to_excel(writer, sheet_name='Error Details', index=False)
+        if len(invalid_df) > 0:
+            invalid_df.to_excel(writer, sheet_name='Invalid Records', index=False)
+        if write_valid and len(valid_df) > 0:
+            valid_df.to_excel(writer, sheet_name='Valid Records', index=False)
         
-        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
+    download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
-        send_progress('saving', 100, 100, 'Results saved...', 95)
+    send_progress('saving', 100, 100, 'Results saved...', 95)
         
-        # Prepare preview data
-        preview_errors = errors[:50] if len(errors) > 50 else errors
+    # Prepare preview data
+    preview_errors = errors[:50] if len(errors) > 50 else errors
         
-        # Clean up
-        del df
-        os.remove(file_path)
+    # Clean up
+    del df
+    os.remove(file_path)
         
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': 100,
-            'total': 100,
-            'percentage': 100,
-            'message': 'Complete!',
-            'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
-            'summary': {
-                'total_rows': int(total_rows),
-                'valid_rows': valid_count,
-                'invalid_rows': invalid_count,
-                'error_rate': round((invalid_count / total_rows * 100) if total_rows > 0 else 0, 2),
-                'total_errors': failures_total,
-                'errors_total': failures_total,
-                'details_truncated': truncated,
-                'valid_sheet_omitted': not write_valid,
-            },
-            'preview': preview_errors
-        }
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': 100,
+        'total': 100,
+        'percentage': 100,
+        'message': 'Complete!',
+        'download_url': download_url,
+        'output_filename': os.path.basename(output_path),
+        'summary': {
+            'total_rows': int(total_rows),
+            'valid_rows': valid_count,
+            'invalid_rows': invalid_count,
+            'error_rate': round((invalid_count / total_rows * 100) if total_rows > 0 else 0, 2),
+            'total_errors': failures_total,
+            'errors_total': failures_total,
+            'details_truncated': truncated,
+            'valid_sheet_omitted': not write_valid,
+        },
+        'preview': preview_errors
+    }
         
-        try:
-            progress_queue.put(final_message, timeout=5)
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
+    progress_queue.put(final_message)
         
-        print("Validation complete!")
         
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Clean up on error
-        if 'file_path' in locals() and os.path.exists(file_path):
-            os.remove(file_path)
-        if 'df' in locals():
-            del df
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
-
 @app.route('/validate-data', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def validate_data():
     """Validate data - returns session_id for progress tracking"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'Please upload a file'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': 'Please upload a file'}), 400
         
-        file = request.files['file']
+    file = request.files['file']
         
-        if file.filename == '':
-            return jsonify({'error': 'File must be selected'}), 400
+    if file.filename == '':
+        return jsonify({'error': 'File must be selected'}), 400
         
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
+    # Validate file extension
+    if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+        return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
         
-        # Get validation rules
-        validation_rules = request.form.get('validation_rules', '[]')
+    # Get validation rules
+    validation_rules = request.form.get('validation_rules', '[]')
         
-        if not validation_rules or validation_rules == '[]':
-            return jsonify({'error': 'Please define at least one validation rule'}), 400
+    if not validation_rules or validation_rules == '[]':
+        return jsonify({'error': 'Please define at least one validation rule'}), 400
         
-        # Save file temporarily
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"validate_{timestamp}_{secrets.token_hex(8)}"
+    # Save file temporarily
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    session_id = f"validate_{timestamp}_{secrets.token_hex(8)}"
         
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         
-        save_upload(file, file_path, session_id)
+    save_upload(file, file_path, session_id)
         
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(validate_data_async, file_path, validation_rules, progress_queue, session_id)
+    progress_queue = open_job(session_id)
+    start_job(validate_data_async, file_path, validation_rules, progress_queue, session_id)
         
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/column-normalizer')
 def column_normalizer():
     return render_template('column_normalizer.html')
@@ -4831,7 +4299,7 @@ def detect_date_order(values):
         elif first <= 12 and second <= 12 and first != second:
             ambiguous.append(text)
     if day_first and month_first:
-        raise ValueError("This column mixes day-first and month-first dates (for example 13/02/2024 and 02/13/2024). "
+        raise UserError("This column mixes day-first and month-first dates (for example 13/02/2024 and 02/13/2024). "
                          "Fix the source or normalize those rows separately.")
     if day_first:
         return 'DMY'
@@ -4839,7 +4307,7 @@ def detect_date_order(values):
         return 'MDY'
     if ambiguous:
         shown = ', '.join(dict.fromkeys(ambiguous[:3]))
-        raise ValueError(f"The date order is ambiguous (for example {shown}): it could be day-first or month-first. "
+        raise UserError(f"The date order is ambiguous (for example {shown}): it could be day-first or month-first. "
                          f"Choose 'Month first' or 'Day first' under Date order.")
     return None
 
@@ -4950,262 +4418,219 @@ def normalize_series(series, target_type, trim_whitespace=False, decimal_separat
     return pd.Series(out, index=series.index, dtype=object), converted, errors, examples
 
 
+@job_worker('file_path')
 def normalize_columns_async(file_path, column_types, trim_whitespace, progress_queue, session_id,
                             decimal_separator='.', date_order='auto'):
     """Normalize column data types in background thread with progress tracking"""
-    try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+    send_progress = progress_sender(progress_queue, session_id)
         
-        send_progress('loading', 0, 100, 'Reading file...', 5)
+    send_progress('loading', 0, 100, 'Reading file...', 5)
         
-        # Read file
-        df = read_data_file(file_path)
+    # Read file
+    df = read_data_file(file_path)
         
-        send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 15)
+    send_progress('loading', 100, 100, f'File loaded: {len(df):,} rows, {len(df.columns)} columns', 15)
         
-        send_progress('normalizing', 0, len(df.columns), 'Normalizing columns...', 20)
+    send_progress('normalizing', 0, len(df.columns), 'Normalizing columns...', 20)
         
-        # Parse column types (JSON string or dict)
-        import json
-        if isinstance(column_types, str):
-            column_types = json.loads(column_types)
+    # Parse column types (JSON string or dict)
+    import json
+    if isinstance(column_types, str):
+        column_types = json.loads(column_types)
         
-        normalized_df = df.copy()
-        transformations_applied = []
-        conversion_failures = []
+    normalized_df = df.copy()
+    transformations_applied = []
+    conversion_failures = []
         
-        # Process each column
-        for col_idx, (col_name, target_type) in enumerate(column_types.items()):
+    # Process each column
+    for col_idx, (col_name, target_type) in enumerate(column_types.items()):
+        if col_name not in normalized_df.columns:
+            continue
+            
+        send_progress('normalizing', col_idx + 1, len(column_types), 
+                    f'Normalizing column: {col_name} to {target_type}...', 
+                    20 + int((col_idx / len(column_types)) * 60))
+            
+        normalized_df[col_name], transformed_count, error_count, failed_examples = normalize_series(
+            normalized_df[col_name], target_type, trim_whitespace, decimal_separator, date_order)
+        if error_count:
+            conversion_failures.append((col_name, target_type, error_count, failed_examples))
+            
+        transformations_applied.append({
+            'column': col_name,
+            'type': target_type,
+            'transformed': transformed_count,
+            'errors': error_count
+        })
+        
+    send_progress('saving', 0, 100, 'Saving normalized file...', 85)
+        
+    # Save to Excel with formatting
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_filename = f"normalized_{timestamp}"
+    output_path = job_output_path(session_id, f"{output_filename}.xlsx")
+        
+    summary_df = pd.DataFrame({
+        'Column': [t['column'] for t in transformations_applied],
+        'Target Type': [t['type'] for t in transformations_applied],
+        'Rows Transformed': [t['transformed'] for t in transformations_applied],
+        'Conversion Errors': [t['errors'] for t in transformations_applied]
+    })
+    output_path = write_sheets(output_path, [('Normalized Data', normalized_df),
+                                             ('Transformation Summary', summary_df)], session_id)
+    formatted = output_path.endswith('.xlsx')   # cell formatting only applies to the workbook, not CSV files
+
+    if formatted:
+        # Apply formatting for currency columns
+        from openpyxl import load_workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from openpyxl.styles.numbers import FORMAT_CURRENCY_USD, FORMAT_PERCENTAGE_00
+        
+        wb = load_workbook(output_path)
+        ws = wb['Normalized Data']
+        
+        # Format headers
+        header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF', size=11)
+        
+        for cell in ws[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        # Apply column-specific formatting (by the column's real position in the sheet)
+        for col_name, target_type in column_types.items():
             if col_name not in normalized_df.columns:
                 continue
-            
-            send_progress('normalizing', col_idx + 1, len(column_types), 
-                        f'Normalizing column: {col_name} to {target_type}...', 
-                        20 + int((col_idx / len(column_types)) * 60))
-            
-            normalized_df[col_name], transformed_count, error_count, failed_examples = normalize_series(
-                normalized_df[col_name], target_type, trim_whitespace, decimal_separator, date_order)
-            if error_count:
-                conversion_failures.append((col_name, target_type, error_count, failed_examples))
-            
-            transformations_applied.append({
-                'column': col_name,
-                'type': target_type,
-                'transformed': transformed_count,
-                'errors': error_count
-            })
+            col_idx = normalized_df.columns.get_loc(col_name) + 1
+            if target_type == 'currency' or target_type == 'dollar':
+                col_letter = ws.cell(row=1, column=col_idx).column_letter
+                for row in range(2, ws.max_row + 1):
+                    cell = ws[f'{col_letter}{row}']
+                    if cell.value is not None:
+                        cell.number_format = FORMAT_CURRENCY_USD
+            elif target_type == 'percentage':
+                col_letter = ws.cell(row=1, column=col_idx).column_letter
+                for row in range(2, ws.max_row + 1):
+                    cell = ws[f'{col_letter}{row}']
+                    if cell.value is not None:
+                        cell.number_format = FORMAT_PERCENTAGE_00
+            elif target_type == 'date':
+                col_letter = ws.cell(row=1, column=col_idx).column_letter
+                for row in range(2, ws.max_row + 1):
+                    cell = ws[f'{col_letter}{row}']
+                    if cell.value is not None:
+                        cell.number_format = 'mm/dd/yyyy'
         
-        send_progress('saving', 0, 100, 'Saving normalized file...', 85)
+        # Auto-adjust column widths
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
         
-        # Save to Excel with formatting
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"normalized_{timestamp}"
-        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
+        wb.save(output_path)
         
-        summary_df = pd.DataFrame({
-            'Column': [t['column'] for t in transformations_applied],
-            'Target Type': [t['type'] for t in transformations_applied],
-            'Rows Transformed': [t['transformed'] for t in transformations_applied],
-            'Conversion Errors': [t['errors'] for t in transformations_applied]
-        })
-        output_path = write_sheets(output_path, [('Normalized Data', normalized_df),
-                                                 ('Transformation Summary', summary_df)], session_id)
-        formatted = output_path.endswith('.xlsx')   # cell formatting only applies to the workbook, not CSV files
-
-        if formatted:
-            # Apply formatting for currency columns
-            from openpyxl import load_workbook
-            from openpyxl.styles import Font, PatternFill, Alignment
-            from openpyxl.styles.numbers import FORMAT_CURRENCY_USD, FORMAT_PERCENTAGE_00
+    download_url = job_download_url(session_id, os.path.basename(output_path))
         
-            wb = load_workbook(output_path)
-            ws = wb['Normalized Data']
+    send_progress('saving', 100, 100, 'File saved...', 95)
         
-            # Format headers
-            header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
-            header_font = Font(bold=True, color='FFFFFF', size=11)
+    # Store summary data
+    total_transformed = sum(t['transformed'] for t in transformations_applied)
+    total_errors = sum(t['errors'] for t in transformations_applied)
         
-            for cell in ws[1]:
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal='center', vertical='center')
+    # Clean up
+    del df
+    del normalized_df
+    os.remove(file_path)
         
-            # Apply column-specific formatting (by the column's real position in the sheet)
-            for col_name, target_type in column_types.items():
-                if col_name not in normalized_df.columns:
-                    continue
-                col_idx = normalized_df.columns.get_loc(col_name) + 1
-                if target_type == 'currency' or target_type == 'dollar':
-                    col_letter = ws.cell(row=1, column=col_idx).column_letter
-                    for row in range(2, ws.max_row + 1):
-                        cell = ws[f'{col_letter}{row}']
-                        if cell.value is not None:
-                            cell.number_format = FORMAT_CURRENCY_USD
-                elif target_type == 'percentage':
-                    col_letter = ws.cell(row=1, column=col_idx).column_letter
-                    for row in range(2, ws.max_row + 1):
-                        cell = ws[f'{col_letter}{row}']
-                        if cell.value is not None:
-                            cell.number_format = FORMAT_PERCENTAGE_00
-                elif target_type == 'date':
-                    col_letter = ws.cell(row=1, column=col_idx).column_letter
-                    for row in range(2, ws.max_row + 1):
-                        cell = ws[f'{col_letter}{row}']
-                        if cell.value is not None:
-                            cell.number_format = 'mm/dd/yyyy'
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': 100,
+        'total': 100,
+        'percentage': 100,
+        'message': 'Complete!',
+        'download_url': download_url,
+        'output_filename': os.path.basename(output_path),
+        'summary': {
+            'total_columns': len(transformations_applied),
+            'total_transformed': int(total_transformed),
+            'total_errors': int(total_errors)
+        },
+        'transformations': transformations_applied
+    }
+    if conversion_failures:
+        parts = [f"{col}: {count} (e.g. {', '.join(repr(x) for x in examples)})"
+                 for col, _, count, examples in conversion_failures]
+        hint = ''
+        if decimal_separator == '.' and any(t in ('integer', 'float', 'decimal', 'currency', 'dollar', 'percentage')
+                                            for _, t, _, _ in conversion_failures):
+            hint = " If numbers use a comma as the decimal separator (1.234,56), choose the comma number format."
+        final_message['warning'] = ("Values that could not be converted were left exactly as they were - "
+                                    + '; '.join(parts) + '.' + hint)
         
-            # Auto-adjust column widths
-            for column in ws.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                ws.column_dimensions[column_letter].width = adjusted_width
+    progress_queue.put(final_message)
         
-            wb.save(output_path)
         
-        download_url = job_download_url(session_id, os.path.basename(output_path))
-        
-        send_progress('saving', 100, 100, 'File saved...', 95)
-        
-        # Store summary data
-        total_transformed = sum(t['transformed'] for t in transformations_applied)
-        total_errors = sum(t['errors'] for t in transformations_applied)
-        
-        # Clean up
-        del df
-        del normalized_df
-        os.remove(file_path)
-        
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': 100,
-            'total': 100,
-            'percentage': 100,
-            'message': 'Complete!',
-            'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
-            'summary': {
-                'total_columns': len(transformations_applied),
-                'total_transformed': int(total_transformed),
-                'total_errors': int(total_errors)
-            },
-            'transformations': transformations_applied
-        }
-        if conversion_failures:
-            parts = [f"{col}: {count} (e.g. {', '.join(repr(x) for x in examples)})"
-                     for col, _, count, examples in conversion_failures]
-            hint = ''
-            if decimal_separator == '.' and any(t in ('integer', 'float', 'decimal', 'currency', 'dollar', 'percentage')
-                                                for _, t, _, _ in conversion_failures):
-                hint = " If numbers use a comma as the decimal separator (1.234,56), choose the comma number format."
-            final_message['warning'] = ("Values that could not be converted were left exactly as they were - "
-                                        + '; '.join(parts) + '.' + hint)
-        
-        try:
-            progress_queue.put(final_message, timeout=5)
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
-        
-        print("Column normalization complete!")
-        
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Clean up on error
-        if 'file_path' in locals() and os.path.exists(file_path):
-            os.remove(file_path)
-        if 'df' in locals():
-            del df
-        if 'normalized_df' in locals():
-            del normalized_df
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
-
 @app.route('/normalize-columns', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def normalize_columns():
     """Normalize columns - returns session_id for progress tracking"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'Please upload a file'}), 400
+        
+    file = request.files['file']
+        
+    if file.filename == '':
+        return jsonify({'error': 'File must be selected'}), 400
+        
+    # Validate file extension
+    if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+        return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
+        
+    # Get column types mapping
+    column_types_json = request.form.get('column_types', '{}')
+    trim_whitespace = request.form.get('trim_whitespace', 'false').lower() == 'true'
+    decimal_separator = request.form.get('decimal_separator', '.')
+    date_order = request.form.get('date_order', 'auto')
+    if decimal_separator not in ('.', ','):
+        return jsonify({'error': "decimal_separator must be '.' or ','"}), 400
+    if date_order not in _DATE_ORDERS:
+        return jsonify({'error': f"date_order must be one of: {', '.join(_DATE_ORDERS)}"}), 400
+        
     try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'Please upload a file'}), 400
+        import json
+        column_types = json.loads(column_types_json)
+        if not isinstance(column_types, dict):
+            return jsonify({'error': 'Invalid column types format'}), 400
+    except json.JSONDecodeError:
+        return jsonify({'error': 'Invalid JSON format for column types'}), 400
         
-        file = request.files['file']
+    if not column_types:
+        return jsonify({'error': 'Please select at least one column to normalize'}), 400
         
-        if file.filename == '':
-            return jsonify({'error': 'File must be selected'}), 400
+    # Save file temporarily
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    session_id = f"normalize_{timestamp}_{secrets.token_hex(8)}"
         
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         
-        # Get column types mapping
-        column_types_json = request.form.get('column_types', '{}')
-        trim_whitespace = request.form.get('trim_whitespace', 'false').lower() == 'true'
-        decimal_separator = request.form.get('decimal_separator', '.')
-        date_order = request.form.get('date_order', 'auto')
-        if decimal_separator not in ('.', ','):
-            return jsonify({'error': "decimal_separator must be '.' or ','"}), 400
-        if date_order not in _DATE_ORDERS:
-            return jsonify({'error': f"date_order must be one of: {', '.join(_DATE_ORDERS)}"}), 400
+    save_upload(file, file_path, session_id)
         
-        try:
-            import json
-            column_types = json.loads(column_types_json)
-            if not isinstance(column_types, dict):
-                return jsonify({'error': 'Invalid column types format'}), 400
-        except json.JSONDecodeError:
-            return jsonify({'error': 'Invalid JSON format for column types'}), 400
+    progress_queue = open_job(session_id)
+    start_job(normalize_columns_async, file_path, column_types, trim_whitespace, progress_queue, session_id, decimal_separator, date_order)
         
-        if not column_types:
-            return jsonify({'error': 'Please select at least one column to normalize'}), 400
-        
-        # Save file temporarily
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"normalize_{timestamp}_{secrets.token_hex(8)}"
-        
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        
-        save_upload(file, file_path, session_id)
-        
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(normalize_columns_async, file_path, column_types, trim_whitespace, progress_queue, session_id, decimal_separator, date_order)
-        
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/pdf-to-word')
 def pdf_to_word():
     return render_template('pdf_to_word.html')
@@ -5218,511 +4643,366 @@ def column_comparison():
 def transpose():
     return render_template('transpose.html')
 
+@job_worker('file_path')
 def convert_pdf_to_word_async(file_path, progress_queue, session_id):
     """Convert PDF to Word document in background thread with progress tracking"""
+    send_progress = progress_sender(progress_queue, session_id)
+        
+    send_progress('loading', 0, 100, 'Reading PDF file...', 5)
+        
+    # Import pdf2docx
     try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+        from pdf2docx import Converter
+    except ImportError:
+        raise ImportError("pdf2docx library is not installed. Please install it with: pip install pdf2docx")
         
-        send_progress('loading', 0, 100, 'Reading PDF file...', 5)
+    # Check if file exists
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"PDF file not found: {file_path}")
         
-        # Import pdf2docx
-        try:
-            from pdf2docx import Converter
-        except ImportError:
-            raise ImportError("pdf2docx library is not installed. Please install it with: pip install pdf2docx")
+    send_progress('loading', 50, 100, 'PDF file loaded...', 15)
         
-        # Check if file exists
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"PDF file not found: {file_path}")
+    send_progress('converting', 0, 100, 'Converting PDF to Word document...', 20)
         
-        send_progress('loading', 50, 100, 'PDF file loaded...', 15)
+    # Create output file path
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+    output_filename = f"converted_{timestamp}_{base_name}"
+    output_path = job_output_path(session_id, f"{output_filename}.docx")
         
-        send_progress('converting', 0, 100, 'Converting PDF to Word document...', 20)
-        
-        # Create output file path
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        base_name = os.path.splitext(os.path.basename(file_path))[0]
-        output_filename = f"converted_{timestamp}_{base_name}"
-        output_path = job_output_path(session_id, f"{output_filename}.docx")
-        
-        # Convert PDF to Word
-        try:
-            cv = Converter(file_path)
-            cv.convert(output_path, start=0, end=None)  # Convert all pages
-            cv.close()
-        except Exception as e:
-            raise Exception(f"Error during PDF conversion: {str(e)}")
-        
-        send_progress('converting', 100, 100, 'Conversion complete!', 85)
-        
-        send_progress('saving', 0, 100, 'Preparing download...', 90)
-        
-        # Check if output file was created
-        if not os.path.exists(output_path):
-            raise FileNotFoundError("Word document was not created successfully")
-        
-        download_url = job_download_url(session_id, f"{output_filename}.docx")
-        
-        # Get file size
-        file_size = os.path.getsize(output_path)
-        
-        send_progress('saving', 100, 100, 'Ready for download!', 95)
-        
-        # Clean up input file
-        os.remove(file_path)
-        
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': 100,
-            'total': 100,
-            'percentage': 100,
-            'message': 'Conversion complete!',
-            'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
-            'file_size': file_size
-        }
-        
-        try:
-            progress_queue.put(final_message, timeout=5)
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
-        
-        print("PDF to Word conversion complete!")
-        
+    # Convert PDF to Word
+    try:
+        cv = Converter(file_path)
+        cv.convert(output_path, start=0, end=None)  # Convert all pages
+        cv.close()
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
+        raise Exception(f"Error during PDF conversion: {str(e)}")
         
-        # Clean up on error
-        if 'file_path' in locals() and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except:
-                pass
-        if 'output_path' in locals() and os.path.exists(output_path):
-            try:
-                os.remove(output_path)
-            except:
-                pass
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
-
+    send_progress('converting', 100, 100, 'Conversion complete!', 85)
+        
+    send_progress('saving', 0, 100, 'Preparing download...', 90)
+        
+    # Check if output file was created
+    if not os.path.exists(output_path):
+        raise FileNotFoundError("Word document was not created successfully")
+        
+    download_url = job_download_url(session_id, f"{output_filename}.docx")
+        
+    # Get file size
+    file_size = os.path.getsize(output_path)
+        
+    send_progress('saving', 100, 100, 'Ready for download!', 95)
+        
+    # Clean up input file
+    os.remove(file_path)
+        
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': 100,
+        'total': 100,
+        'percentage': 100,
+        'message': 'Conversion complete!',
+        'download_url': download_url,
+        'output_filename': os.path.basename(output_path),
+        'file_size': file_size
+    }
+        
+    progress_queue.put(final_message)
+        
+        
 @app.route('/convert-pdf-to-word', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def convert_pdf_to_word():
     """Convert PDF to Word - returns session_id for progress tracking"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'Please upload a PDF file'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': 'Please upload a PDF file'}), 400
         
-        file = request.files['file']
+    file = request.files['file']
         
-        if file.filename == '':
-            return jsonify({'error': 'File must be selected'}), 400
+    if file.filename == '':
+        return jsonify({'error': 'File must be selected'}), 400
         
-        # Validate file extension
-        if not file.filename.lower().endswith('.pdf'):
-            return jsonify({'error': 'Please upload a PDF file'}), 400
+    # Validate file extension
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({'error': 'Please upload a PDF file'}), 400
         
-        # Save file temporarily
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"pdf2word_{timestamp}_{secrets.token_hex(8)}"
+    # Save file temporarily
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    session_id = f"pdf2word_{timestamp}_{secrets.token_hex(8)}"
         
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
         
-        save_upload(file, file_path, session_id)
+    save_upload(file, file_path, session_id)
         
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(convert_pdf_to_word_async, file_path, progress_queue, session_id)
+    progress_queue = open_job(session_id)
+    start_job(convert_pdf_to_word_async, file_path, progress_queue, session_id)
         
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
+@job_worker('file1_path', 'file2_path')
 def compare_columns_async(file1_path, file2_path, file1_name, file2_name, progress_queue, session_id):
     """Compare columns from two files in background thread - reads only headers for speed"""
-    try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+    send_progress = progress_sender(progress_queue, session_id)
         
-        send_progress('loading', 0, 100, f'Reading headers from {file1_name}...', 10)
+    send_progress('loading', 0, 100, f'Reading headers from {file1_name}...', 10)
         
-        # Read just the headers from file 1 - optimized to read only first row
-        if file1_path.endswith('.csv'):
-            # For CSV, use csv module to properly handle quoted fields
-            import csv
-            with open(file1_path, 'r', encoding='utf-8-sig') as f:
-                reader = csv.reader(f)
-                first_row = next(reader)
-                columns1 = set([str(col).strip() for col in first_row if col])
-        else:
-            # For Excel, use pandas with nrows=0 to read only headers (handles both .xlsx and .xls)
-            try:
-                df1 = read_data_file(file1_path, nrows=0)
-                columns1 = set([str(col).strip() for col in df1.columns if col])
-            except Exception as e:
-                # Fallback: try openpyxl for .xlsx files only
-                if file1_path.endswith('.xlsx'):
-                    try:
-                        from openpyxl import load_workbook
-                        wb = load_workbook(file1_path, read_only=True, data_only=True)
-                        ws = wb.active
-                        first_row = [cell.value for cell in ws[1] if cell.value is not None]
-                        columns1 = set([str(col).strip() for col in first_row])
-                        wb.close()
-                    except Exception as e2:
-                        raise Exception(f"Error reading {file1_name}: {str(e2)}")
-                else:
-                    raise Exception(f"Error reading {file1_name}: {str(e)}")
-        
-        send_progress('loading', 50, 100, f'Reading headers from {file2_name}...', 30)
-        
-        # Read just the headers from file 2 - optimized to read only first row
-        if file2_path.endswith('.csv'):
-            # For CSV, use csv module to properly handle quoted fields
-            import csv
-            with open(file2_path, 'r', encoding='utf-8-sig') as f:
-                reader = csv.reader(f)
-                first_row = next(reader)
-                columns2 = set([str(col).strip() for col in first_row if col])
-        else:
-            # For Excel, use pandas with nrows=0 to read only headers (handles both .xlsx and .xls)
-            try:
-                df2 = read_data_file(file2_path, nrows=0)
-                columns2 = set([str(col).strip() for col in df2.columns if col])
-            except Exception as e:
-                # Fallback: try openpyxl for .xlsx files only
-                if file2_path.endswith('.xlsx'):
-                    try:
-                        from openpyxl import load_workbook
-                        wb = load_workbook(file2_path, read_only=True, data_only=True)
-                        ws = wb.active
-                        first_row = [cell.value for cell in ws[1] if cell.value is not None]
-                        columns2 = set([str(col).strip() for col in first_row])
-                        wb.close()
-                    except Exception as e2:
-                        raise Exception(f"Error reading {file2_name}: {str(e2)}")
-                else:
-                    raise Exception(f"Error reading {file2_name}: {str(e)}")
-        
-        send_progress('comparing', 0, 100, 'Comparing columns...', 50)
-        
-        # Get all unique columns (alphabetically sorted)
-        all_columns = sorted(columns1.union(columns2))
-        
-        # Build comparison data
-        comparison_data = []
-        for col in all_columns:
-            comparison_data.append({
-                'Column Headers': col,
-                f'Found in {file1_name}': 'Yes' if col in columns1 else 'No',
-                f'Found in {file2_name}': 'Yes' if col in columns2 else 'No'
-            })
-        
-        comparison_df = pd.DataFrame(comparison_data)
-        
-        send_progress('saving', 0, 100, 'Saving results...', 80)
-        
-        # Save to Excel - keep it simple and fast (no formatting for speed)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"column_comparison_{timestamp}"
-        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
-        
-        with excel_writer(output_path) as writer:
-            comparison_df.to_excel(writer, sheet_name='Column Comparison', index=False)
-            
-            # Green for Yes, red for No in the two file columns (conditional formats: no per-cell work, any size)
-            worksheet = writer.sheets['Column Comparison']
-            green = writer.book.add_format({'bg_color': '#90EE90', 'font_color': '#006400', 'bold': True})
-            red = writer.book.add_format({'bg_color': '#FFB6C1', 'font_color': '#8B0000', 'bold': True})
-            if len(comparison_df):
-                last_row = len(comparison_df)
-                worksheet.conditional_format(1, 1, last_row, 2, {'type': 'cell', 'criteria': '==', 'value': '"Yes"', 'format': green})
-                worksheet.conditional_format(1, 1, last_row, 2, {'type': 'cell', 'criteria': '==', 'value': '"No"', 'format': red})
-        
-        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
-        
-        # Clean up uploaded files
-        os.remove(file1_path)
-        os.remove(file2_path)
-        
-        # Send completion message with all data (don't send separate 'done' progress update)
-        final_message = {
-            'stage': 'done',
-            'current': len(all_columns),
-            'total': len(all_columns),
-            'percentage': 100,
-            'message': 'Complete!',
-            'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
-            'total_columns': len(all_columns),
-            'file1_columns': len(columns1),
-            'file2_columns': len(columns2),
-            'common_columns': len(columns1.intersection(columns2)),
-            'file1_only': len(columns1 - columns2),
-            'file2_only': len(columns2 - columns1),
-            'file1_name': file1_name,
-            'file2_name': file2_name,
-            'comparison_data': comparison_data  # Include the actual comparison table data
-        }
-        
+    # Read just the headers from file 1 - optimized to read only first row
+    if file1_path.endswith('.csv'):
+        # For CSV, use csv module to properly handle quoted fields
+        import csv
+        with open(file1_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            first_row = next(reader)
+            columns1 = set([str(col).strip() for col in first_row if col])
+    else:
+        # For Excel, use pandas with nrows=0 to read only headers (handles both .xlsx and .xls)
         try:
-            progress_queue.put(final_message, timeout=5)
-            print("Completion message sent successfully")
+            df1 = read_data_file(file1_path, nrows=0)
+            columns1 = set([str(col).strip() for col in df1.columns if col])
         except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-                print("Completion message sent (nowait)")
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
+            # Fallback: try openpyxl for .xlsx files only
+            if file1_path.endswith('.xlsx'):
+                try:
+                    from openpyxl import load_workbook
+                    wb = load_workbook(file1_path, read_only=True, data_only=True)
+                    ws = wb.active
+                    first_row = [cell.value for cell in ws[1] if cell.value is not None]
+                    columns1 = set([str(col).strip() for col in first_row])
+                    wb.close()
+                except Exception as e2:
+                    raise Exception(f"Error reading {file1_name}: {str(e2)}")
+            else:
+                raise Exception(f"Error reading {file1_name}: {str(e)}")
         
-        print("Column comparison complete!")
+    send_progress('loading', 50, 100, f'Reading headers from {file2_name}...', 30)
         
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
+    # Read just the headers from file 2 - optimized to read only first row
+    if file2_path.endswith('.csv'):
+        # For CSV, use csv module to properly handle quoted fields
+        import csv
+        with open(file2_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            first_row = next(reader)
+            columns2 = set([str(col).strip() for col in first_row if col])
+    else:
+        # For Excel, use pandas with nrows=0 to read only headers (handles both .xlsx and .xls)
+        try:
+            df2 = read_data_file(file2_path, nrows=0)
+            columns2 = set([str(col).strip() for col in df2.columns if col])
+        except Exception as e:
+            # Fallback: try openpyxl for .xlsx files only
+            if file2_path.endswith('.xlsx'):
+                try:
+                    from openpyxl import load_workbook
+                    wb = load_workbook(file2_path, read_only=True, data_only=True)
+                    ws = wb.active
+                    first_row = [cell.value for cell in ws[1] if cell.value is not None]
+                    columns2 = set([str(col).strip() for col in first_row])
+                    wb.close()
+                except Exception as e2:
+                    raise Exception(f"Error reading {file2_name}: {str(e2)}")
+            else:
+                raise Exception(f"Error reading {file2_name}: {str(e)}")
         
-        # Clean up on error
-        if 'file1_path' in locals() and os.path.exists(file1_path):
-            os.remove(file1_path)
-        if 'file2_path' in locals() and os.path.exists(file2_path):
-            os.remove(file2_path)
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
+    send_progress('comparing', 0, 100, 'Comparing columns...', 50)
+        
+    # Get all unique columns (alphabetically sorted)
+    all_columns = sorted(columns1.union(columns2))
+        
+    # Build comparison data
+    comparison_data = []
+    for col in all_columns:
+        comparison_data.append({
+            'Column Headers': col,
+            f'Found in {file1_name}': 'Yes' if col in columns1 else 'No',
+            f'Found in {file2_name}': 'Yes' if col in columns2 else 'No'
         })
-
+        
+    comparison_df = pd.DataFrame(comparison_data)
+        
+    send_progress('saving', 0, 100, 'Saving results...', 80)
+        
+    # Save to Excel - keep it simple and fast (no formatting for speed)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_filename = f"column_comparison_{timestamp}"
+    output_path = job_output_path(session_id, f"{output_filename}.xlsx")
+        
+    with excel_writer(output_path) as writer:
+        comparison_df.to_excel(writer, sheet_name='Column Comparison', index=False)
+            
+        # Green for Yes, red for No in the two file columns (conditional formats: no per-cell work, any size)
+        worksheet = writer.sheets['Column Comparison']
+        green = writer.book.add_format({'bg_color': '#90EE90', 'font_color': '#006400', 'bold': True})
+        red = writer.book.add_format({'bg_color': '#FFB6C1', 'font_color': '#8B0000', 'bold': True})
+        if len(comparison_df):
+            last_row = len(comparison_df)
+            worksheet.conditional_format(1, 1, last_row, 2, {'type': 'cell', 'criteria': '==', 'value': '"Yes"', 'format': green})
+            worksheet.conditional_format(1, 1, last_row, 2, {'type': 'cell', 'criteria': '==', 'value': '"No"', 'format': red})
+        
+    download_url = job_download_url(session_id, f"{output_filename}.xlsx")
+        
+    # Clean up uploaded files
+    os.remove(file1_path)
+    os.remove(file2_path)
+        
+    # Send completion message with all data (don't send separate 'done' progress update)
+    final_message = {
+        'stage': 'done',
+        'current': len(all_columns),
+        'total': len(all_columns),
+        'percentage': 100,
+        'message': 'Complete!',
+        'download_url': download_url,
+        'output_filename': os.path.basename(output_path),
+        'total_columns': len(all_columns),
+        'file1_columns': len(columns1),
+        'file2_columns': len(columns2),
+        'common_columns': len(columns1.intersection(columns2)),
+        'file1_only': len(columns1 - columns2),
+        'file2_only': len(columns2 - columns1),
+        'file1_name': file1_name,
+        'file2_name': file2_name,
+        'comparison_data': comparison_data  # Include the actual comparison table data
+    }
+        
+    progress_queue.put(final_message)
+        
+        
 @app.route('/compare-columns', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def compare_columns():
     """Compare columns from two uploaded files - returns session_id for progress tracking"""
-    try:
-        if 'file1' not in request.files or 'file2' not in request.files:
-            return jsonify({'error': 'Please upload both files'}), 400
+    if 'file1' not in request.files or 'file2' not in request.files:
+        return jsonify({'error': 'Please upload both files'}), 400
         
-        file1 = request.files['file1']
-        file2 = request.files['file2']
+    file1 = request.files['file1']
+    file2 = request.files['file2']
         
-        if file1.filename == '' or file2.filename == '':
-            return jsonify({'error': 'Both files must be selected'}), 400
+    if file1.filename == '' or file2.filename == '':
+        return jsonify({'error': 'Both files must be selected'}), 400
         
-        # Validate file extensions
-        if not (file1.filename.endswith(('.xlsx', '.xls', '.csv')) and 
-                file2.filename.endswith(('.xlsx', '.xls', '.csv'))):
-            return jsonify({'error': 'Please upload Excel or CSV files'}), 400
+    # Validate file extensions
+    if not (file1.filename.endswith(('.xlsx', '.xls', '.csv')) and 
+            file2.filename.endswith(('.xlsx', '.xls', '.csv'))):
+        return jsonify({'error': 'Please upload Excel or CSV files'}), 400
         
-        # Save files temporarily
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"column_compare_{timestamp}_{secrets.token_hex(8)}"
+    # Save files temporarily
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    session_id = f"column_compare_{timestamp}_{secrets.token_hex(8)}"
         
-        file1_filename = secure_filename(file1.filename)
-        file2_filename = secure_filename(file2.filename)
+    file1_filename = secure_filename(file1.filename)
+    file2_filename = secure_filename(file2.filename)
         
-        # Store original filenames for display
-        file1_name = os.path.splitext(file1_filename)[0]
-        file2_name = os.path.splitext(file2_filename)[0]
+    # Store original filenames for display
+    file1_name = os.path.splitext(file1_filename)[0]
+    file2_name = os.path.splitext(file2_filename)[0]
         
-        file1_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file1_{file1_filename}")
-        file2_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file2_{file2_filename}")
+    file1_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file1_{file1_filename}")
+    file2_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_file2_{file2_filename}")
         
-        save_upload(file1, file1_path, session_id)
-        save_upload(file2, file2_path, session_id)
+    save_upload(file1, file1_path, session_id)
+    save_upload(file2, file2_path, session_id)
         
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(compare_columns_async, file1_path, file2_path, file1_name, file2_name, progress_queue, session_id)
+    progress_queue = open_job(session_id)
+    start_job(compare_columns_async, file1_path, file2_path, file1_name, file2_name, progress_queue, session_id)
         
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
+@job_worker('upload_path')
 def transpose_file_async(upload_path, progress_queue, session_id):
     """Transpose Excel/CSV file (rows become columns, columns become rows) in background thread"""
-    try:
-        send_progress = lambda stage, current, total, message, percentage=None: progress_queue.put({
-            'stage': stage,
-            'current': current,
-            'total': total,
-            'percentage': percentage if percentage is not None else (int((current / total) * 100) if total > 0 else 0),
-            'message': message
-        }) if progress_queue and session_id else None
+    send_progress = progress_sender(progress_queue, session_id)
         
-        send_progress('loading', 0, 100, 'Reading file into memory...', 10)
+    send_progress('loading', 0, 100, 'Reading file into memory...', 10)
         
-        # Read file into memory
-        filename = os.path.basename(upload_path)
-        df = read_data_file(upload_path)
+    # Read file into memory
+    filename = os.path.basename(upload_path)
+    df = read_data_file(upload_path)
         
-        original_shape = df.shape
-        send_progress('loading', 100, 100, f'File loaded: {original_shape[0]:,} rows × {original_shape[1]:,} columns', 20)
+    original_shape = df.shape
+    send_progress('loading', 100, 100, f'File loaded: {original_shape[0]:,} rows × {original_shape[1]:,} columns', 20)
         
-        # Every row becomes a column (plus one for the original column names) and a sheet holds 16,384 columns
-        if original_shape[0] + 1 > EXCEL_MAX_COLUMNS:
-            raise ValueError(f"This file has {original_shape[0]:,} rows. Transposing it would create "
-                             f"{original_shape[0] + 1:,} columns, but Excel supports at most {EXCEL_MAX_COLUMNS:,} "
-                             f"(so at most {EXCEL_MAX_COLUMNS - 1:,} rows). Split the file first.")
+    # Every row becomes a column (plus one for the original column names) and a sheet holds 16,384 columns
+    if original_shape[0] + 1 > EXCEL_MAX_COLUMNS:
+        raise UserError(f"This file has {original_shape[0]:,} rows. Transposing it would create "
+                         f"{original_shape[0] + 1:,} columns, but Excel supports at most {EXCEL_MAX_COLUMNS:,} "
+                         f"(so at most {EXCEL_MAX_COLUMNS - 1:,} rows). Split the file first.")
         
-        send_progress('processing', 0, 100, 'Transposing data (rows ↔ columns)...', 30)
+    send_progress('processing', 0, 100, 'Transposing data (rows ↔ columns)...', 30)
         
-        # Transpose the dataframe
-        # First, convert the index to a column if it has a name, otherwise use first column as index
-        transposed_df = df.T
+    # Transpose the dataframe
+    # First, convert the index to a column if it has a name, otherwise use first column as index
+    transposed_df = df.T
         
-        # If the original dataframe had a numeric index, we need to set proper column names
-        # The first row of transposed data should become the column headers
-        if df.index.name is None and not df.index.dtype == 'object':
-            # Numeric index - use it as first column name
-            transposed_df.index.name = 'Original Row'
-        elif df.index.name:
-            transposed_df.index.name = df.index.name
+    # If the original dataframe had a numeric index, we need to set proper column names
+    # The first row of transposed data should become the column headers
+    if df.index.name is None and not df.index.dtype == 'object':
+        # Numeric index - use it as first column name
+        transposed_df.index.name = 'Original Row'
+    elif df.index.name:
+        transposed_df.index.name = df.index.name
         
-        # Reset index to make the original index/row numbers a column
-        transposed_df = transposed_df.reset_index()
+    # Reset index to make the original index/row numbers a column
+    transposed_df = transposed_df.reset_index()
         
-        # Rename the first column to something descriptive
-        if transposed_df.columns[0] == 'index' or transposed_df.columns[0] == 'Original Row':
-            transposed_df = transposed_df.rename(columns={transposed_df.columns[0]: 'Original Column/Row'})
+    # Rename the first column to something descriptive
+    if transposed_df.columns[0] == 'index' or transposed_df.columns[0] == 'Original Row':
+        transposed_df = transposed_df.rename(columns={transposed_df.columns[0]: 'Original Column/Row'})
         
-        new_shape = transposed_df.shape
-        send_progress('processing', 100, 100, f'Transposed: {new_shape[0]:,} rows × {new_shape[1]:,} columns', 60)
+    new_shape = transposed_df.shape
+    send_progress('processing', 100, 100, f'Transposed: {new_shape[0]:,} rows × {new_shape[1]:,} columns', 60)
         
-        send_progress('saving', 0, 100, 'Saving transposed file...', 70)
+    send_progress('saving', 0, 100, 'Saving transposed file...', 70)
         
-        # Save transposed data to Excel
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f"transposed_{timestamp}"
-        output_path = job_output_path(session_id, f"{output_filename}.xlsx")
+    # Save transposed data to Excel
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    output_filename = f"transposed_{timestamp}"
+    output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-        with excel_writer(output_path) as writer:
-            transposed_df.to_excel(writer, sheet_name='Transposed Data', index=False)
+    with excel_writer(output_path) as writer:
+        transposed_df.to_excel(writer, sheet_name='Transposed Data', index=False)
         
-        download_url = job_download_url(session_id, f"{output_filename}.xlsx")
+    download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
-        # Clean up uploaded file
-        os.remove(upload_path)
+    # Clean up uploaded file
+    os.remove(upload_path)
         
-        # Send completion message
-        final_message = {
-            'stage': 'done',
-            'current': new_shape[0],
-            'total': new_shape[0],
-            'percentage': 100,
-            'message': 'Complete!',
-            'download_url': download_url,
-            'output_filename': os.path.basename(output_path),
-            'original_rows': int(original_shape[0]),
-            'original_columns': int(original_shape[1]),
-            'transposed_rows': int(new_shape[0]),
-            'transposed_columns': int(new_shape[1])
-        }
+    # Send completion message
+    final_message = {
+        'stage': 'done',
+        'current': new_shape[0],
+        'total': new_shape[0],
+        'percentage': 100,
+        'message': 'Complete!',
+        'download_url': download_url,
+        'output_filename': os.path.basename(output_path),
+        'original_rows': int(original_shape[0]),
+        'original_columns': int(original_shape[1]),
+        'transposed_rows': int(new_shape[0]),
+        'transposed_columns': int(new_shape[1])
+    }
         
-        try:
-            progress_queue.put(final_message, timeout=5)
-            print("Completion message sent successfully")
-        except Exception as e:
-            print(f"Error sending completion message: {e}")
-            try:
-                progress_queue.put_nowait(final_message)
-                print("Completion message sent (nowait)")
-            except Exception as e2:
-                print(f"Failed to send completion message: {e2}")
+    progress_queue.put(final_message)
         
-        print("Transpose complete!")
         
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        
-        # Clean up on error
-        if 'upload_path' in locals() and os.path.exists(upload_path):
-            os.remove(upload_path)
-            
-        progress_queue.put({
-            'stage': 'error',
-            'message': str(e)
-        })
-
 @app.route('/transpose-data', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def transpose_data():
     """Transpose uploaded file - returns session_id for progress tracking"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
+    file = check_upload('file', ('.xlsx', '.xls', '.csv'), 'Please upload an Excel or CSV file')
         
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+    session_id, upload_path, filename = store_upload(file, 'transpose')
         
-        # Validate file extension
-        if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
-            return jsonify({'error': 'Please upload an Excel or CSV file'}), 400
+    progress_queue = open_job(session_id)
+    start_job(transpose_file_async, upload_path, progress_queue, session_id)
         
-        # Save temporarily
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"transpose_{timestamp}_{secrets.token_hex(8)}"
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        save_upload(file, upload_path, session_id)
-        
-        # Create progress queue for this session
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Start processing in background thread
-        start_job(transpose_file_async, upload_path, progress_queue, session_id)
-        
-        # Return session ID immediately so client can start listening to progress
-        return jsonify({
-            'success': True,
-            'session_id': session_id
-        })
+    return job_started(session_id)
     
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 # =============================================================================
 # ROW FILTER TOOL
 # =============================================================================
@@ -5732,153 +5012,147 @@ def row_filter_page():
 
 @app.route('/row-filter', methods=['POST'])
 @rate_limit(max_requests=20, window=60)
+@api_errors
 def row_filter():
     """Filter rows based on conditions"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    # Get conditions
+    conditions_json = request.form.get('conditions', '[]')
+    preview_only = request.form.get('preview_only', 'false').lower() == 'true'
+
     try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
+        conditions = json.loads(conditions_json)
+    except json.JSONDecodeError:
+        return jsonify({'error': 'Invalid conditions format'}), 400
 
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+    if not conditions:
+        return jsonify({'error': 'At least one condition is required'}), 400
 
-        # Get conditions
-        conditions_json = request.form.get('conditions', '[]')
-        preview_only = request.form.get('preview_only', 'false').lower() == 'true'
+    # Generate session ID
+    session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+    job_registry.bind(session_id, current_owner())
+    filename = secure_filename(file.filename)
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    save_upload(file, upload_path, session_id)
 
-        try:
-            conditions = json.loads(conditions_json)
-        except json.JSONDecodeError:
-            return jsonify({'error': 'Invalid conditions format'}), 400
+    # Read the file
+    df = read_data_file(upload_path)
+    discard_upload(upload_path)  # contents are loaded; do not keep the file
+    original_rows = len(df)
 
-        if not conditions:
-            return jsonify({'error': 'At least one condition is required'}), 400
+    # Build filter mask
+    mask = None
+    current_logic = 'AND'
 
-        # Generate session ID
-        session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
-        job_registry.bind(session_id, current_owner())
-        filename = secure_filename(file.filename)
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        save_upload(file, upload_path, session_id)
+    for condition in conditions:
+        column = condition.get('column')
+        operator = condition.get('operator')
+        value = condition.get('value', '')
+        logic = condition.get('logic')
 
-        # Read the file
-        df = read_data_file(upload_path)
-        discard_upload(upload_path)  # contents are loaded; do not keep the file
-        original_rows = len(df)
+        if logic:
+            current_logic = logic
 
-        # Build filter mask
-        mask = None
-        current_logic = 'AND'
+        if column not in df.columns:
+            return jsonify({'error': f'Column "{column}" not found'}), 400
 
-        for condition in conditions:
-            column = condition.get('column')
-            operator = condition.get('operator')
-            value = condition.get('value', '')
-            logic = condition.get('logic')
+        col_data = df[column]
 
-            if logic:
-                current_logic = logic
-
-            if column not in df.columns:
-                return jsonify({'error': f'Column "{column}" not found'}), 400
-
-            col_data = df[column]
-
-            # Build condition mask
-            if operator == 'equals':
-                cond_mask = col_data.astype(str).str.lower() == str(value).lower()
-            elif operator == 'not_equals':
-                cond_mask = col_data.astype(str).str.lower() != str(value).lower()
-            elif operator == 'contains':
-                cond_mask = col_data.astype(str).str.lower().str.contains(str(value).lower(), na=False, regex=False)
-            elif operator == 'not_contains':
-                cond_mask = ~col_data.astype(str).str.lower().str.contains(str(value).lower(), na=False, regex=False)
-            elif operator == 'starts_with':
-                cond_mask = col_data.astype(str).str.lower().str.startswith(str(value).lower(), na=False)
-            elif operator == 'ends_with':
-                cond_mask = col_data.astype(str).str.lower().str.endswith(str(value).lower(), na=False)
-            elif operator == 'greater_than':
-                try:
-                    cond_mask = pd.to_numeric(col_data, errors='coerce') > float(value)
-                except:
-                    cond_mask = col_data.astype(str) > str(value)
-            elif operator == 'less_than':
-                try:
-                    cond_mask = pd.to_numeric(col_data, errors='coerce') < float(value)
-                except:
-                    cond_mask = col_data.astype(str) < str(value)
-            elif operator == 'greater_equal':
-                try:
-                    cond_mask = pd.to_numeric(col_data, errors='coerce') >= float(value)
-                except:
-                    cond_mask = col_data.astype(str) >= str(value)
-            elif operator == 'less_equal':
-                try:
-                    cond_mask = pd.to_numeric(col_data, errors='coerce') <= float(value)
-                except:
-                    cond_mask = col_data.astype(str) <= str(value)
-            elif operator == 'is_empty':
-                cond_mask = col_data.isna() | (col_data.astype(str).str.strip() == '')
-            elif operator == 'is_not_empty':
-                cond_mask = ~(col_data.isna() | (col_data.astype(str).str.strip() == ''))
-            elif operator == 'in_list':
-                values = [v.strip().lower() for v in str(value).split(',')]
-                cond_mask = col_data.astype(str).str.lower().isin(values)
-            else:
-                return jsonify({'error': f'Unknown operator: {operator}'}), 400
-
-            # Combine with existing mask
-            if mask is None:
-                mask = cond_mask
-            elif current_logic == 'AND':
-                mask = mask & cond_mask
-            else:  # OR
-                mask = mask | cond_mask
-
-        # Apply filter
-        filtered_df = df[mask]
-        matching_rows = len(filtered_df)
-
-        # Cleanup upload if preview only
-        if preview_only:
+        # Build condition mask
+        if operator == 'equals':
+            cond_mask = col_data.astype(str).str.lower() == str(value).lower()
+        elif operator == 'not_equals':
+            cond_mask = col_data.astype(str).str.lower() != str(value).lower()
+        elif operator == 'contains':
+            cond_mask = col_data.astype(str).str.lower().str.contains(str(value).lower(), na=False, regex=False)
+        elif operator == 'not_contains':
+            cond_mask = ~col_data.astype(str).str.lower().str.contains(str(value).lower(), na=False, regex=False)
+        elif operator == 'starts_with':
+            cond_mask = col_data.astype(str).str.lower().str.startswith(str(value).lower(), na=False)
+        elif operator == 'ends_with':
+            cond_mask = col_data.astype(str).str.lower().str.endswith(str(value).lower(), na=False)
+        elif operator == 'greater_than':
             try:
-                os.remove(upload_path)
+                cond_mask = pd.to_numeric(col_data, errors='coerce') > float(value)
             except:
-                pass
-            return jsonify({
-                'success': True,
-                'matching_rows': matching_rows,
-                'original_rows': original_rows
-            })
+                cond_mask = col_data.astype(str) > str(value)
+        elif operator == 'less_than':
+            try:
+                cond_mask = pd.to_numeric(col_data, errors='coerce') < float(value)
+            except:
+                cond_mask = col_data.astype(str) < str(value)
+        elif operator == 'greater_equal':
+            try:
+                cond_mask = pd.to_numeric(col_data, errors='coerce') >= float(value)
+            except:
+                cond_mask = col_data.astype(str) >= str(value)
+        elif operator == 'less_equal':
+            try:
+                cond_mask = pd.to_numeric(col_data, errors='coerce') <= float(value)
+            except:
+                cond_mask = col_data.astype(str) <= str(value)
+        elif operator == 'is_empty':
+            cond_mask = col_data.isna() | (col_data.astype(str).str.strip() == '')
+        elif operator == 'is_not_empty':
+            cond_mask = ~(col_data.isna() | (col_data.astype(str).str.strip() == ''))
+        elif operator == 'in_list':
+            values = [v.strip().lower() for v in str(value).split(',')]
+            cond_mask = col_data.astype(str).str.lower().isin(values)
+        else:
+            return jsonify({'error': f'Unknown operator: {operator}'}), 400
 
-        # Save filtered file
-        base_name = os.path.splitext(filename)[0]
-        output_path = save_table(filtered_df, job_output_path(session_id, f"{base_name}_filtered_{session_id}.xlsx"), session_id)
-        output_filename = os.path.basename(output_path)
+        # Combine with existing mask
+        if mask is None:
+            mask = cond_mask
+        elif current_logic == 'AND':
+            mask = mask & cond_mask
+        else:  # OR
+            mask = mask | cond_mask
 
-        # Cache the result
-        cache_session_file(session_id, output_filename, output_path, matching_rows, len(filtered_df.columns), 'Row Filter')
+    # Apply filter
+    filtered_df = df[mask]
+    matching_rows = len(filtered_df)
 
-        # Cleanup upload
+    # Cleanup upload if preview only
+    if preview_only:
         try:
             os.remove(upload_path)
         except:
             pass
-
         return jsonify({
             'success': True,
-            'filename': output_filename,
-            'download_url': job_download_url(session_id, output_filename),
-            **job_notes.get(session_id, {}),
-            'original_rows': original_rows,
-            'matching_rows': matching_rows
+            'matching_rows': matching_rows,
+            'original_rows': original_rows
         })
 
-    except Exception as e:
-        print(f"Row Filter error: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+    # Save filtered file
+    base_name = os.path.splitext(filename)[0]
+    output_path = save_table(filtered_df, job_output_path(session_id, f"{base_name}_filtered_{session_id}.xlsx"), session_id)
+    output_filename = os.path.basename(output_path)
 
+    # Cache the result
+    cache_session_file(session_id, output_filename, output_path, matching_rows, len(filtered_df.columns), 'Row Filter')
+
+    # Cleanup upload
+    try:
+        os.remove(upload_path)
+    except:
+        pass
+
+    return jsonify({
+        'success': True,
+        'filename': output_filename,
+        'download_url': job_download_url(session_id, output_filename),
+        **job_notes.get(session_id, {}),
+        'original_rows': original_rows,
+        'matching_rows': matching_rows
+    })
 
 # =============================================================================
 # FIND & REPLACE TOOL
@@ -5889,26 +5163,135 @@ def find_replace_page():
 
 @app.route('/find-replace', methods=['POST'])
 @rate_limit(max_requests=20, window=60)
+@api_errors
 def find_replace():
     """Perform find and replace on uploaded file"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    # Get parameters
+    find_text = request.form.get('find_text', '')
+    replace_text = request.form.get('replace_text', '')
+    column = request.form.get('column', '__all__')
+    case_sensitive = request.form.get('case_sensitive', 'false').lower() == 'true'
+    use_regex = request.form.get('use_regex', 'false').lower() == 'true'
+    match_whole_cell = request.form.get('match_whole_cell', 'false').lower() == 'true'
+
+    if not find_text:
+        return jsonify({'error': 'Find text is required'}), 400
+
+    # Generate session ID
+    session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+    job_registry.bind(session_id, current_owner())
+    filename = secure_filename(file.filename)
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    save_upload(file, upload_path, session_id)
+
+    # Read the file
+    df = read_data_file(upload_path)
+
+    discard_upload(upload_path)  # contents are loaded; do not keep the file
+    # Track replacements
+    total_replacements = 0
+    rows_affected = set()
+
+    # Determine which columns to process
+    if column == '__all__':
+        columns_to_process = df.columns.tolist()
+    else:
+        if column not in df.columns:
+            return jsonify({'error': f'Column "{column}" not found'}), 400
+        columns_to_process = [column]
+
+    # Perform find and replace. Only non-blank cells that match are changed (a blank stays blank and a number
+    # that does not match stays a number); user regexes run with time limits (datadragon_regex).
+    budget = datadragon_regex.Budget()
+    if use_regex:
+        compiled = datadragon_regex.compile_pattern(find_text, ignore_case=not case_sensitive)
+    else:
+        compiled = datadragon_regex.compile_pattern(re.escape(find_text), ignore_case=not case_sensitive)
+    # a literal search text always replaces with the literal replacement; a regex may use \1 / \g<name>
+    template = replace_text if use_regex else (lambda match: replace_text)
+        
+    for col in columns_to_process:
+        values = df[col].to_numpy(dtype=object)
+        changed = np.zeros(len(values), dtype=bool)
+        for i, value in enumerate(values):
+            if pd.isna(value):
+                continue
+            text = value if isinstance(value, str) else _comparable_text(value)
+            if match_whole_cell:
+                if datadragon_regex.fullmatch(compiled, text, budget):
+                    values[i], changed[i] = replace_text, True
+                    total_replacements += 1
+            else:
+                new_text, count = datadragon_regex.substitute(compiled, template, text, budget)
+                if count:
+                    values[i], changed[i] = new_text, True
+                    total_replacements += count
+        if changed.any():
+            rows_affected.update(df.index[changed].tolist())
+            df[col] = pd.Series(values, index=df.index, dtype=object)
+
+    # Save the modified file
+    base_name = os.path.splitext(filename)[0]
+    output_path = save_table(df, job_output_path(session_id, f"{base_name}_replaced_{session_id}.xlsx"), session_id)
+    output_filename = os.path.basename(output_path)
+
+    # Cache the result
+    cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Find & Replace')
+
+    # Cleanup upload
     try:
+        os.remove(upload_path)
+    except:
+        pass
+
+    return jsonify({
+        'success': True,
+        'filename': output_filename,
+        'download_url': job_download_url(session_id, output_filename),
+        **job_notes.get(session_id, {}),
+        'replacements_made': int(total_replacements),
+        'rows_affected': len(rows_affected)
+    })
+
+# =============================================================================
+# CALCULATED COLUMNS TOOL
+# =============================================================================
+@app.route('/calculated-columns')
+def calculated_columns_page():
+    return render_template('calculated_columns.html')
+
+@app.route('/calculated-columns', methods=['POST'])
+@rate_limit(max_requests=20, window=60)
+@api_errors
+def calculated_columns():
+    """Create calculated columns using formulas"""
+    # Check for cached file or uploaded file
+    cache_id = request.form.get('cache_id')
+
+    if cache_id:
+        # Use cached file
+        cache_info = get_cached_file_by_id(cache_id)
+        if not cache_info:
+            return jsonify({'error': 'Cached file not found or expired'}), 400
+        df = read_data_file(cache_info['path'])
+        filename = cache_info['name']
+        session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+        job_registry.bind(session_id, current_owner())
+        upload_path = None
+    else:
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
 
         file = request.files['file']
         if file.filename == '':
             return jsonify({'error': 'No file selected'}), 400
-
-        # Get parameters
-        find_text = request.form.get('find_text', '')
-        replace_text = request.form.get('replace_text', '')
-        column = request.form.get('column', '__all__')
-        case_sensitive = request.form.get('case_sensitive', 'false').lower() == 'true'
-        use_regex = request.form.get('use_regex', 'false').lower() == 'true'
-        match_whole_cell = request.form.get('match_whole_cell', 'false').lower() == 'true'
-
-        if not find_text:
-            return jsonify({'error': 'Find text is required'}), 400
 
         # Generate session ID
         session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
@@ -5921,197 +5304,64 @@ def find_replace():
         df = read_data_file(upload_path)
 
         discard_upload(upload_path)  # contents are loaded; do not keep the file
-        # Track replacements
-        total_replacements = 0
-        rows_affected = set()
+    # Get parameters
+    formula = request.form.get('formula', '')
+    new_column_name = request.form.get('new_column_name', '')
+    preview_only = request.form.get('preview_only', 'false').lower() == 'true'
 
-        # Determine which columns to process
-        if column == '__all__':
-            columns_to_process = df.columns.tolist()
-        else:
-            if column not in df.columns:
-                return jsonify({'error': f'Column "{column}" not found'}), 400
-            columns_to_process = [column]
+    if not formula:
+        return jsonify({'error': 'Formula is required'}), 400
+    if not new_column_name and not preview_only:
+        return jsonify({'error': 'New column name is required'}), 400
 
-        # Perform find and replace. Only non-blank cells that match are changed (a blank stays blank and a number
-        # that does not match stays a number); user regexes run with time limits (datadragon_regex).
-        budget = datadragon_regex.Budget()
-        try:
-            if use_regex:
-                compiled = datadragon_regex.compile_pattern(find_text, ignore_case=not case_sensitive)
-            else:
-                compiled = datadragon_regex.compile_pattern(re.escape(find_text), ignore_case=not case_sensitive)
-        except PatternError as e:
-            return jsonify({'error': str(e)}), 400
-        # a literal search text always replaces with the literal replacement; a regex may use \1 / \g<name>
-        template = replace_text if use_regex else (lambda match: replace_text)
-        
-        try:
-            for col in columns_to_process:
-                values = df[col].to_numpy(dtype=object)
-                changed = np.zeros(len(values), dtype=bool)
-                for i, value in enumerate(values):
-                    if pd.isna(value):
-                        continue
-                    text = value if isinstance(value, str) else _comparable_text(value)
-                    if match_whole_cell:
-                        if datadragon_regex.fullmatch(compiled, text, budget):
-                            values[i], changed[i] = replace_text, True
-                            total_replacements += 1
-                    else:
-                        new_text, count = datadragon_regex.substitute(compiled, template, text, budget)
-                        if count:
-                            values[i], changed[i] = new_text, True
-                            total_replacements += count
-                if changed.any():
-                    rows_affected.update(df.index[changed].tolist())
-                    df[col] = pd.Series(values, index=df.index, dtype=object)
-        except PatternTooComplex as e:
-            try:
-                os.remove(upload_path)
-            except OSError:
-                pass
-            return jsonify({'error': str(e)}), 422
-        except PatternError as e:
-            return jsonify({'error': str(e)}), 400
+    # Parse and evaluate the formula
+    try:
+        result = evaluate_formula(inferred_copy(df), formula)
+    except Exception as e:
+        return jsonify({'error': f'Formula error: {str(e)}'}), 400
 
-        # Save the modified file
-        base_name = os.path.splitext(filename)[0]
-        output_path = save_table(df, job_output_path(session_id, f"{base_name}_replaced_{session_id}.xlsx"), session_id)
-        output_filename = os.path.basename(output_path)
+    # Add the result as a new column
+    if preview_only:
+        # Just return preview data
+        new_col_name = new_column_name if new_column_name else 'Result'
+        preview_df = df.head(5).copy()
+        preview_df[new_col_name] = result.head(5)
+        preview = preview_df.to_dict(orient='records')
+        return jsonify({
+            'success': True,
+            'preview': preview
+        })
 
-        # Cache the result
-        cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Find & Replace')
+    # Check if column already exists
+    if new_column_name in df.columns:
+        return jsonify({'error': f'Column "{new_column_name}" already exists'}), 400
 
-        # Cleanup upload
+    df[new_column_name] = result
+
+    # Save the modified file
+    base_name = os.path.splitext(filename)[0]
+    output_path = save_table(df, job_output_path(session_id, f"{base_name}_calculated_{session_id}.xlsx"), session_id)
+    output_filename = os.path.basename(output_path)
+
+    # Cache the result
+    cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Calculated Columns')
+
+    # Cleanup upload
+    if upload_path:
         try:
             os.remove(upload_path)
         except:
             pass
 
-        return jsonify({
-            'success': True,
-            'filename': output_filename,
-            'download_url': job_download_url(session_id, output_filename),
-            **job_notes.get(session_id, {}),
-            'replacements_made': int(total_replacements),
-            'rows_affected': len(rows_affected)
-        })
-
-    except Exception as e:
-        print(f"Find & Replace error: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
-
-# =============================================================================
-# CALCULATED COLUMNS TOOL
-# =============================================================================
-@app.route('/calculated-columns')
-def calculated_columns_page():
-    return render_template('calculated_columns.html')
-
-@app.route('/calculated-columns', methods=['POST'])
-@rate_limit(max_requests=20, window=60)
-def calculated_columns():
-    """Create calculated columns using formulas"""
-    try:
-        # Check for cached file or uploaded file
-        cache_id = request.form.get('cache_id')
-
-        if cache_id:
-            # Use cached file
-            cache_info = get_cached_file_by_id(cache_id)
-            if not cache_info:
-                return jsonify({'error': 'Cached file not found or expired'}), 400
-            df = read_data_file(cache_info['path'])
-            filename = cache_info['name']
-            session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
-            job_registry.bind(session_id, current_owner())
-            upload_path = None
-        else:
-            if 'file' not in request.files:
-                return jsonify({'error': 'No file uploaded'}), 400
-
-            file = request.files['file']
-            if file.filename == '':
-                return jsonify({'error': 'No file selected'}), 400
-
-            # Generate session ID
-            session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
-            job_registry.bind(session_id, current_owner())
-            filename = secure_filename(file.filename)
-            upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-            save_upload(file, upload_path, session_id)
-
-            # Read the file
-            df = read_data_file(upload_path)
-
-            discard_upload(upload_path)  # contents are loaded; do not keep the file
-        # Get parameters
-        formula = request.form.get('formula', '')
-        new_column_name = request.form.get('new_column_name', '')
-        preview_only = request.form.get('preview_only', 'false').lower() == 'true'
-
-        if not formula:
-            return jsonify({'error': 'Formula is required'}), 400
-        if not new_column_name and not preview_only:
-            return jsonify({'error': 'New column name is required'}), 400
-
-        # Parse and evaluate the formula
-        try:
-            result = evaluate_formula(inferred_copy(df), formula)
-        except Exception as e:
-            return jsonify({'error': f'Formula error: {str(e)}'}), 400
-
-        # Add the result as a new column
-        if preview_only:
-            # Just return preview data
-            new_col_name = new_column_name if new_column_name else 'Result'
-            preview_df = df.head(5).copy()
-            preview_df[new_col_name] = result.head(5)
-            preview = preview_df.to_dict(orient='records')
-            return jsonify({
-                'success': True,
-                'preview': preview
-            })
-
-        # Check if column already exists
-        if new_column_name in df.columns:
-            return jsonify({'error': f'Column "{new_column_name}" already exists'}), 400
-
-        df[new_column_name] = result
-
-        # Save the modified file
-        base_name = os.path.splitext(filename)[0]
-        output_path = save_table(df, job_output_path(session_id, f"{base_name}_calculated_{session_id}.xlsx"), session_id)
-        output_filename = os.path.basename(output_path)
-
-        # Cache the result
-        cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Calculated Columns')
-
-        # Cleanup upload
-        if upload_path:
-            try:
-                os.remove(upload_path)
-            except:
-                pass
-
-        return jsonify({
-            'success': True,
-            'filename': output_filename,
-            'download_url': job_download_url(session_id, output_filename),
-            **job_notes.get(session_id, {}),
-            'new_column': new_column_name,
-            'rows': len(df),
-            'columns': len(df.columns)
-        })
-
-    except Exception as e:
-        print(f"Calculated Columns error: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
+    return jsonify({
+        'success': True,
+        'filename': output_filename,
+        'download_url': job_download_url(session_id, output_filename),
+        **job_notes.get(session_id, {}),
+        'new_column': new_column_name,
+        'rows': len(df),
+        'columns': len(df.columns)
+    })
 
 def evaluate_formula(df, formula):
     """Evaluate a Calculated Columns formula (see datadragon_formula.py: parsed, never run as code)."""
@@ -6120,7 +5370,7 @@ def evaluate_formula(df, formula):
     except FormulaError:
         raise
     except Exception as e:
-        raise ValueError(f'Formula evaluation failed: {str(e)}')
+        raise UserError(f'Formula evaluation failed: {str(e)}')
 
 
 # =============================================================================
@@ -6132,251 +5382,245 @@ def column_operations_page():
 
 @app.route('/column-operations', methods=['POST'])
 @rate_limit(max_requests=20, window=60)
+@api_errors
 def column_operations():
     """Perform column operations on uploaded file"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
 
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
 
-        # Get operation type
-        operation = request.form.get('operation', '')
-        if not operation:
-            return jsonify({'error': 'No operation specified'}), 400
+    # Get operation type
+    operation = request.form.get('operation', '')
+    if not operation:
+        return jsonify({'error': 'No operation specified'}), 400
 
-        # Generate session ID
-        session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
-        job_registry.bind(session_id, current_owner())
-        filename = secure_filename(file.filename)
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        save_upload(file, upload_path, session_id)
+    # Generate session ID
+    session_id = f"{int(time.time())}_{secrets.token_hex(8)}"
+    job_registry.bind(session_id, current_owner())
+    filename = secure_filename(file.filename)
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    save_upload(file, upload_path, session_id)
 
-        # Read the file
-        df = read_data_file(upload_path)
-        discard_upload(upload_path)  # contents are loaded; do not keep the file
-        original_cols = df.columns.tolist()
-        operation_summary = ""
+    # Read the file
+    df = read_data_file(upload_path)
+    discard_upload(upload_path)  # contents are loaded; do not keep the file
+    original_cols = df.columns.tolist()
+    operation_summary = ""
 
-        if operation == 'reorder':
-            # Reorder columns
-            column_order = request.form.get('column_order', '[]')
-            try:
-                column_order = json.loads(column_order)
-            except:
-                return jsonify({'error': 'Invalid column order format'}), 400
-
-            if not isinstance(column_order, list) or not all(isinstance(c, str) for c in column_order):
-                return jsonify({'error': 'Invalid column order format'}), 400
-
-            # Validate all columns exist
-            for col in column_order:
-                if col not in df.columns:
-                    return jsonify({'error': f'Column "{col}" not found'}), 400
-
-            # Listed columns first (each once); columns not listed keep their original order after them
-            listed = list(dict.fromkeys(column_order))
-            df = df[listed + [c for c in df.columns if c not in listed]]
-            operation_summary = f"Reordered {len(listed)} columns"
-
-        elif operation == 'rename':
-            # Rename columns
-            renames = request.form.get('renames', '{}')
-            try:
-                renames = json.loads(renames)
-            except:
-                return jsonify({'error': 'Invalid renames format'}), 400
-
-            if not isinstance(renames, dict) or not all(isinstance(v, str) for v in renames.values()):
-                return jsonify({'error': 'Invalid renames format: expected {"old name": "new name"}'}), 400
-            if not renames:
-                return jsonify({'error': 'No columns selected for renaming'}), 400
-
-            # Validate old column names exist
-            for old_name in renames.keys():
-                if old_name not in df.columns:
-                    return jsonify({'error': f'Column "{old_name}" not found'}), 400
-
-            new_names = [renames.get(c, c) for c in df.columns]
-            if any(not str(n).strip() for n in new_names):
-                return jsonify({'error': 'A column name cannot be empty'}), 400
-            clashes = sorted({str(n) for n in new_names if new_names.count(n) > 1})
-            if clashes:
-                return jsonify({'error': f'Renaming would give more than one column the name: {", ".join(clashes)}'}), 400
-
-            df = df.rename(columns=renames)
-            operation_summary = f"Renamed {len(renames)} column(s)"
-
-        elif operation == 'delete':
-            # Delete columns
-            columns_to_delete = request.form.get('columns_to_delete', '[]')
-            try:
-                columns_to_delete = json.loads(columns_to_delete)
-            except:
-                return jsonify({'error': 'Invalid columns format'}), 400
-
-            if not isinstance(columns_to_delete, list) or not all(isinstance(c, str) for c in columns_to_delete):
-                return jsonify({'error': 'Invalid columns format'}), 400
-            if not columns_to_delete:
-                return jsonify({'error': 'No columns selected for deletion'}), 400
-
-            # Validate columns exist
-            for col in columns_to_delete:
-                if col not in df.columns:
-                    return jsonify({'error': f'Column "{col}" not found'}), 400
-
-            df = df.drop(columns=columns_to_delete)
-            operation_summary = f"Deleted {len(columns_to_delete)} column(s)"
-
-        elif operation == 'duplicate':
-            # Duplicate a column
-            source_column = request.form.get('source_column', '')
-            new_column_name = request.form.get('new_column_name', '')
-
-            if not source_column:
-                return jsonify({'error': 'Source column is required'}), 400
-            if not new_column_name:
-                return jsonify({'error': 'New column name is required'}), 400
-            if source_column not in df.columns:
-                return jsonify({'error': f'Column "{source_column}" not found'}), 400
-            if new_column_name in df.columns:
-                return jsonify({'error': f'Column "{new_column_name}" already exists'}), 400
-
-            # Insert the duplicate after the source column
-            source_idx = df.columns.get_loc(source_column)
-            df.insert(source_idx + 1, new_column_name, df[source_column])
-            operation_summary = f"Duplicated '{source_column}' as '{new_column_name}'"
-
-        elif operation == 'split':
-            # Split a column by delimiter
-            column_to_split = request.form.get('column_to_split', '')
-            delimiter = request.form.get('delimiter', '')
-            new_names = request.form.get('new_names', '')
-
-            if not column_to_split:
-                return jsonify({'error': 'Column to split is required'}), 400
-            if not delimiter:
-                return jsonify({'error': 'Delimiter is required'}), 400
-            if column_to_split not in df.columns:
-                return jsonify({'error': f'Column "{column_to_split}" not found'}), 400
-
-            # Parse new column names (comma-separated)
-            if new_names:
-                new_names = [n.strip() for n in new_names.split(',') if n.strip()]
-            else:
-                new_names = []
-
-            # Split the column
-            # The delimiter is literal text (not a regex); blank cells stay blank in every part
-            cell_text = df[column_to_split].map(
-                lambda v: None if pd.isna(v) else (v if isinstance(v, str) else _comparable_text(v)))
-            split_df = cell_text.str.split(delimiter, expand=True, regex=False)
-            num_parts = max(split_df.shape[1], 1)          # a file with no rows still gets one (empty) part
-            split_df = split_df.reindex(columns=range(num_parts))
-
-            # Generate column names if not enough provided
-            if len(new_names) < num_parts:
-                for i in range(len(new_names), num_parts):
-                    new_names.append(f"{column_to_split}_part{i+1}")
-
-            # Use only the names needed
-            new_names = new_names[:num_parts]
-
-            # Check for duplicate column names
-            for name in new_names:
-                if name in df.columns and name != column_to_split:
-                    return jsonify({'error': f'Column "{name}" already exists'}), 400
-
-            # Insert new columns after the original
-            source_idx = df.columns.get_loc(column_to_split)
-
-            # Drop original column
-            df = df.drop(columns=[column_to_split])
-
-            # Insert split columns
-            for i, name in enumerate(new_names):
-                df.insert(source_idx + i, name, split_df[i])
-
-            operation_summary = f"Split '{column_to_split}' into {num_parts} columns"
-
-        elif operation == 'merge':
-            # Merge columns with separator
-            columns_to_merge = request.form.get('columns_to_merge', '[]')
-            separator = request.form.get('separator', '')
-            new_column_name = request.form.get('new_column_name', '')
-
-            try:
-                columns_to_merge = json.loads(columns_to_merge)
-            except:
-                return jsonify({'error': 'Invalid columns format'}), 400
-
-            if not isinstance(columns_to_merge, list) or not all(isinstance(c, str) for c in columns_to_merge):
-                return jsonify({'error': 'Invalid columns format'}), 400
-            if not columns_to_merge or len(columns_to_merge) < 2:
-                return jsonify({'error': 'Select at least 2 columns to merge'}), 400
-            if not new_column_name:
-                return jsonify({'error': 'New column name is required'}), 400
-            if new_column_name in df.columns:
-                return jsonify({'error': f'Column "{new_column_name}" already exists'}), 400
-
-            # Validate columns exist
-            for col in columns_to_merge:
-                if col not in df.columns:
-                    return jsonify({'error': f'Column "{col}" not found'}), 400
-
-            # Merge columns
-            # A blank part is empty text, never the word 'nan'/'None'
-            parts = pd.DataFrame({
-                i: df[col].map(lambda v: '' if pd.isna(v) else (v if isinstance(v, str) else _comparable_text(v)))
-                for i, col in enumerate(columns_to_merge)
-            })
-            df[new_column_name] = parts.agg(separator.join, axis=1) if len(parts) else pd.Series([], dtype=object)
-
-            # Move new column to after the last merged column
-            first_col_idx = min(df.columns.get_loc(col) for col in columns_to_merge)
-
-            # Reorder to put new column in place
-            cols = df.columns.tolist()
-            cols.remove(new_column_name)
-            cols.insert(first_col_idx + len(columns_to_merge), new_column_name)
-            df = df[cols]
-
-            operation_summary = f"Merged {len(columns_to_merge)} columns into '{new_column_name}'"
-
-        else:
-            return jsonify({'error': f'Unknown operation: {operation}'}), 400
-
-        # Save the modified file
-        base_name = os.path.splitext(filename)[0]
-        output_path = save_table(df, job_output_path(session_id, f"{base_name}_modified_{session_id}.xlsx"), session_id)
-        output_filename = os.path.basename(output_path)
-
-        # Cache the result
-        cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Column Operations')
-
-        # Cleanup upload
+    if operation == 'reorder':
+        # Reorder columns
+        column_order = request.form.get('column_order', '[]')
         try:
-            os.remove(upload_path)
+            column_order = json.loads(column_order)
         except:
-            pass
+            return jsonify({'error': 'Invalid column order format'}), 400
 
-        return jsonify({
-            'success': True,
-            'filename': output_filename,
-            'download_url': job_download_url(session_id, output_filename),
-            **job_notes.get(session_id, {}),
-            'summary': operation_summary,
-            'original_columns': len(original_cols),
-            'new_columns': len(df.columns)
+        if not isinstance(column_order, list) or not all(isinstance(c, str) for c in column_order):
+            return jsonify({'error': 'Invalid column order format'}), 400
+
+        # Validate all columns exist
+        for col in column_order:
+            if col not in df.columns:
+                return jsonify({'error': f'Column "{col}" not found'}), 400
+
+        # Listed columns first (each once); columns not listed keep their original order after them
+        listed = list(dict.fromkeys(column_order))
+        df = df[listed + [c for c in df.columns if c not in listed]]
+        operation_summary = f"Reordered {len(listed)} columns"
+
+    elif operation == 'rename':
+        # Rename columns
+        renames = request.form.get('renames', '{}')
+        try:
+            renames = json.loads(renames)
+        except:
+            return jsonify({'error': 'Invalid renames format'}), 400
+
+        if not isinstance(renames, dict) or not all(isinstance(v, str) for v in renames.values()):
+            return jsonify({'error': 'Invalid renames format: expected {"old name": "new name"}'}), 400
+        if not renames:
+            return jsonify({'error': 'No columns selected for renaming'}), 400
+
+        # Validate old column names exist
+        for old_name in renames.keys():
+            if old_name not in df.columns:
+                return jsonify({'error': f'Column "{old_name}" not found'}), 400
+
+        new_names = [renames.get(c, c) for c in df.columns]
+        if any(not str(n).strip() for n in new_names):
+            return jsonify({'error': 'A column name cannot be empty'}), 400
+        clashes = sorted({str(n) for n in new_names if new_names.count(n) > 1})
+        if clashes:
+            return jsonify({'error': f'Renaming would give more than one column the name: {", ".join(clashes)}'}), 400
+
+        df = df.rename(columns=renames)
+        operation_summary = f"Renamed {len(renames)} column(s)"
+
+    elif operation == 'delete':
+        # Delete columns
+        columns_to_delete = request.form.get('columns_to_delete', '[]')
+        try:
+            columns_to_delete = json.loads(columns_to_delete)
+        except:
+            return jsonify({'error': 'Invalid columns format'}), 400
+
+        if not isinstance(columns_to_delete, list) or not all(isinstance(c, str) for c in columns_to_delete):
+            return jsonify({'error': 'Invalid columns format'}), 400
+        if not columns_to_delete:
+            return jsonify({'error': 'No columns selected for deletion'}), 400
+
+        # Validate columns exist
+        for col in columns_to_delete:
+            if col not in df.columns:
+                return jsonify({'error': f'Column "{col}" not found'}), 400
+
+        df = df.drop(columns=columns_to_delete)
+        operation_summary = f"Deleted {len(columns_to_delete)} column(s)"
+
+    elif operation == 'duplicate':
+        # Duplicate a column
+        source_column = request.form.get('source_column', '')
+        new_column_name = request.form.get('new_column_name', '')
+
+        if not source_column:
+            return jsonify({'error': 'Source column is required'}), 400
+        if not new_column_name:
+            return jsonify({'error': 'New column name is required'}), 400
+        if source_column not in df.columns:
+            return jsonify({'error': f'Column "{source_column}" not found'}), 400
+        if new_column_name in df.columns:
+            return jsonify({'error': f'Column "{new_column_name}" already exists'}), 400
+
+        # Insert the duplicate after the source column
+        source_idx = df.columns.get_loc(source_column)
+        df.insert(source_idx + 1, new_column_name, df[source_column])
+        operation_summary = f"Duplicated '{source_column}' as '{new_column_name}'"
+
+    elif operation == 'split':
+        # Split a column by delimiter
+        column_to_split = request.form.get('column_to_split', '')
+        delimiter = request.form.get('delimiter', '')
+        new_names = request.form.get('new_names', '')
+
+        if not column_to_split:
+            return jsonify({'error': 'Column to split is required'}), 400
+        if not delimiter:
+            return jsonify({'error': 'Delimiter is required'}), 400
+        if column_to_split not in df.columns:
+            return jsonify({'error': f'Column "{column_to_split}" not found'}), 400
+
+        # Parse new column names (comma-separated)
+        if new_names:
+            new_names = [n.strip() for n in new_names.split(',') if n.strip()]
+        else:
+            new_names = []
+
+        # Split the column
+        # The delimiter is literal text (not a regex); blank cells stay blank in every part
+        cell_text = df[column_to_split].map(
+            lambda v: None if pd.isna(v) else (v if isinstance(v, str) else _comparable_text(v)))
+        split_df = cell_text.str.split(delimiter, expand=True, regex=False)
+        num_parts = max(split_df.shape[1], 1)          # a file with no rows still gets one (empty) part
+        split_df = split_df.reindex(columns=range(num_parts))
+
+        # Generate column names if not enough provided
+        if len(new_names) < num_parts:
+            for i in range(len(new_names), num_parts):
+                new_names.append(f"{column_to_split}_part{i+1}")
+
+        # Use only the names needed
+        new_names = new_names[:num_parts]
+
+        # Check for duplicate column names
+        for name in new_names:
+            if name in df.columns and name != column_to_split:
+                return jsonify({'error': f'Column "{name}" already exists'}), 400
+
+        # Insert new columns after the original
+        source_idx = df.columns.get_loc(column_to_split)
+
+        # Drop original column
+        df = df.drop(columns=[column_to_split])
+
+        # Insert split columns
+        for i, name in enumerate(new_names):
+            df.insert(source_idx + i, name, split_df[i])
+
+        operation_summary = f"Split '{column_to_split}' into {num_parts} columns"
+
+    elif operation == 'merge':
+        # Merge columns with separator
+        columns_to_merge = request.form.get('columns_to_merge', '[]')
+        separator = request.form.get('separator', '')
+        new_column_name = request.form.get('new_column_name', '')
+
+        try:
+            columns_to_merge = json.loads(columns_to_merge)
+        except:
+            return jsonify({'error': 'Invalid columns format'}), 400
+
+        if not isinstance(columns_to_merge, list) or not all(isinstance(c, str) for c in columns_to_merge):
+            return jsonify({'error': 'Invalid columns format'}), 400
+        if not columns_to_merge or len(columns_to_merge) < 2:
+            return jsonify({'error': 'Select at least 2 columns to merge'}), 400
+        if not new_column_name:
+            return jsonify({'error': 'New column name is required'}), 400
+        if new_column_name in df.columns:
+            return jsonify({'error': f'Column "{new_column_name}" already exists'}), 400
+
+        # Validate columns exist
+        for col in columns_to_merge:
+            if col not in df.columns:
+                return jsonify({'error': f'Column "{col}" not found'}), 400
+
+        # Merge columns
+        # A blank part is empty text, never the word 'nan'/'None'
+        parts = pd.DataFrame({
+            i: df[col].map(lambda v: '' if pd.isna(v) else (v if isinstance(v, str) else _comparable_text(v)))
+            for i, col in enumerate(columns_to_merge)
         })
+        df[new_column_name] = parts.agg(separator.join, axis=1) if len(parts) else pd.Series([], dtype=object)
 
-    except Exception as e:
-        print(f"Column Operations error: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
+        # Move new column to after the last merged column
+        first_col_idx = min(df.columns.get_loc(col) for col in columns_to_merge)
 
+        # Reorder to put new column in place
+        cols = df.columns.tolist()
+        cols.remove(new_column_name)
+        cols.insert(first_col_idx + len(columns_to_merge), new_column_name)
+        df = df[cols]
+
+        operation_summary = f"Merged {len(columns_to_merge)} columns into '{new_column_name}'"
+
+    else:
+        return jsonify({'error': f'Unknown operation: {operation}'}), 400
+
+    # Save the modified file
+    base_name = os.path.splitext(filename)[0]
+    output_path = save_table(df, job_output_path(session_id, f"{base_name}_modified_{session_id}.xlsx"), session_id)
+    output_filename = os.path.basename(output_path)
+
+    # Cache the result
+    cache_session_file(session_id, output_filename, output_path, len(df), len(df.columns), 'Column Operations')
+
+    # Cleanup upload
+    try:
+        os.remove(upload_path)
+    except:
+        pass
+
+    return jsonify({
+        'success': True,
+        'filename': output_filename,
+        'download_url': job_download_url(session_id, output_filename),
+        **job_notes.get(session_id, {}),
+        'summary': operation_summary,
+        'original_columns': len(original_cols),
+        'new_columns': len(df.columns)
+    })
 
 # =============================================================================
 # DATA READINESS PIPELINE ROUTES
@@ -6390,74 +5634,56 @@ def data_readiness_pipeline():
 
 @app.route('/pipeline/start', methods=['POST'])
 @rate_limit(max_requests=RATE_LIMIT_REQUESTS, window=RATE_LIMIT_WINDOW)
+@api_errors
 def pipeline_start():
     """Start a new pipeline session - upload file and create session"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Please upload an Excel (.xlsx, .xls) or CSV file'}), 400
+
+    # Generate unique session ID
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    session_id = f"pipeline_{timestamp}_{secrets.token_hex(8)}"
+
+    # Save file
+    filename = secure_filename(file.filename)
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
+    save_upload(file, upload_path, session_id)
+
+    # Create pipeline state
+    make_room_for_pipeline(current_owner())
+    state = PipelineState(session_id, upload_path, filename, owner=current_owner())
+    job_registry.bind(session_id, state.owner)
+
+    # Load DataFrame into memory
     try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file uploaded'}), 400
+        state.df = read_data_file(upload_path)
+    finally:
+        discard_upload(upload_path)    # the DataFrame has the data; the uploaded copy is not kept
+    state.row_count = len(state.df)
+    state.col_count = len(state.df.columns)
 
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
+    # Store session
+    pipeline_sessions[session_id] = state
 
-        if not allowed_file(file.filename):
-            return jsonify({'error': 'Please upload an Excel (.xlsx, .xls) or CSV file'}), 400
+    # Get preview data (first 20 rows)
+    preview_rows = df_preview(state.df, 20)
 
-        # Generate unique session ID
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        session_id = f"pipeline_{timestamp}_{secrets.token_hex(8)}"
-
-        # Save file
-        filename = secure_filename(file.filename)
-        upload_path = os.path.join(app.config['UPLOAD_FOLDER'], f"{session_id}_{filename}")
-        save_upload(file, upload_path, session_id)
-
-        # Create pipeline state
-        make_room_for_pipeline(current_owner())
-        state = PipelineState(session_id, upload_path, filename, owner=current_owner())
-        job_registry.bind(session_id, state.owner)
-
-        # Load DataFrame into memory
-        try:
-            state.df = read_data_file(upload_path)
-        finally:
-            discard_upload(upload_path)    # the DataFrame has the data; the uploaded copy is not kept
-        state.row_count = len(state.df)
-        state.col_count = len(state.df.columns)
-
-        # Store session
-        pipeline_sessions[session_id] = state
-
-        # Get preview data (first 20 rows)
-        preview_rows = []
-        preview_df = state.df.head(20)
-        for _, row in preview_df.iterrows():
-            row_dict = {}
-            for col in preview_df.columns:
-                val = row[col]
-                if pd.isna(val):
-                    row_dict[col] = None
-                elif isinstance(val, (np.integer, np.floating)):
-                    row_dict[col] = float(val) if isinstance(val, np.floating) else int(val)
-                else:
-                    row_dict[col] = str(val)
-            preview_rows.append(row_dict)
-
-        return jsonify({
-            'success': True,
-            'session_id': session_id,
-            'filename': filename,
-            'rows': state.row_count,
-            'columns': state.col_count,
-            'column_names': list(state.df.columns),
-            'preview': preview_rows
-        })
-
-    except Exception as e:
-        print(f"Pipeline start error: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'filename': filename,
+        'rows': state.row_count,
+        'columns': state.col_count,
+        'column_names': list(state.df.columns),
+        'preview': preview_rows
+    })
 
 @app.route('/pipeline/<session_id>/state', methods=['GET'])
 def pipeline_get_state(session_id):
@@ -6476,89 +5702,76 @@ def pipeline_get_state(session_id):
 
 
 @app.route('/pipeline/<session_id>/analyze', methods=['POST'])
+@api_errors
 def pipeline_analyze(session_id):
     """Stage 1: Run shape analysis on the uploaded data"""
     state = owned_pipeline_state(session_id)
     if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
 
-    try:
-        invalidate_pipeline_stages(state, 2)   # a new analysis makes later results and decisions stale
+    invalidate_pipeline_stages(state, 2)   # a new analysis makes later results and decisions stale
 
-        # Create progress queue for SSE
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        # Run analysis in background thread
-        def run_analysis():
-            try:
-                # Analyze the DataFrame
-                analysis = analyze_dataframe(inferred_copy(state.df), progress_queue, session_id)
+    # Create progress queue for SSE
+    progress_queue = Queue()
+    register_job(session_id, progress_queue)
+    # Run analysis in background thread
+    @guarded_job(progress_queue, session_id)
+    def run_analysis():
+        # Analyze the DataFrame
+        analysis = analyze_dataframe(inferred_copy(state.df), progress_queue, session_id)
 
-                # Extract gap summary for Stage 2
-                gap_summary = []
-                for col_name, col_info in analysis['columns'].items():
-                    if col_info['null_count'] > 0:
-                        gap_summary.append({
-                            'column': col_name,
-                            'null_count': col_info['null_count'],
-                            'null_percentage': col_info['null_percentage'],
-                            'detected_type': col_info.get('detected_type', 'Unknown'),
-                            'unique_count': col_info.get('unique_count', 0)
-                        })
-
-                # Sort by null percentage descending
-                gap_summary = sorted(gap_summary, key=lambda x: x['null_percentage'], reverse=True)
-                analysis['gap_summary'] = gap_summary
-
-                # Detect potentially sensitive columns for Stage 4
-                sensitive_patterns = ['name', 'email', 'phone', 'address', 'ssn', 'social',
-                                     'credit', 'account', 'password', 'dob', 'birth', 'salary']
-                sensitive_columns = []
-                for col_name in state.df.columns:
-                    col_lower = col_name.lower()
-                    for pattern in sensitive_patterns:
-                        if pattern in col_lower:
-                            sensitive_columns.append({
-                                'column': col_name,
-                                'pattern_matched': pattern,
-                                'unique_count': analysis['columns'].get(col_name, {}).get('unique_count', 0)
-                            })
-                            break
-                analysis['sensitive_columns'] = sensitive_columns
-
-                # Store results
-                state.stage_data[1] = make_json_serializable(analysis)
-                state.current_stage = 2
-
-                # Send completion
-                progress_queue.put({
-                    'stage': 'done',
-                    'percentage': 100,
-                    'message': 'Shape analysis complete',
-                    'analysis': make_json_serializable(analysis)
+        # Extract gap summary for Stage 2
+        gap_summary = []
+        for col_name, col_info in analysis['columns'].items():
+            if col_info['null_count'] > 0:
+                gap_summary.append({
+                    'column': col_name,
+                    'null_count': col_info['null_count'],
+                    'null_percentage': col_info['null_percentage'],
+                    'detected_type': col_info.get('detected_type', 'Unknown'),
+                    'unique_count': col_info.get('unique_count', 0)
                 })
 
-            except Exception as e:
-                print(f"Pipeline analysis error: {str(e)}")
-                print(traceback.format_exc())
-                progress_queue.put({
-                    'stage': 'error',
-                    'message': str(e)
-                })
+        # Sort by null percentage descending
+        gap_summary = sorted(gap_summary, key=lambda x: x['null_percentage'], reverse=True)
+        analysis['gap_summary'] = gap_summary
 
-        start_job(run_analysis)
+        # Detect potentially sensitive columns for Stage 4
+        sensitive_patterns = ['name', 'email', 'phone', 'address', 'ssn', 'social',
+                             'credit', 'account', 'password', 'dob', 'birth', 'salary']
+        sensitive_columns = []
+        for col_name in state.df.columns:
+            col_lower = col_name.lower()
+            for pattern in sensitive_patterns:
+                if pattern in col_lower:
+                    sensitive_columns.append({
+                        'column': col_name,
+                        'pattern_matched': pattern,
+                        'unique_count': analysis['columns'].get(col_name, {}).get('unique_count', 0)
+                    })
+                    break
+        analysis['sensitive_columns'] = sensitive_columns
 
-        return jsonify({
-            'success': True,
-            'session_id': session_id,
-            'message': 'Analysis started'
+        # Store results
+        state.stage_data[1] = make_json_serializable(analysis)
+        state.current_stage = 2
+
+        # Send completion
+        progress_queue.put({
+            'stage': 'done',
+            'percentage': 100,
+            'message': 'Shape analysis complete',
+            'analysis': make_json_serializable(analysis)
         })
 
-    except Exception as e:
-        print(f"Pipeline analyze error: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
 
+    start_job(run_analysis)
+
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'message': 'Analysis started'
+    })
 
 @app.route('/pipeline/<session_id>/gaps', methods=['GET'])
 def pipeline_get_gaps(session_id):
@@ -6582,182 +5795,163 @@ def pipeline_get_gaps(session_id):
 
 
 @app.route('/pipeline/<session_id>/gaps/triage', methods=['POST'])
+@api_errors
 def pipeline_triage_gaps(session_id):
     """Stage 2: Save user's gap triage decisions"""
     state = owned_pipeline_state(session_id)
     if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
 
-    try:
-        triage_decisions = request.get_json()
-        if not triage_decisions:
-            return jsonify({'error': 'No triage decisions provided'}), 400
+    triage_decisions = request.get_json()
+    if not triage_decisions:
+        return jsonify({'error': 'No triage decisions provided'}), 400
 
-        # Store user decisions
-        state.user_decisions[2] = triage_decisions
-        state.stage_data[2] = {
-            'gap_triage': triage_decisions,
-            'completed_at': time.time()
-        }
-        state.current_stage = 3
+    # Store user decisions
+    state.user_decisions[2] = triage_decisions
+    state.stage_data[2] = {
+        'gap_triage': triage_decisions,
+        'completed_at': time.time()
+    }
+    state.current_stage = 3
 
-        return jsonify({
-            'success': True,
-            'message': 'Gap triage decisions saved',
-            'gaps_triaged': len(triage_decisions)
-        })
-
-    except Exception as e:
-        print(f"Pipeline triage error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
+    return jsonify({
+        'success': True,
+        'message': 'Gap triage decisions saved',
+        'gaps_triaged': len(triage_decisions)
+    })
 
 @app.route('/pipeline/<session_id>/keys', methods=['POST'])
+@api_errors
 def pipeline_find_keys(session_id):
     """Stage 3: Find natural key candidates using Apriori algorithm"""
     state = owned_pipeline_state(session_id)
     if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
 
-    try:
-        data = request.get_json() or {}
-        selected_columns = data.get('selected_columns', list(state.df.columns))
-        allow_null_keys = str(data.get('allow_null_keys', False)).lower() in ('1', 'true', 'yes', 'on')
+    data = request.get_json() or {}
+    selected_columns = data.get('selected_columns', list(state.df.columns))
+    allow_null_keys = str(data.get('allow_null_keys', False)).lower() in ('1', 'true', 'yes', 'on')
 
-        if not selected_columns:
-            return jsonify({'error': 'Please select at least one column'}), 400
+    if not selected_columns:
+        return jsonify({'error': 'Please select at least one column'}), 400
 
-        invalidate_pipeline_stages(state, 3)   # new key candidates: the chosen key and later stages are stale
-        key_generation = state.generation
+    invalidate_pipeline_stages(state, 3)   # new key candidates: the chosen key and later stages are stale
+    key_generation = state.generation
 
-        # Create progress queue
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        def run_key_discovery():
-            try:
-                def send_progress(stage, pct, msg, current=0, total=0):
-                    progress_queue.put({
-                        'stage': stage,
-                        'percentage': pct,
-                        'message': msg,
-                        'current': current,
-                        'total': total
-                    })
+    # Create progress queue
+    progress_queue = Queue()
+    register_job(session_id, progress_queue)
+    @guarded_job(progress_queue, session_id)
+    def run_key_discovery():
+        def send_progress(stage, pct, msg, current=0, total=0):
+            progress_queue.put({
+                'stage': stage,
+                'percentage': pct,
+                'message': msg,
+                'current': current,
+                'total': total
+            })
 
-                send_progress('loading', 2, 'Preparing data for analysis...')
+        send_progress('loading', 2, 'Preparing data for analysis...')
 
-                full_df = state.df
-                total_rows = len(full_df)
+        full_df = state.df
+        total_rows = len(full_df)
 
-                invalid_cols = [c for c in selected_columns if c not in full_df.columns]
-                if invalid_cols:
-                    raise ValueError(f"Columns not found: {', '.join(invalid_cols)}")
+        invalid_cols = [c for c in selected_columns if c not in full_df.columns]
+        if invalid_cols:
+            raise UserError(f"Columns not found: {', '.join(invalid_cols)}")
 
-                # A key must identify every row: it is tested on the FULL data. When exact duplicate rows exist
-                # nothing can be a key, so the search is repeated once on the de-duplicated rows and reported
-                # separately ("unique after removing N exact duplicate rows").
-                send_progress('filtering', 5, f'Checking for duplicate rows in {total_rows:,} records...')
-                duplicate_count = int(full_df.duplicated().sum())
+        # A key must identify every row: it is tested on the FULL data. When exact duplicate rows exist
+        # nothing can be a key, so the search is repeated once on the de-duplicated rows and reported
+        # separately ("unique after removing N exact duplicate rows").
+        send_progress('filtering', 5, f'Checking for duplicate rows in {total_rows:,} records...')
+        duplicate_count = int(full_df.duplicated().sum())
 
-                # Columns with blanks make poor keys (a blank is not an identifier); skip them unless allowed
-                null_columns = [] if allow_null_keys else [c for c in selected_columns if full_df[c].isna().any()]
-                candidate_columns = [c for c in selected_columns if c not in null_columns]
-                if null_columns:
-                    send_progress('filtering', 7, f'Skipping {len(null_columns)} column(s) with blank values: '
-                                  + ', '.join(null_columns))
+        # Columns with blanks make poor keys (a blank is not an identifier); skip them unless allowed
+        null_columns = [] if allow_null_keys else [c for c in selected_columns if full_df[c].isna().any()]
+        candidate_columns = [c for c in selected_columns if c not in null_columns]
+        if null_columns:
+            send_progress('filtering', 7, f'Skipping {len(null_columns)} column(s) with blank values: '
+                          + ', '.join(null_columns))
 
-                truncated_reasons = []
+        truncated_reasons = []
 
-                def search(frame, lo, hi):
-                    """Minimal-key search on ``frame``; progress is scaled into lo..hi."""
-                    def report(stage, pct, msg, current=0, total=0):
-                        send_progress(stage, lo + int(pct / 100 * (hi - lo)), msg, current, total)
-                    result = find_minimal_keys(frame, candidate_columns, progress=report)
-                    if result['truncated']:
-                        truncated_reasons.append(result['reason'])
-                    return result['keys']
+        def search(frame, lo, hi):
+            """Minimal-key search on ``frame``; progress is scaled into lo..hi."""
+            def report(stage, pct, msg, current=0, total=0):
+                send_progress(stage, lo + int(pct / 100 * (hi - lo)), msg, current, total)
+            result = find_minimal_keys(frame, candidate_columns, progress=report)
+            if result['truncated']:
+                truncated_reasons.append(result['reason'])
+            return result['keys']
 
-                if duplicate_count:
-                    send_progress('filtering', 8, f'{duplicate_count:,} exact duplicate rows found - no column '
-                                  'combination can be unique on the full data. Searching again without them.')
-                    minimal_combinations = []      # exact duplicate rows make every column combination non-unique
-                    after_dedup = search(full_df.drop_duplicates(keep='first'), 10, 92)
-                else:
-                    send_progress('filtering', 8, f'No duplicate rows found. Analyzing {total_rows:,} rows.')
-                    minimal_combinations = search(full_df, 10, 92)
-                    after_dedup = []
-                send_progress('complete', 92, f'Search complete. Found {len(minimal_combinations) + len(after_dedup)} minimal key(s).')
+        if duplicate_count:
+            send_progress('filtering', 8, f'{duplicate_count:,} exact duplicate rows found - no column '
+                          'combination can be unique on the full data. Searching again without them.')
+            minimal_combinations = []      # exact duplicate rows make every column combination non-unique
+            after_dedup = search(full_df.drop_duplicates(keep='first'), 10, 92)
+        else:
+            send_progress('filtering', 8, f'No duplicate rows found. Analyzing {total_rows:,} rows.')
+            minimal_combinations = search(full_df, 10, 92)
+            after_dedup = []
+        send_progress('complete', 92, f'Search complete. Found {len(minimal_combinations) + len(after_dedup)} minimal key(s).')
 
-                # Store results
-                key_results = {
-                    'minimal_combinations': minimal_combinations,
-                    'minimal_combinations_after_dedup': after_dedup,
-                    'selected_columns': selected_columns,
-                    'excluded_null_columns': null_columns,
-                    'truncated': bool(truncated_reasons),
-                    'truncated_reason': truncated_reasons[0] if truncated_reasons else '',
-                    'rows_analyzed': total_rows,
-                    'duplicate_rows': duplicate_count,
-                }
-                if state.generation != key_generation:
-                    return          # the stages were re-run meanwhile: these results are stale, do not store them
-                state.stage_data[3] = key_results
+        # Store results
+        key_results = {
+            'minimal_combinations': minimal_combinations,
+            'minimal_combinations_after_dedup': after_dedup,
+            'selected_columns': selected_columns,
+            'excluded_null_columns': null_columns,
+            'truncated': bool(truncated_reasons),
+            'truncated_reason': truncated_reasons[0] if truncated_reasons else '',
+            'rows_analyzed': total_rows,
+            'duplicate_rows': duplicate_count,
+        }
+        if state.generation != key_generation:
+            return          # the stages were re-run meanwhile: these results are stale, do not store them
+        state.stage_data[3] = key_results
 
-                # Send single done message with results included
-                progress_queue.put({
-                    'stage': 'done',
-                    'percentage': 100,
-                    'message': (f'Analysis complete! Found {len(minimal_combinations)} natural key candidate(s).'
-                                if not duplicate_count else
-                                f'Analysis complete! No key is unique on all {total_rows:,} rows; '
-                                f'{len(after_dedup)} candidate(s) are unique after removing {duplicate_count:,} exact duplicate rows.'),
-                    'results': key_results
-                })
-
-            except Exception as e:
-                print(f"Key discovery error: {str(e)}")
-                print(traceback.format_exc())
-                progress_queue.put({'stage': 'error', 'message': str(e)})
-
-        start_job(run_key_discovery)
-
-        return jsonify({
-            'success': True,
-            'session_id': session_id,
-            'message': 'Key discovery started'
+        # Send single done message with results included
+        progress_queue.put({
+            'stage': 'done',
+            'percentage': 100,
+            'message': (f'Analysis complete! Found {len(minimal_combinations)} natural key candidate(s).'
+                        if not duplicate_count else
+                        f'Analysis complete! No key is unique on all {total_rows:,} rows; '
+                        f'{len(after_dedup)} candidate(s) are unique after removing {duplicate_count:,} exact duplicate rows.'),
+            'results': key_results
         })
 
-    except Exception as e:
-        print(f"Pipeline keys error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
 
+    start_job(run_key_discovery)
+
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'message': 'Key discovery started'
+    })
 
 @app.route('/pipeline/<session_id>/keys/confirm', methods=['POST'])
+@api_errors
 def pipeline_confirm_keys(session_id):
     """Stage 3: Save user's key selection"""
     state = owned_pipeline_state(session_id)
     if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
 
-    try:
-        data = request.get_json()
-        selected_key = data.get('selected_key', [])
+    data = request.get_json()
+    selected_key = data.get('selected_key', [])
 
-        state.user_decisions[3] = {'selected_key': selected_key}
-        if state.stage_data[3]:
-            state.stage_data[3]['user_selected_key'] = selected_key
-        state.current_stage = 4
+    state.user_decisions[3] = {'selected_key': selected_key}
+    if state.stage_data[3]:
+        state.stage_data[3]['user_selected_key'] = selected_key
+    state.current_stage = 4
 
-        return jsonify({
-            'success': True,
-            'message': 'Key selection saved',
-            'selected_key': selected_key
-        })
-
-    except Exception as e:
-        print(f"Pipeline confirm keys error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
+    return jsonify({
+        'success': True,
+        'message': 'Key selection saved',
+        'selected_key': selected_key
+    })
 
 @app.route('/pipeline/<session_id>/transformations', methods=['GET'])
 def pipeline_get_transformations(session_id):
@@ -6883,37 +6077,33 @@ def pipeline_get_transformations(session_id):
 
 
 @app.route('/pipeline/<session_id>/transformations/select', methods=['POST'])
+@api_errors
 def pipeline_select_transformations(session_id):
     """Stage 4: Save user's transformation selections"""
     state = owned_pipeline_state(session_id)
     if state is None:
         return jsonify({'error': 'Pipeline session not found or expired'}), 404
 
-    try:
-        selections = request.get_json()
-        if selections is None:
-            selections = {}
+    selections = request.get_json()
+    if selections is None:
+        selections = {}
 
-        invalidate_pipeline_stages(state, 5)   # new selections: any earlier execution result is stale
-        state.user_decisions[4] = selections
-        state.stage_data[4] = {
-            'selected_transformations': selections,
-            'completed_at': time.time()
-        }
-        state.current_stage = 5
+    invalidate_pipeline_stages(state, 5)   # new selections: any earlier execution result is stale
+    state.user_decisions[4] = selections
+    state.stage_data[4] = {
+        'selected_transformations': selections,
+        'completed_at': time.time()
+    }
+    state.current_stage = 5
 
-        return jsonify({
-            'success': True,
-            'message': 'Transformation selections saved',
-            'selections': selections
-        })
-
-    except Exception as e:
-        print(f"Pipeline select transformations error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
+    return jsonify({
+        'success': True,
+        'message': 'Transformation selections saved',
+        'selections': selections
+    })
 
 @app.route('/pipeline/<session_id>/execute', methods=['POST'])
+@api_errors
 def pipeline_execute(session_id):
     """Stage 5: Execute selected transformations and generate report"""
     state = owned_pipeline_state(session_id)
@@ -6922,135 +6112,125 @@ def pipeline_execute(session_id):
     if state.stage_data[1] is None:
         return jsonify({'error': 'Run the shape analysis (stage 1) before executing the pipeline'}), 409
 
-    try:
-        progress_queue = Queue()
-        register_job(session_id, progress_queue)
-        def run_execute():
-            try:
-                send_progress = lambda pct, msg: progress_queue.put({
-                    'stage': 'executing', 'percentage': pct, 'message': msg
-                })
-
-                send_progress(5, 'Starting pipeline execution...')
-
-                result_df = state.df.copy()
-                transformation_log = []
-                selections = state.user_decisions.get(4, {})
-
-                # Apply anonymization if selected
-                if selections.get('anonymization', {}).get('enabled'):
-                    send_progress(20, 'Applying data anonymization...')
-                    anon_cols = selections['anonymization'].get('columns', [])
-                    if anon_cols:
-                        for col in anon_cols:
-                            if col in result_df.columns:
-                                unique_vals = result_df[col].dropna().unique()
-                                mapping = {val: f"{col[:3].upper()}_{i+1:05d}" for i, val in enumerate(unique_vals)}
-                                result_df[col] = result_df[col].map(lambda x: mapping.get(x, x) if pd.notna(x) else x)
-                        transformation_log.append({
-                            'type': 'anonymization',
-                            'columns': anon_cols,
-                            'rows_affected': len(result_df),
-                            'status': 'applied',
-                            'note': 'Values replaced with consistent placeholders (e.g. NAM_00001); the same value always gets the same placeholder',
-                        })
-
-                # Apply type normalization if selected
-                if selections.get('normalization', {}).get('enabled'):
-                    send_progress(40, 'Recording type normalization...')
-                    norm_cols = selections['normalization'].get('columns', [])
-                    # Type conversion is not implemented here: use the Data Normalizer tool on the result
-                    if norm_cols:
-                        transformation_log.append({
-                            'type': 'normalization',
-                            'columns': norm_cols,
-                            'status': 'recorded, not applied',
-                            'note': 'Type conversion was not performed on the data; use the Data Normalizer tool',
-                        })
-
-                # Gap handling is only reported: nothing is filled or removed
-                if selections.get('gap_handling', {}).get('enabled'):
-                    gap_cols = selections['gap_handling'].get('columns', [])
-                    if gap_cols:
-                        transformation_log.append({
-                            'type': 'gap_handling',
-                            'columns': gap_cols,
-                            'status': 'recorded, not applied',
-                            'note': 'The gaps are documented in the report; no values were filled or rows removed',
-                        })
-
-                send_progress(60, 'Generating PDF report...')
-
-                # Generate PDF Report
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                output_basename = f"data_readiness_report_{timestamp}"
-                pdf_path = job_output_path(session_id, f"{output_basename}.pdf")
-
-                generate_readiness_report(
-                    output_path=pdf_path,
-                    state=state,
-                    transformation_log=transformation_log
-                )
-
-                send_progress(80, 'Saving transformed data...')
-
-                # Save transformed data
-                excel_path = save_table(result_df, job_output_path(session_id, f"{output_basename}_data.xlsx"), session_id)
-
-                # Create ZIP package
-                send_progress(90, 'Packaging results...')
-                zip_path = job_output_path(session_id, f"{output_basename}.zip")
-                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    zipf.write(pdf_path, f"{output_basename}_report.pdf")
-                    zipf.write(excel_path, os.path.basename(excel_path))
-
-                # The report is inside the zip; the data file stays so the result can be chained into another tool
-                os.remove(pdf_path)
-
-                # Store execution results
-                state.stage_data[5] = {
-                    'transformation_log': transformation_log,
-                    'output_file': f"{output_basename}.zip",
-                    'completed_at': time.time()
-                }
-
-                # Cache the result file
-                cache_session_file(
-                    session_id,
-                    os.path.basename(excel_path),
-                    excel_path,
-                    len(result_df),
-                    len(result_df.columns),
-                    'Data Readiness Pipeline',
-                    owner=state.owner
-                )
-
-                progress_queue.put({
-                    'stage': 'done',
-                    'percentage': 100,
-                    'message': 'Pipeline execution complete',
-                    'download_url': job_download_url(session_id, f"{output_basename}.zip"),
-                    'output_filename': f"{output_basename}.zip",
-                    'transformation_log': transformation_log
-                })
-
-            except Exception as e:
-                print(f"Pipeline execute error: {str(e)}")
-                print(traceback.format_exc())
-                progress_queue.put({'stage': 'error', 'message': str(e)})
-
-        start_job(run_execute)
-
-        return jsonify({
-            'success': True,
-            'session_id': session_id,
-            'message': 'Pipeline execution started'
+    progress_queue = Queue()
+    register_job(session_id, progress_queue)
+    @guarded_job(progress_queue, session_id)
+    def run_execute():
+        send_progress = lambda pct, msg: progress_queue.put({
+            'stage': 'executing', 'percentage': pct, 'message': msg
         })
 
-    except Exception as e:
-        print(f"Pipeline execute error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        send_progress(5, 'Starting pipeline execution...')
 
+        result_df = state.df.copy()
+        transformation_log = []
+        selections = state.user_decisions.get(4, {})
+
+        # Apply anonymization if selected
+        if selections.get('anonymization', {}).get('enabled'):
+            send_progress(20, 'Applying data anonymization...')
+            anon_cols = selections['anonymization'].get('columns', [])
+            if anon_cols:
+                for col in anon_cols:
+                    if col in result_df.columns:
+                        unique_vals = result_df[col].dropna().unique()
+                        mapping = {val: f"{col[:3].upper()}_{i+1:05d}" for i, val in enumerate(unique_vals)}
+                        result_df[col] = result_df[col].map(lambda x: mapping.get(x, x) if pd.notna(x) else x)
+                transformation_log.append({
+                    'type': 'anonymization',
+                    'columns': anon_cols,
+                    'rows_affected': len(result_df),
+                    'status': 'applied',
+                    'note': 'Values replaced with consistent placeholders (e.g. NAM_00001); the same value always gets the same placeholder',
+                })
+
+        # Apply type normalization if selected
+        if selections.get('normalization', {}).get('enabled'):
+            send_progress(40, 'Recording type normalization...')
+            norm_cols = selections['normalization'].get('columns', [])
+            # Type conversion is not implemented here: use the Data Normalizer tool on the result
+            if norm_cols:
+                transformation_log.append({
+                    'type': 'normalization',
+                    'columns': norm_cols,
+                    'status': 'recorded, not applied',
+                    'note': 'Type conversion was not performed on the data; use the Data Normalizer tool',
+                })
+
+        # Gap handling is only reported: nothing is filled or removed
+        if selections.get('gap_handling', {}).get('enabled'):
+            gap_cols = selections['gap_handling'].get('columns', [])
+            if gap_cols:
+                transformation_log.append({
+                    'type': 'gap_handling',
+                    'columns': gap_cols,
+                    'status': 'recorded, not applied',
+                    'note': 'The gaps are documented in the report; no values were filled or rows removed',
+                })
+
+        send_progress(60, 'Generating PDF report...')
+
+        # Generate PDF Report
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_basename = f"data_readiness_report_{timestamp}"
+        pdf_path = job_output_path(session_id, f"{output_basename}.pdf")
+
+        generate_readiness_report(
+            output_path=pdf_path,
+            state=state,
+            transformation_log=transformation_log
+        )
+
+        send_progress(80, 'Saving transformed data...')
+
+        # Save transformed data
+        excel_path = save_table(result_df, job_output_path(session_id, f"{output_basename}_data.xlsx"), session_id)
+
+        # Create ZIP package
+        send_progress(90, 'Packaging results...')
+        zip_path = job_output_path(session_id, f"{output_basename}.zip")
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(pdf_path, f"{output_basename}_report.pdf")
+            zipf.write(excel_path, os.path.basename(excel_path))
+
+        # The report is inside the zip; the data file stays so the result can be chained into another tool
+        os.remove(pdf_path)
+
+        # Store execution results
+        state.stage_data[5] = {
+            'transformation_log': transformation_log,
+            'output_file': f"{output_basename}.zip",
+            'completed_at': time.time()
+        }
+
+        # Cache the result file
+        cache_session_file(
+            session_id,
+            os.path.basename(excel_path),
+            excel_path,
+            len(result_df),
+            len(result_df.columns),
+            'Data Readiness Pipeline',
+            owner=state.owner
+        )
+
+        progress_queue.put({
+            'stage': 'done',
+            'percentage': 100,
+            'message': 'Pipeline execution complete',
+            'download_url': job_download_url(session_id, f"{output_basename}.zip"),
+            'output_filename': f"{output_basename}.zip",
+            'transformation_log': transformation_log
+        })
+
+
+    start_job(run_execute)
+
+    return jsonify({
+        'success': True,
+        'session_id': session_id,
+        'message': 'Pipeline execution started'
+    })
 
 def generate_readiness_report(output_path, state, transformation_log=None):
     """Generate comprehensive Data Readiness PDF report"""

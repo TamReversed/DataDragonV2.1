@@ -24,7 +24,8 @@
 - Read files only via `read_data_file(path, mode='lossless'|'infer')`; write xlsx only via `excel_writer()` (formula-injection safe).
 - Never use `eval`/`exec`; formulas go through `datadragon_formula.py`.
 - Every job/cache/download is owner-scoped via the signed session cookie; new endpoints must check ownership.
-- Never print or log cell values (PII).
+- Never print or log cell values (PII). Use `log` (from `datadragon_logging`, JSON lines with the job id), never `print`.
+- Errors: raise `UserError("message for the user")` for bad input; any other exception reaches the browser only as `Processing failed (ref ...)` (details go to the log). Routes use `@api_errors`; background jobs use `@job_worker(...)` (see `datadragon.py` near `start_job`).
 - Each tool page is a Jinja template in `templates/` extending `base.html`; shared JS in `static/js/common.js`, charts in `static/js/charts.js`.
 - Do not push: `origin` is TamReversed/DataDragonV2.1; ask the owner.
 - Some notes above describe the target state (helpers introduced in Phases 1–3); check `PROGRESS.md` for what exists yet.

@@ -199,14 +199,19 @@ def test_a_failed_post_save_check_removes_the_saved_file(tmp_path, monkeypatch):
     assert "download_url" not in final
 
 
-def test_cell_values_are_never_written_to_the_log(tmp_path, capsys):
+def test_cell_values_are_never_written_to_the_log(tmp_path, capsys, caplog):
     secrets_in_data = ["Zebediah Quux", "q.uux@secret.example", "Xanthippe Fnord"]
     path = write_rows(tmp_path / "s.csv", ["Name", "Email"],
                       [[secrets_in_data[0], secrets_in_data[1]], [secrets_in_data[2], None]])
-    for relationship in (False, True):
-        run_scrub(path, ["Name", "Email"], relationship)
+    datadragon.log.addHandler(caplog.handler)          # the app logger does not propagate to the root logger
+    caplog.set_level("DEBUG", logger="datadragon")
+    try:
+        for relationship in (False, True):
+            run_scrub(path, ["Name", "Email"], relationship)
+    finally:
+        datadragon.log.removeHandler(caplog.handler)
     captured = capsys.readouterr()
-    text = captured.out + captured.err
+    text = captured.out + captured.err + caplog.text
     assert not any(secret in text for secret in secrets_in_data)
     assert "Anonymization complete" in text  # it still logs counts
 

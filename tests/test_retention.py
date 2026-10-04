@@ -264,12 +264,16 @@ def test_jobs_run_in_a_bounded_pool():
     assert len(started) == datadragon.MAX_JOBS + 3
 
 
-def test_a_crashing_job_is_logged_not_fatal(capsys):
-    future = datadragon.start_job(lambda: 1 / 0)
-    with pytest.raises(ZeroDivisionError):
-        future.result(timeout=5)
-    time.sleep(0.1)
-    assert "Background job crashed" in capsys.readouterr().out
+def test_a_crashing_job_is_logged_not_fatal(caplog):
+    datadragon.log.addHandler(caplog.handler)          # the app logger does not propagate to the root logger
+    try:
+        future = datadragon.start_job(lambda: 1 / 0)
+        with pytest.raises(ZeroDivisionError):
+            future.result(timeout=5)
+        time.sleep(0.1)
+        assert "background job crashed" in caplog.text
+    finally:
+        datadragon.log.removeHandler(caplog.handler)
     assert datadragon.start_job(lambda: 42).result(timeout=5) == 42                    # the pool still works
 
 
