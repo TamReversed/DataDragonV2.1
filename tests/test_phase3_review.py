@@ -172,4 +172,4 @@ def test_log_lines_are_real_json_even_with_quotes_and_line_breaks(caplog):
 # 9: focus ring wins
 def test_the_focus_ring_cannot_be_switched_off_by_component_rules():
     css = open("static/css/a11y.css", encoding="utf-8").read()
-    assert "outline: 2px solid var(--accent-purple) !important" in css
+    assert "outline: 2px solid var(--dd-focus, #17605C) !important" in css

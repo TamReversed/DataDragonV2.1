@@ -33,20 +33,25 @@ def test_the_old_muted_text_would_have_failed(contrast):
 
 def test_focus_ring_and_reduced_motion_rules_exist_and_every_page_loads_them():
     css = read("static/css/a11y.css")
-    assert ":focus-visible" in css and "2px solid var(--accent-purple)" in css and "outline-offset: 2px" in css
+    assert ":focus-visible" in css and "2px solid var(--dd-focus" in css and "outline-offset: 2px" in css
     assert "@media (prefers-reduced-motion: reduce)" in css
-    for page in ("base", "landing"):          # index.html (the splitter) now extends base.html
-        assert "css/a11y.css" in read(f"templates/{page}.html"), page
+    assert "css/a11y.css" in read("templates/base.html")              # every page, the hub included, extends base.html
+    for page in glob.glob("templates/*.html"):
+        if not page.endswith(("base.html", "_tools.html")):
+            assert '{% extends "base.html" %}' in read(page), page
     main = read("static/css/main.css")
-    assert "@media (prefers-reduced-motion: no-preference)" in main     # orb animation and blur only for these users
-    assert re.search(r"no-preference\)\s*\{\s*\.gradient-orb\s*\{\s*animation:", main)
+    assert "@media (prefers-reduced-motion: no-preference)" in main     # the waiting cells animate only for these users
+    assert re.search(r"no-preference\)\s*\{\s*\.lava-bubble\s*\{\s*animation:", main)
 
 
-@pytest.mark.parametrize("page", ["base", "landing"])
-def test_pages_have_a_main_landmark_and_hide_decorative_layers(page):
-    html = read(f"templates/{page}.html")
-    assert "<main" in html and "</main>" in html
-    assert 'class="gradient-bg" aria-hidden="true"' in html
+def test_pages_have_landmarks_a_skip_link_and_hide_decorative_layers():
+    html = read("templates/base.html")
+    assert "<main" in html and "</main>" in html and 'id="main"' in html
+    assert 'class="skip-link" href="#main"' in html
+    assert '<nav class="tool-tree" aria-label="Tools">' in html and 'aria-current="page"' in html
+    assert 'class="page-wash" aria-hidden="true"' in html
+    for name in ("empty_upload", "empty_results", "error", "done", "scales"):     # illustrations are decoration
+        assert 'aria-hidden="true"' in read(f"templates/brand/{name}.svg"), name
 
 
 def test_common_js_adds_live_regions_progressbars_alerts_and_keyboard_scrolling():
