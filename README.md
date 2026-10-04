@@ -8,6 +8,7 @@ It is a small Flask application: you upload a file, a tool processes it in memor
 | Group | Tool | What it does |
 |---|---|---|
 | Data pipelines | Data Readiness Pipeline | Guided workflow: analyze shape, triage gaps, discover keys, anonymize, report (PDF) |
+| | Recipes | Save the steps behind a result as a file and replay them on another file, with a check first |
 | Quality and analysis | Column Analyzer | Profiling: statistics, semantic types, missing values, outliers, charts, PDF report |
 | | Duplicate Finder | Duplicate rows on chosen columns, with a removal list |
 | | Natural Key Finder | Smallest column combinations that identify every row |
@@ -27,6 +28,7 @@ It is a small Flask application: you upload a file, a tool processes it in memor
 | Documents | PDF to Word | Converts a PDF to an editable Word file |
 
 Results of one tool can be picked as the input of the next ("earlier results" on each page) without uploading them again.
+The steps taken this way are recorded, and can be saved as a recipe and replayed on another file (`/recipes`).
 
 ## Quick start
 

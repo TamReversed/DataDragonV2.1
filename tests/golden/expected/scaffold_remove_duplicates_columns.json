@@ -121,6 +121,9 @@
    ],
    "total_rows": 6
   },
+  "recipe_steps": [
+   "Remove Duplicates"
+  ],
   "success": true,
   "summary": [
    [
