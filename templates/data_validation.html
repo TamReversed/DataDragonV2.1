@@ -841,22 +841,7 @@
 
 {% block scripts %}
 <script>
-    // XSS Protection
-    function escapeHtml(text) {
-        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
-        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[ch]));
-    }
 
-    // Format file size
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
 
     const fileUploadArea = document.getElementById('fileUploadArea');
     const fileInput = document.getElementById('fileInput');
@@ -893,56 +878,23 @@
     const savingMessage = document.getElementById('savingMessage');
 
     let file = null;
-    let eventSource = null;
+
+    // Upload zone (click, keyboard, drag and drop); the chosen file may also be an earlier result
+    const upload = DD.initUpload({
+        zone: fileUploadArea, input: fileInput, sizeInfo: fileSizeInfo,
+        onFile: async source => {
+            file = source;
+            fetchPreview(file);
+            await loadFileColumns(file);
+        },
+    });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => upload.choose(source) });
+    let job = null;
     let allColumns = [];
     let validationRules = [];
     let ruleCounter = 0;
 
-    // Load cached files on page load
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.style.display = 'block';
-                cachedFilesList.innerHTML = data.files.map(f => `
-                    <button type="button" class="cached-file-item" onclick="useCachedFile('${f.cache_id}')">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(f.filename)}</div>
-                            <div class="cached-file-meta">${f.rows.toLocaleString()} rows x ${f.cols} columns</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(f.source_tool)}</div>
-                    </button>
-                `).join('');
-            } else {
-                cachedFilesSection.style.display = 'none';
-            }
-        } catch (err) { cachedFilesSection.style.display = 'none'; }
-    }
 
-    // Use a cached file
-    async function useCachedFile(cacheId) {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const fileResponse = await fetch('/download-cached-file/' + cacheId);
-                const blob = await fileResponse.blob();
-                const f = new File([blob], data.filename, { type: blob.type });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(f);
-                fileInput.files = dataTransfer.files;
-                fileInput.dispatchEvent(new Event('change'));
-                if (data.preview) displayPreview(data.preview);
-            } else {
-                showError('Failed to load cached file: ' + (data.error || 'Unknown error'));
-            }
-        } catch (err) { showError('Failed to load cached file'); }
-    }
 
     // Display data preview
     function displayPreview(previewData) {
@@ -965,58 +917,23 @@
     async function fetchPreview(f) {
         try {
             const formData = new FormData();
-            formData.append('file', f);
+            DD.appendFile(formData, 'file', f);
             const response = await fetch('/preview-data', { method: 'POST', body: formData });
             const data = await response.json();
             if (data.success) displayPreview(data);
         } catch (err) { console.error('Failed to fetch preview:', err); }
     }
 
-    // Load cached files on page load
-    loadCachedFiles();
 
-    // File upload handlers
-    fileUploadArea.addEventListener('click', () => fileInput.click());
 
-    fileInput.addEventListener('change', async (e) => {
-        if (e.target.files.length > 0) {
-            file = e.target.files[0];
-            fileSizeInfo.textContent = `File size: ${formatFileSize(file.size)}`;
-            fileSizeInfo.style.display = 'block';
-            fileUploadArea.classList.add('has-file');
-            fetchPreview(file);
-            await loadFileColumns(file);
-        }
-    });
 
-    // Drag and drop
-    fileUploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        fileUploadArea.classList.add('dragover');
-    });
 
-    fileUploadArea.addEventListener('dragleave', () => {
-        fileUploadArea.classList.remove('dragover');
-    });
 
-    fileUploadArea.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        fileUploadArea.classList.remove('dragover');
-
-        if (e.dataTransfer.files.length) {
-            fileInput.files = e.dataTransfer.files;
-            file = e.dataTransfer.files[0];
-            fileSizeInfo.textContent = `File size: ${formatFileSize(file.size)}`;
-            fileSizeInfo.style.display = 'block';
-            fileUploadArea.classList.add('has-file');
-            await loadFileColumns(file);
-        }
-    });
 
     async function loadFileColumns(file) {
         try {
             const formData = new FormData();
-            formData.append('file', file);
+            DD.appendFile(formData, 'file', file);
 
             const response = await fetch('/get-columns', {
                 method: 'POST',
@@ -1202,10 +1119,7 @@
 
     // Cancel button
     cancelBtn.addEventListener('click', function() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        if (job) { job.cancel(); job = null; }
         cancelBtn.style.display = 'none';
         validateBtn.disabled = false;
         validateBtn.textContent = 'Validate Data';
@@ -1229,7 +1143,7 @@
         }
 
         const formData = new FormData();
-        formData.append('file', file);
+        DD.appendFile(formData, 'file', file);
         formData.append('validation_rules', JSON.stringify(completeRules));
 
         validateBtn.disabled = true;
@@ -1241,91 +1155,37 @@
         resetProgress();
 
         try {
-            const response = await fetch('/validate-data', {
-                method: 'POST',
-                body: formData
-            }).catch(fetchError => {
-                throw new Error('Could not connect to server. Make sure the server is running.');
+            job = DD.startJob('/validate-data', formData, {
+                onProgress: progressData => {
+                    updateProgress(progressData.stage, progressData.percentage || 0, progressData.message || '');
+                },
+                onDone: progressData => {
+                    updateProgress('done', 100, progressData.message || '');
+                    if (progressData.download_url) {
+                        downloadBtn.onclick = () => {
+                            window.location.href = progressData.download_url;
+                        };
+
+                        // Display results
+                        displayResults(progressData);
+
+                        results.classList.add('show');
+                        validateBtn.disabled = false;
+                        validateBtn.textContent = 'Validate Data';
+                        cancelBtn.style.display = 'none';
+                        progressContainer.classList.remove('show');
+                    }
+
+                },
+                onError: message => {
+                    showError(message);
+                    validateBtn.disabled = false;
+                    validateBtn.textContent = 'Validate Data';
+                    cancelBtn.style.display = 'none';
+                    progressContainer.classList.remove('show');
+
+                },
             });
-
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonError) {
-                throw new Error('Invalid response from server');
-            }
-
-            if (response.ok && data.success && data.session_id) {
-                if (eventSource) {
-                    eventSource.close();
-                }
-
-                // Small delay to ensure session is registered before connecting
-                await new Promise(resolve => setTimeout(resolve, 100));
-
-                eventSource = new EventSource('/progress/' + data.session_id);
-
-                eventSource.onmessage = function(event) {
-                    const progressData = JSON.parse(event.data);
-
-                    if (progressData.error) {
-                        eventSource.close();
-                        showError('Server error: ' + progressData.error);
-                        validateBtn.disabled = false;
-                        validateBtn.textContent = 'Validate Data';
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                        return;
-                    }
-
-                    const stage = progressData.stage;
-                    const percentage = progressData.percentage || 0;
-                    const message = progressData.message || '';
-
-                    updateProgress(stage, percentage, message);
-
-                    if (stage === 'done') {
-                        eventSource.close();
-
-                        if (progressData.download_url) {
-                            downloadBtn.onclick = () => {
-                                window.location.href = progressData.download_url;
-                            };
-
-                            // Display results
-                            displayResults(progressData);
-
-                            results.classList.add('show');
-                            validateBtn.disabled = false;
-                            validateBtn.textContent = 'Validate Data';
-                            cancelBtn.style.display = 'none';
-                            progressContainer.classList.remove('show');
-                        }
-                    }
-
-                    if (stage === 'error') {
-                        eventSource.close();
-                        showError(progressData.message || 'An error occurred during validation');
-                        validateBtn.disabled = false;
-                        validateBtn.textContent = 'Validate Data';
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                    }
-                };
-
-                eventSource.onerror = function(err) {
-                    console.error('EventSource error:', err);
-                    if (eventSource.readyState === EventSource.CLOSED) {
-                        eventSource.close();
-                        showError('Connection lost. Validation may still be processing...');
-                        validateBtn.disabled = false;
-                        validateBtn.textContent = 'Validate Data';
-                        cancelBtn.style.display = 'none';
-                    }
-                };
-            } else {
-                throw new Error(data.error || 'Failed to start validation');
-            }
         } catch (error) {
             console.error('Error:', error);
             showError(error.message || 'An error occurred');

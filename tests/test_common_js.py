@@ -5,7 +5,8 @@ import re
 import pytest
 
 # Grows with each migration batch; the last batch makes it every template that has these helpers.
-MIGRATED = ["find_replace", "row_filter", "column_operations", "transpose"]
+MIGRATED = ["find_replace", "row_filter", "column_operations", "transpose",
+            "data_validation", "duplicate_finder", "unique_identifier_finder", "data_scrubber"]
 
 
 def read(path):

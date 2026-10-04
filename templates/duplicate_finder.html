@@ -976,22 +976,7 @@
 
 {% block scripts %}
 <script>
-    // XSS Protection
-    function escapeHtml(text) {
-        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
-        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[ch]));
-    }
 
-    // Format file size
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
 
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
@@ -1026,58 +1011,52 @@
     const savingMessage = document.getElementById('savingMessage');
 
     let selectedFile = null;
-    let eventSource = null;
+
+    // Upload zone (click, keyboard, drag and drop); the chosen file may also be an earlier result
+    const upload = DD.initUpload({
+        zone: uploadArea, input: fileInput, sizeInfo: fileSizeInfo,
+        onFile: async source => {
+            selectedFile = source;
+            error.classList.remove('show');
+            results.classList.remove('show');
+            columnSelector.classList.remove('show');
+            findBtn.disabled = true;
+
+            // Fetch and display preview
+            fetchPreview(selectedFile);
+
+            // Get columns from server
+            try {
+                const formData = new FormData();
+                DD.appendFile(formData, 'file', selectedFile);
+
+                const response = await fetch('/get-columns', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to read file columns');
+                }
+
+                const data = await response.json();
+                if (data.success && data.columns) {
+                    fileColumns = data.columns;
+                    populateColumnDropdowns();
+                } else {
+                    throw new Error(data.error || 'Failed to get columns');
+                }
+            } catch (err) {
+                console.error('Error reading file:', err);
+                showError('Failed to read file: ' + err.message);
+            }
+        },
+    });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => upload.choose(source) });
+    let job = null;
     let fileColumns = [];
 
-    // Load cached files on page load
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.style.display = 'block';
-                cachedFilesList.innerHTML = data.files.map(file => `
-                    <button type="button" class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
-                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns - ${file.cached_at}</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
-                    </button>
-                `).join('');
-            } else {
-                cachedFilesSection.style.display = 'none';
-            }
-        } catch (err) {
-            cachedFilesSection.style.display = 'none';
-        }
-    }
 
-    // Use a cached file
-    async function useCachedFile(cacheId) {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const fileResponse = await fetch('/download-cached-file/' + cacheId);
-                const blob = await fileResponse.blob();
-                const file = new File([blob], data.filename, { type: blob.type });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                fileInput.files = dataTransfer.files;
-                fileInput.dispatchEvent(new Event('change'));
-                if (data.preview) displayPreview(data.preview);
-            } else {
-                showError('Failed to load cached file: ' + (data.error || 'Unknown error'));
-            }
-        } catch (err) {
-            showError('Failed to load cached file');
-        }
-    }
 
     // Display data preview
     function displayPreview(previewData) {
@@ -1100,81 +1079,18 @@
     async function fetchPreview(file) {
         try {
             const formData = new FormData();
-            formData.append('file', file);
+            DD.appendFile(formData, 'file', file);
             const response = await fetch('/preview-data', { method: 'POST', body: formData });
             const data = await response.json();
             if (data.success) displayPreview(data);
         } catch (err) { console.error('Failed to fetch preview:', err); }
     }
 
-    // Load cached files on page load
-    loadCachedFiles();
 
-    // Click to upload
-    uploadArea.addEventListener('click', () => fileInput.click());
 
-    // File selection
-    fileInput.addEventListener('change', async (e) => {
-        if (e.target.files.length > 0) {
-            selectedFile = e.target.files[0];
-            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
-            fileSizeInfo.style.display = 'block';
-            uploadArea.classList.add('has-file');
-            error.classList.remove('show');
-            results.classList.remove('show');
-            columnSelector.classList.remove('show');
-            findBtn.disabled = true;
 
-            // Fetch and display preview
-            fetchPreview(selectedFile);
 
-            // Get columns from server
-            try {
-                const formData = new FormData();
-                formData.append('file', selectedFile);
 
-                const response = await fetch('/get-columns', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (!response.ok) {
-                    throw new Error('Failed to read file columns');
-                }
-
-                const data = await response.json();
-                if (data.success && data.columns) {
-                    fileColumns = data.columns;
-                    populateColumnDropdowns();
-                } else {
-                    throw new Error(data.error || 'Failed to get columns');
-                }
-            } catch (err) {
-                console.error('Error reading file:', err);
-                showError('Failed to read file: ' + err.message);
-            }
-        }
-    });
-
-    // Drag and drop
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
-
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
-    });
-
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-
-        if (e.dataTransfer.files.length) {
-            fileInput.files = e.dataTransfer.files;
-            fileInput.dispatchEvent(new Event('change'));
-        }
-    });
 
     function populateColumnDropdowns() {
         idColumn.innerHTML = '<option value="">-- Select ID Column --</option>';
@@ -1260,10 +1176,7 @@
 
     // Cancel button
     cancelBtn.addEventListener('click', function() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        if (job) { job.cancel(); job = null; }
         cancelBtn.style.display = 'none';
         findBtn.disabled = false;
         findBtn.innerHTML = `
@@ -1290,7 +1203,7 @@
         }
 
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
         formData.append('id_column', idColumn.value);
         selectedDuplicateColumns.forEach(col => formData.append('duplicate_columns[]', col));
         formData.append('treat_blank_as_value', document.getElementById('treatBlankAsValue').checked ? 'true' : 'false');
@@ -1307,108 +1220,47 @@
         resetProgress();
 
         try {
-            const response = await fetch('/find-duplicates', {
-                method: 'POST',
-                body: formData
-            }).catch(fetchError => {
-                throw new Error('Could not connect to server. Make sure the server is running.');
+            job = DD.startJob('/find-duplicates', formData, {
+                onProgress: progressData => {
+                    updateProgress(progressData.stage, progressData.percentage || 0, progressData.message || '');
+                },
+                onDone: progressData => {
+                    updateProgress('done', 100, progressData.message || '');
+                    if (progressData.download_url) {
+                        downloadBtn.onclick = () => {
+                            window.location.href = progressData.download_url;
+                        };
+
+                        // Display results
+                        displayResults(progressData);
+
+                        results.classList.add('show');
+                        findBtn.disabled = false;
+                        findBtn.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                            </svg>
+                            Find Duplicates
+                        `;
+                        cancelBtn.style.display = 'none';
+                        progressContainer.classList.remove('show');
+                    }
+
+                },
+                onError: message => {
+                    showError(message);
+                    findBtn.disabled = false;
+                    findBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                        </svg>
+                        Find Duplicates
+                    `;
+                    cancelBtn.style.display = 'none';
+                    progressContainer.classList.remove('show');
+
+                },
             });
-
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonError) {
-                throw new Error('Invalid response from server');
-            }
-
-            if (response.ok && data.success && data.session_id) {
-                if (eventSource) {
-                    eventSource.close();
-                }
-
-                eventSource = new EventSource('/progress/' + data.session_id);
-
-                eventSource.onmessage = function(event) {
-                    const progressData = JSON.parse(event.data);
-
-                    if (progressData.error) {
-                        eventSource.close();
-                        showError('Server error: ' + progressData.error);
-                        findBtn.disabled = false;
-                        findBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                            </svg>
-                            Find Duplicates
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                        return;
-                    }
-
-                    const stage = progressData.stage;
-                    const percentage = progressData.percentage || 0;
-                    const message = progressData.message || '';
-
-                    updateProgress(stage, percentage, message);
-
-                    if (stage === 'done') {
-                        eventSource.close();
-
-                        if (progressData.download_url) {
-                            downloadBtn.onclick = () => {
-                                window.location.href = progressData.download_url;
-                            };
-
-                            // Display results
-                            displayResults(progressData);
-
-                            results.classList.add('show');
-                            findBtn.disabled = false;
-                            findBtn.innerHTML = `
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                                </svg>
-                                Find Duplicates
-                            `;
-                            cancelBtn.style.display = 'none';
-                            progressContainer.classList.remove('show');
-                        }
-                    }
-
-                    if (stage === 'error') {
-                        eventSource.close();
-                        showError(progressData.message || 'An error occurred during duplicate finding');
-                        findBtn.disabled = false;
-                        findBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                            </svg>
-                            Find Duplicates
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                    }
-                };
-
-                eventSource.onerror = function(err) {
-                    console.error('EventSource error:', err);
-                    if (eventSource.readyState === EventSource.CLOSED) {
-                        eventSource.close();
-                        showError('Connection lost. Duplicate finding may still be processing...');
-                        findBtn.disabled = false;
-                        findBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                            </svg>
-                            Find Duplicates
-                        `;
-                        cancelBtn.style.display = 'none';
-                    }
-                };
-            } else {
-                throw new Error(data.error || 'Failed to start duplicate finding');
-            }
         } catch (error) {
             console.error('Error:', error);
             showError(error.message || 'An error occurred');
