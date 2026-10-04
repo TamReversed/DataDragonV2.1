@@ -63,3 +63,8 @@ def test_common_js_adds_live_regions_progressbars_alerts_and_keyboard_scrolling(
 
 def test_the_pipeline_page_has_a_heading():
     assert '<h1 class="pipeline-title">' in read("templates/data_readiness_pipeline.html")
+
+
+def test_one_primary_action_once_a_result_is_showing():
+    css = read("static/css/main.css")
+    assert ".main-content:has(.results.show :is(.btn-primary, .download-btn)) .btn-primary:not(.results *) {" in css

@@ -64,22 +64,19 @@ illustrations). Nothing was generated in Phases 4 and 5.
 2. **Page-local CSS remains** (about 5,400 lines) for tool-specific layouts. It reads the tokens through aliases
    (`--accent-purple` now means teal, and so on), which works but hides the intent. Some result headings may still be
    teal where the rule says ink.
-3. **Two ember buttons can show at once** after a run (the action and the download), against the "one primary
-   action" rule.
-4. **The brief's product does not exist here.** Onboarding, auth, dashboards, a chart builder, sharing, settings and
+3. **The brief's product does not exist here.** Onboarding, auth, dashboards, a chart builder, sharing, settings and
    billing were not built, because the rule was to redesign what exists.
-5. **Tablet:** at 768 px the sidebar collapses to a top bar rather than staying beside the content.
-6. **Fonts cover Latin and Latin Extended only.** Text in other scripts (for example in file names) falls back to
+4. **Tablet:** at 768 px the sidebar collapses to a top bar rather than staying beside the content.
+5. **Fonts cover Latin and Latin Extended only.** Text in other scripts (for example in file names) falls back to
    system fonts.
-7. **Inline styles** (about 200 `style="…"` attributes) are still there, so the CSP still needs `'unsafe-inline'`
+6. **Inline styles** (about 200 `style="…"` attributes) are still there, so the CSP still needs `'unsafe-inline'`
    for styles.
-8. **Charts on a page that is printed in dark mode** print dark; only the PDF export forces light.
+7. **Charts on a page that is printed in dark mode** print dark; only the PDF export forces light.
 
 ## Suggested follow-ups
 
 - Delete the unused old logo files `static/images/datadragon-logo-128.png` and `-256.png` (waiting for a yes).
 - Replace the alias variables in page CSS with the `--dd-*` tokens, then delete the alias block from `main.css`.
-- Make the download button the only ember button once results are shown.
 - Move inline styles and scripts to files, then tighten the CSP.
 - Open a pull request for `redesign/v2` into `main`. The hardening work (PR #1) is already merged, so the redesign
   PR contains only its own 12 commits and merges cleanly.
