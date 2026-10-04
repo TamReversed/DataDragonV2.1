@@ -74,7 +74,15 @@
     }
 
     input[type="file"] {
-        display: none;
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
     }
 
     /* Cached Files Section */
@@ -820,7 +828,7 @@
         <div class="upload-subtext">Click to upload or drag and drop</div>
         <div class="upload-subtext">Excel or CSV files</div>
         <div class="file-size-info" id="leftFileSizeInfo" style="display: none;"></div>
-        <input type="file" id="leftFileInput" name="left_file" accept=".xlsx,.xls,.csv">
+        <input type="file" class="visually-hidden" id="leftFileInput" name="left_file" accept=".xlsx,.xls,.csv" aria-label="Choose the left file">
     </div>
 
     <div class="upload-area" id="rightUploadArea">
@@ -834,7 +842,7 @@
         <div class="upload-subtext">Click to upload or drag and drop</div>
         <div class="upload-subtext">Excel or CSV files</div>
         <div class="file-size-info" id="rightFileSizeInfo" style="display: none;"></div>
-        <input type="file" id="rightFileInput" name="right_file" accept=".xlsx,.xls,.csv">
+        <input type="file" class="visually-hidden" id="rightFileInput" name="right_file" accept=".xlsx,.xls,.csv" aria-label="Choose the right file">
     </div>
 </div>
 
@@ -1063,21 +1071,7 @@
 
 {% block scripts %}
 <script>
-    // XSS Protection
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
-    // Format file size
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
 
     const leftUploadArea = document.getElementById('leftUploadArea');
     const rightUploadArea = document.getElementById('rightUploadArea');
@@ -1117,128 +1111,38 @@
 
     let leftFile = null;
     let rightFile = null;
-    let eventSource = null;
+
+    // Upload zones (click, keyboard, drag and drop); the first one can also take an earlier result
+    const leftUpload = DD.initUpload({
+        zone: leftUploadArea, input: leftFileInput, sizeInfo: leftFileSizeInfo,
+        onFile: async source => {
+            leftFile = source;
+            await loadFileColumns('left', leftFile);
+        },
+    });
+    const rightUpload = DD.initUpload({
+        zone: rightUploadArea, input: rightFileInput, sizeInfo: rightFileSizeInfo,
+        onFile: async source => {
+            rightFile = source;
+            await loadFileColumns('right', rightFile);
+        },
+    });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => leftUpload.choose(source) });
+    let job = null;
     let leftColumns = [];
     let rightColumns = [];
 
-    // Cached files functions
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.style.display = 'block';
-                cachedFilesList.innerHTML = data.files.map(f => `
-                    <div class="cached-file-item" onclick="useCachedFile('${f.cache_id}', 'left')">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(f.filename)}</div>
-                            <div class="cached-file-meta">${f.rows.toLocaleString()} rows x ${f.cols} columns - ${f.cached_at}</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(f.source_tool)}</div>
-                    </div>
-                `).join('');
-            }
-        } catch (err) {
-            console.error('Error loading cached files:', err);
-        }
-    }
 
-    async function useCachedFile(cacheId, targetSlot = 'left') {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
-                const blob = await fileResponse.blob();
-                const newFile = new File([blob], data.filename, { type: blob.type });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(newFile);
 
-                if (targetSlot === 'left') {
-                    leftFileInput.files = dataTransfer.files;
-                    leftFileInput.dispatchEvent(new Event('change'));
-                } else {
-                    rightFileInput.files = dataTransfer.files;
-                    rightFileInput.dispatchEvent(new Event('change'));
-                }
-            }
-        } catch (err) {
-            console.error('Error using cached file:', err);
-            showError('Failed to load cached file');
-        }
-    }
 
-    // Load cached files on page load
-    loadCachedFiles();
 
-    // File upload handlers
-    leftUploadArea.addEventListener('click', () => leftFileInput.click());
-    rightUploadArea.addEventListener('click', () => rightFileInput.click());
 
-    leftFileInput.addEventListener('change', async (e) => {
-        if (e.target.files.length > 0) {
-            leftFile = e.target.files[0];
-            leftFileSizeInfo.textContent = `File size: ${formatFileSize(leftFile.size)}`;
-            leftFileSizeInfo.style.display = 'block';
-            leftUploadArea.classList.add('has-file');
-            await loadFileColumns('left', leftFile);
-        }
-    });
 
-    rightFileInput.addEventListener('change', async (e) => {
-        if (e.target.files.length > 0) {
-            rightFile = e.target.files[0];
-            rightFileSizeInfo.textContent = `File size: ${formatFileSize(rightFile.size)}`;
-            rightFileSizeInfo.style.display = 'block';
-            rightUploadArea.classList.add('has-file');
-            await loadFileColumns('right', rightFile);
-        }
-    });
-
-    // Drag and drop
-    [leftUploadArea, rightUploadArea].forEach((area, index) => {
-        const fileInput = index === 0 ? leftFileInput : rightFileInput;
-
-        area.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            area.classList.add('dragover');
-        });
-
-        area.addEventListener('dragleave', () => {
-            area.classList.remove('dragover');
-        });
-
-        area.addEventListener('drop', async (e) => {
-            e.preventDefault();
-            area.classList.remove('dragover');
-
-            if (e.dataTransfer.files.length) {
-                fileInput.files = e.dataTransfer.files;
-                if (index === 0) {
-                    leftFile = e.dataTransfer.files[0];
-                    leftFileSizeInfo.textContent = `File size: ${formatFileSize(leftFile.size)}`;
-                    leftFileSizeInfo.style.display = 'block';
-                    leftUploadArea.classList.add('has-file');
-                    await loadFileColumns('left', leftFile);
-                } else {
-                    rightFile = e.dataTransfer.files[0];
-                    rightFileSizeInfo.textContent = `File size: ${formatFileSize(rightFile.size)}`;
-                    rightFileSizeInfo.style.display = 'block';
-                    rightUploadArea.classList.add('has-file');
-                    await loadFileColumns('right', rightFile);
-                }
-            }
-        });
-    });
 
     async function loadFileColumns(side, file) {
         try {
             const formData = new FormData();
-            formData.append('file', file);
+            DD.appendFile(formData, 'file', file);
 
             const response = await fetch('/get-columns', {
                 method: 'POST',
@@ -1264,7 +1168,7 @@
             }
         } catch (err) {
             console.error('Error reading file:', err);
-            showError(`Failed to read ${side} file: ` + err.message);
+            showError(`Failed to read ${escapeHtml(side)} file: ` + err.message);
         }
     }
 
@@ -1374,10 +1278,7 @@
 
     // Cancel button
     cancelBtn.addEventListener('click', function() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        if (job) { job.cancel(); job = null; }
         cancelBtn.style.display = 'none';
         mergeBtn.disabled = false;
         mergeBtn.innerHTML = `
@@ -1396,8 +1297,8 @@
         if (!leftFile || !rightFile || !leftKey.value || !rightKey.value) return;
 
         const formData = new FormData();
-        formData.append('left_file', leftFile);
-        formData.append('right_file', rightFile);
+        DD.appendFile(formData, 'left_file', leftFile);
+        DD.appendFile(formData, 'right_file', rightFile);
         formData.append('left_key', leftKey.value);
         formData.append('right_key', rightKey.value);
         formData.append('join_type', joinType.value);
@@ -1422,108 +1323,47 @@
         resetProgress();
 
         try {
-            const response = await fetch('/merge-data', {
-                method: 'POST',
-                body: formData
-            }).catch(fetchError => {
-                throw new Error('Could not connect to server. Make sure the server is running.');
+            job = DD.startJob('/merge-data', formData, {
+                onProgress: progressData => {
+                    updateProgress(progressData.stage, progressData.percentage || 0, progressData.message || '');
+                },
+                onDone: progressData => {
+                    updateProgress('done', 100, progressData.message || '');
+                    if (progressData.download_url) {
+                        downloadBtn.onclick = () => {
+                            window.location.href = progressData.download_url;
+                        };
+
+                        // Display results
+                        displayResults(progressData);
+
+                        results.classList.add('show');
+                        mergeBtn.disabled = false;
+                        mergeBtn.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                            </svg>
+                            Merge Files
+                        `;
+                        cancelBtn.style.display = 'none';
+                        progressContainer.classList.remove('show');
+                    }
+
+                },
+                onError: message => {
+                    showError(message);
+                    mergeBtn.disabled = false;
+                    mergeBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                        </svg>
+                        Merge Files
+                    `;
+                    cancelBtn.style.display = 'none';
+                    progressContainer.classList.remove('show');
+
+                },
             });
-
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonError) {
-                throw new Error('Invalid response from server');
-            }
-
-            if (response.ok && data.success && data.session_id) {
-                if (eventSource) {
-                    eventSource.close();
-                }
-
-                eventSource = new EventSource('/progress/' + data.session_id);
-
-                eventSource.onmessage = function(event) {
-                    const progressData = JSON.parse(event.data);
-
-                    if (progressData.error) {
-                        eventSource.close();
-                        showError('Server error: ' + progressData.error);
-                        mergeBtn.disabled = false;
-                        mergeBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                            </svg>
-                            Merge Files
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                        return;
-                    }
-
-                    const stage = progressData.stage;
-                    const percentage = progressData.percentage || 0;
-                    const message = progressData.message || '';
-
-                    updateProgress(stage, percentage, message);
-
-                    if (stage === 'done') {
-                        eventSource.close();
-
-                        if (progressData.download_url) {
-                            downloadBtn.onclick = () => {
-                                window.location.href = progressData.download_url;
-                            };
-
-                            // Display results
-                            displayResults(progressData);
-
-                            results.classList.add('show');
-                            mergeBtn.disabled = false;
-                            mergeBtn.innerHTML = `
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                                </svg>
-                                Merge Files
-                            `;
-                            cancelBtn.style.display = 'none';
-                            progressContainer.classList.remove('show');
-                        }
-                    }
-
-                    if (stage === 'error') {
-                        eventSource.close();
-                        showError(progressData.message || 'An error occurred during merge');
-                        mergeBtn.disabled = false;
-                        mergeBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                            </svg>
-                            Merge Files
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                    }
-                };
-
-                eventSource.onerror = function(err) {
-                    console.error('EventSource error:', err);
-                    if (eventSource.readyState === EventSource.CLOSED) {
-                        eventSource.close();
-                        showError('Connection lost. Merge may still be processing...');
-                        mergeBtn.disabled = false;
-                        mergeBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                            </svg>
-                            Merge Files
-                        `;
-                        cancelBtn.style.display = 'none';
-                    }
-                };
-            } else {
-                throw new Error(data.error || 'Failed to start merge');
-            }
         } catch (error) {
             console.error('Error:', error);
             showError(error.message || 'An error occurred');
@@ -1571,9 +1411,10 @@
                     </div>
                     <div class="summary-item">
                         <div class="summary-label">Join Type</div>
-                        <div class="summary-value" style="font-size: 18px;">${summary.join_type.toUpperCase()}</div>
+                        <div class="summary-value" style="font-size: 18px;">${summary.join_type.toUpperCase() /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>
                     </div>
                 </div>
+                ${progressData.warning ? `<div role="alert" style="margin-top: 16px; padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(234, 179, 8, 0.5); background: rgba(234, 179, 8, 0.12); color: var(--accent-yellow);">${escapeHtml(progressData.warning)}</div>` : ''}
             `;
         }
 

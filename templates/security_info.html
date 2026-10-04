@@ -200,7 +200,9 @@
 
 {% block page_title %}
 <div class="header-with-logo">
-    <img src="{{ url_for('static', filename='images/datadragon-logo.png') }}" alt="DataDragon Logo" class="datadragon-logo">
+    <img src="{{ url_for('static', filename='images/datadragon-logo-128.png') }}"
+                         srcset="{{ url_for('static', filename='images/datadragon-logo-128.png') }} 1x, {{ url_for('static', filename='images/datadragon-logo-256.png') }} 2x"
+                         alt="DataDragon Logo" class="datadragon-logo" width="128" height="78">
     <h1 class="page-title">Security & Privacy Information</h1>
 </div>
 <p class="page-subtitle">Your data privacy and security is our top priority</p>
@@ -210,8 +212,8 @@
 <div class="content-card">
     <div class="section">
         <div class="highlight-box">
-            <strong>100% Local Processing</strong>
-            <p>All data processing happens entirely on your local machine. Your files and data never leave your computer.</p>
+            <strong>Processed where DataDragon runs</strong>
+            <p>Your files are processed by the machine that runs DataDragon and are not sent to any third-party service. If DataDragon runs on a shared server, that server (and whoever administers it) holds your files while it works on them.</p>
         </div>
     </div>
 
@@ -220,11 +222,11 @@
         <div class="section-content">
             <p><strong>All processing is local:</strong></p>
             <ul>
-                <li>File uploads are sent only to <code>http://127.0.0.1:5000</code> (localhost)</li>
+                <li>By default the server listens on <code>127.0.0.1:5002</code> (this machine only) and file uploads go only there</li>
                 <li>All analysis uses pandas running on your machine</li>
-                <li>Results are stored temporarily in memory, then deleted</li>
+                <li>Results are kept in memory and as files for a limited time (see <em>Retention</em> below)</li>
                 <li>Temporary files are stored locally and automatically cleaned up</li>
-                <li>All communication stays within your local network</li>
+                <li>Hosting DataDragon on a network (setting <code>HOST</code>/<code>PORT</code>, or running it under gunicorn) makes it reachable from that network: put HTTPS and access control in front of it</li>
             </ul>
         </div>
     </div>
@@ -259,7 +261,7 @@
                 </div>
                 <div class="info-item">
                     <div class="info-item-label">html2canvas</div>
-                    <div class="info-item-value">Canvas conversion library (cdnjs.cloudflare.com)</div>
+                    <div class="info-item-value">Screenshot library, loaded only by Column Comparison when you copy a table as an image (cdn.jsdelivr.net)</div>
                 </div>
             </div>
             <p style="margin-top: var(--space-4);">
@@ -276,9 +278,9 @@
                 <li><strong>Upload:</strong> File is temporarily saved to local <code>uploads/</code> folder</li>
                 <li><strong>Processing:</strong> File is read into memory using pandas</li>
                 <li><strong>Analysis:</strong> All calculations happen in memory</li>
-                <li><strong>Results:</strong> Analysis results sent to browser (via localhost)</li>
-                <li><strong>Cleanup:</strong> Original file deleted immediately after processing</li>
-                <li><strong>Memory:</strong> DataFrames explicitly deleted from memory</li>
+                <li><strong>Results:</strong> Analysis results are sent to your browser</li>
+                <li><strong>Cleanup:</strong> The upload is deleted as soon as its job has loaded or finished with it; a sweeper removes any leftover after 30 minutes</li>
+                <li><strong>Memory:</strong> DataFrames are released when the job ends (Data Readiness Pipeline sessions stay in memory until you finish or they expire after 2 idle hours)</li>
             </ol>
         </div>
     </div>
@@ -286,11 +288,13 @@
     <div class="section">
         <h2 class="section-title">Privacy Guarantee</h2>
         <div class="highlight-box">
-            <strong>Your Data Never Leaves Your Machine</strong>
+            <strong>What DataDragon does and does not promise</strong>
             <p>
-                All data processing occurs entirely within your local environment. Files are processed,
-                analyzed, and results are displayed - all without any external transmission. Temporary
-                files are automatically deleted, and no traces of your data remain after processing.
+                DataDragon does not send your data to external services (the pages load some JavaScript
+                libraries from public CDNs, which is code only, never your data). Uploaded files are deleted
+                as soon as their data is loaded (the longer-running tools remove the upload when the job finishes). Result files can be downloaded repeatedly for 30 minutes and are then
+                deleted whether or not you downloaded them. While they exist, files sit unencrypted on the
+                disk of the machine running DataDragon. Cell values are never written to its logs on purpose; error details are logged, and a library can put a value into its error text, so treat the logs as sensitive.
             </p>
         </div>
     </div>
@@ -301,7 +305,7 @@
             <div class="info-grid">
                 <div class="info-item">
                     <div class="info-item-label">Server Location</div>
-                    <div class="info-item-value">Localhost (127.0.0.1:5000)</div>
+                    <div class="info-item-value">Localhost by default (127.0.0.1:5002)</div>
                 </div>
                 <div class="info-item">
                     <div class="info-item-label">Processing</div>
@@ -309,7 +313,7 @@
                 </div>
                 <div class="info-item">
                     <div class="info-item-label">Storage</div>
-                    <div class="info-item-value">Temporary (auto-deleted)</div>
+                    <div class="info-item-value">Temporary (deleted after 30 minutes)</div>
                 </div>
                 <div class="info-item">
                     <div class="info-item-label">Network</div>
@@ -336,7 +340,7 @@
                 </div>
                 <div class="info-item">
                     <div class="info-item-label">Server Location</div>
-                    <div class="info-item-value">Localhost (127.0.0.1:5000)</div>
+                    <div class="info-item-value">Localhost by default (127.0.0.1:5002)</div>
                 </div>
                 <div class="info-item">
                     <div class="info-item-label">Communication Protocol</div>
@@ -435,9 +439,9 @@
                 <ul style="margin-top: var(--space-3); margin-left: var(--space-5);">
                     <li><strong>Chart.js 4.4.0</strong> - Source: cdn.jsdelivr.net/npm/chart.js - Purpose: Data visualization charts (bar, line, pie charts)</li>
                     <li><strong>jsPDF 2.5.1</strong> - Source: cdnjs.cloudflare.com/ajax/libs/jspdf - Purpose: PDF document generation from HTML</li>
-                    <li><strong>html2canvas 1.4.1</strong> - Source: cdnjs.cloudflare.com/ajax/libs/html2canvas - Purpose: HTML to canvas conversion for PDF export</li>
+                    <li><strong>html2canvas 1.4.1</strong> - Source: cdn.jsdelivr.net/npm/html2canvas - Purpose: copy a comparison table as an image (loaded only on that page, on demand)</li>
                 </ul>
-                <p style="margin-top: var(--space-3);"><strong>Security Note:</strong> All three libraries are open-source, widely-used, and execute entirely in the browser. They process data that is already loaded in the browser memory and do not make external network requests with user data.</p>
+                <p style="margin-top: var(--space-3);"><strong>Security Note:</strong> Every library tag carries a Subresource Integrity hash, so the browser refuses a file that differs from the one we reviewed. All three libraries are open-source, widely-used, and execute entirely in the browser. They process data that is already loaded in the browser memory and do not make external network requests with user data.</p>
             </div>
 
             <h3 class="section-heading">Security Features Implemented</h3>
@@ -452,9 +456,9 @@
                     <li><strong>File Size Limits:</strong> Maximum 500MB per file upload</li>
                     <li><strong>Input Validation:</strong> Chunk size limits (1 to 1,000,000 records), filename sanitization</li>
                     <li><strong>Secure Session IDs:</strong> Generated using <code>secrets.token_hex(8)</code> with timestamps</li>
-                    <li><strong>Automatic Cleanup:</strong> Temporary files deleted immediately after processing</li>
-                    <li><strong>Memory Management:</strong> DataFrames explicitly deleted from memory after use</li>
-                    <li><strong>No Persistent Storage:</strong> No database, no file system persistence of user data</li>
+                    <li><strong>Automatic Cleanup (Retention):</strong> uploads are deleted once loaded; result files are deleted 30 minutes after their job (<code>DATADRAGON_OUTPUT_TTL_MIN</code>); a sweeper runs every 5 minutes</li>
+                    <li><strong>Memory Management:</strong> DataFrames are released when a job ends; at most 4 jobs run at once and each browser can keep at most 3 pipeline sessions</li>
+                    <li><strong>No Persistent Storage:</strong> No database; files exist only for the retention window above</li>
                 </ul>
             </div>
 
@@ -466,7 +470,7 @@
                 <li><strong>Processing:</strong> File read into pandas DataFrame in memory</li>
                 <li><strong>Analysis/Transformation:</strong> All operations performed in-memory using pandas</li>
                 <li><strong>Output:</strong> Results written to <code>output/</code> directory (temporary)</li>
-                <li><strong>Cleanup:</strong> Original upload file deleted, output files available for download then auto-deleted</li>
+                <li><strong>Cleanup:</strong> The upload is deleted once loaded; output files can be downloaded repeatedly for 30 minutes, then are deleted</li>
             </ol>
 
             <h3 class="section-heading">File Handling</h3>
@@ -501,8 +505,8 @@
             <div class="highlight-box">
                 <strong>Network Configuration</strong>
                 <ul style="margin-top: var(--space-3); margin-left: var(--space-5);">
-                    <li><strong>Server Binding:</strong> 127.0.0.1:5000 (localhost only, not accessible from network)</li>
-                    <li><strong>Protocol:</strong> HTTP (not HTTPS - localhost only, no external access)</li>
+                    <li><strong>Server Binding:</strong> 127.0.0.1:5002 by default (this machine only). Setting <code>HOST</code>/<code>PORT</code> or deploying with gunicorn exposes it to the network</li>
+                    <li><strong>Protocol:</strong> plain HTTP. Fine on localhost; put HTTPS in front of any shared deployment</li>
                     <li><strong>Connection Types:</strong> HTTP POST (file uploads), HTTP GET (downloads), SSE (progress updates)</li>
                     <li><strong>External Connections:</strong> Only for CDN JavaScript libraries (code download, no data)</li>
                     <li><strong>No Outbound Data:</strong> Application never sends user data to external servers</li>
@@ -551,7 +555,7 @@
                         </tr>
                         <tr>
                             <td>GET</td>
-                            <td><code>/data-scrubber</code></td>
+                            <td><code>/data-anonymizer</code></td>
                             <td>Data scrubber tool page</td>
                             <td>No</td>
                         </tr>
@@ -599,7 +603,7 @@
                         </tr>
                         <tr>
                             <td>GET</td>
-                            <td><code>/download/&lt;filename&gt;</code></td>
+                            <td><code>/download/&lt;job_id&gt;/&lt;filename&gt;</code></td>
                             <td>Download processed files</td>
                             <td>No</td>
                         </tr>
@@ -610,11 +614,11 @@
             <h3 class="section-heading">Data Flow & Memory Management</h3>
             <p><strong>Memory Handling:</strong></p>
             <ul style="margin-left: var(--space-5); margin-top: var(--space-3);">
-                <li><strong>DataFrames:</strong> Created in memory, explicitly deleted with <code>del df</code> after processing</li>
+                <li><strong>DataFrames:</strong> Created in memory and released when the job ends</li>
                 <li><strong>File Reading:</strong> pandas reads entire file into memory (no streaming for Excel files)</li>
                 <li><strong>Analysis Results:</strong> Stored in-memory dictionary, maximum 1 hour retention</li>
                 <li><strong>Progress Updates:</strong> Thread-safe Queue objects, cleaned up after session completion</li>
-                <li><strong>No Memory Leaks:</strong> All objects explicitly deleted, cleanup threads run periodically</li>
+                <li><strong>Bounded Memory:</strong> a pool of 4 job workers, a cleanup sweeper every 5 minutes, pipeline sessions capped (3 per browser, 20 in total) and expired after 2 idle hours</li>
             </ul>
 
             <h3 class="section-heading">Error Handling & Logging</h3>
@@ -622,7 +626,7 @@
                 <li><strong>Error Responses:</strong> JSON error messages with appropriate HTTP status codes (400, 404, 429, 500)</li>
                 <li><strong>Exception Handling:</strong> Try-catch blocks around all file operations</li>
                 <li><strong>Logging:</strong> Console print statements for debugging (no persistent logs)</li>
-                <li><strong>Error Cleanup:</strong> Temporary files deleted even on error conditions</li>
+                <li><strong>Error Cleanup:</strong> Temporary files are removed on error paths; anything missed is removed by the sweeper</li>
                 <li><strong>Stack Traces:</strong> Full traceback printed to console for debugging (not exposed to client)</li>
             </ul>
 
@@ -640,13 +644,13 @@
                 <strong>Security Compliance Notes</strong>
                 <ul style="margin-top: var(--space-3); margin-left: var(--space-5);">
                     <li><strong>No Data Persistence:</strong> No databases, no long-term file storage</li>
-                    <li><strong>No User Authentication:</strong> Single-user local application</li>
+                    <li><strong>No User Accounts:</strong> there are no logins. Each browser gets a private signed session; jobs, cached files and downloads are only available to the browser that created them</li>
                     <li><strong>No Audit Logging:</strong> No persistent logs of user actions or data access</li>
                     <li><strong>No Data Transmission:</strong> All processing local, no external API calls with data</li>
-                    <li><strong>Source Code Visibility:</strong> All code is visible in <code>app.py</code> for review</li>
+                    <li><strong>Source Code Visibility:</strong> All code is visible in <code>datadragon.py</code> for review</li>
                     <li><strong>Dependency Transparency:</strong> All dependencies listed in <code>requirements.txt</code></li>
-                    <li><strong>No Encryption:</strong> Files stored unencrypted in temporary directories (localhost only)</li>
-                    <li><strong>No Network Encryption:</strong> HTTP only (acceptable for localhost-only access)</li>
+                    <li><strong>No Encryption at Rest:</strong> files are stored unencrypted in the server's temporary folders while they exist</li>
+                    <li><strong>No Transport Encryption:</strong> DataDragon speaks plain HTTP; use HTTPS in front of it when it is not on localhost</li>
                 </ul>
             </div>
 
@@ -681,8 +685,8 @@
             <h3 class="section-heading">Known Limitations</h3>
             <ul style="margin-left: var(--space-5); margin-top: var(--space-3);">
                 <li><strong>File Size:</strong> Limited by available RAM (entire file loaded into memory)</li>
-                <li><strong>Concurrent Users:</strong> Not designed for multi-user access (single local instance)</li>
-                <li><strong>No Authentication:</strong> Anyone with localhost access can use the application</li>
+                <li><strong>Concurrency:</strong> runs as one process (one worker) with at most 4 jobs at a time; not built for many simultaneous users</li>
+                <li><strong>No Authentication:</strong> anyone who can reach the server can use it (each browser only sees its own jobs)</li>
                 <li><strong>No Encryption:</strong> Files stored unencrypted during processing</li>
                 <li><strong>No Backup:</strong> No data persistence or recovery mechanisms</li>
                 <li><strong>CDN Dependency:</strong> Requires internet connection for initial JavaScript library loading (code only)</li>
@@ -697,9 +701,9 @@
                 If you have any concerns about data privacy or security, you can:
             </p>
             <ul>
-                <li>Review the source code (all processing is visible in <code>app.py</code>)</li>
-                <li>Monitor network traffic (all requests go to localhost only)</li>
-                <li>Check temporary folders (files are deleted after processing)</li>
+                <li>Review the source code (all processing is visible in <code>datadragon.py</code>)</li>
+                <li>Monitor network traffic (by default requests go only to 127.0.0.1)</li>
+                <li>Check the <code>uploads/</code> and <code>output/</code> folders (uploads are deleted once loaded, results after 30 minutes)</li>
                 <li>Run the application in an isolated environment if needed</li>
             </ul>
         </div>

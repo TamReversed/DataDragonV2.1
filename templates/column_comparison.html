@@ -74,7 +74,15 @@
     }
 
     input[type="file"] {
-        display: none;
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
     }
 
     /* Cached Files Section */
@@ -701,7 +709,7 @@
         <div class="upload-subtext">Click to upload or drag and drop</div>
         <div class="upload-subtext">Excel or CSV files</div>
         <div class="file-size-info" id="file1SizeInfo" style="display: none;"></div>
-        <input type="file" id="file1Input" name="file1" accept=".xlsx,.xls,.csv">
+        <input type="file" class="visually-hidden" id="file1Input" name="file1" accept=".xlsx,.xls,.csv" aria-label="Choose the first file">
     </div>
 
     <div class="upload-area" id="file2UploadArea">
@@ -712,7 +720,7 @@
         <div class="upload-subtext">Click to upload or drag and drop</div>
         <div class="upload-subtext">Excel or CSV files</div>
         <div class="file-size-info" id="file2SizeInfo" style="display: none;"></div>
-        <input type="file" id="file2Input" name="file2" accept=".xlsx,.xls,.csv">
+        <input type="file" class="visually-hidden" id="file2Input" name="file2" accept=".xlsx,.xls,.csv" aria-label="Choose the second file">
     </div>
 </div>
 
@@ -886,21 +894,7 @@
 
 {% block scripts %}
 <script>
-    // XSS Protection
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
-    // Format file size
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
 
     const file1UploadArea = document.getElementById('file1UploadArea');
     const file2UploadArea = document.getElementById('file2UploadArea');
@@ -933,121 +927,31 @@
 
     let file1 = null;
     let file2 = null;
-    let eventSource = null;
 
-    // Cached files functions
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.style.display = 'block';
-                cachedFilesList.innerHTML = data.files.map(f => `
-                    <div class="cached-file-item" onclick="useCachedFile('${f.cache_id}', 1)">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(f.filename)}</div>
-                            <div class="cached-file-meta">${f.rows.toLocaleString()} rows x ${f.cols} columns - ${f.cached_at}</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(f.source_tool)}</div>
-                    </div>
-                `).join('');
-            }
-        } catch (err) {
-            console.error('Error loading cached files:', err);
-        }
-    }
-
-    async function useCachedFile(cacheId, targetSlot = 1) {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
-                const blob = await fileResponse.blob();
-                const newFile = new File([blob], data.filename, { type: blob.type });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(newFile);
-
-                if (targetSlot === 1) {
-                    file1Input.files = dataTransfer.files;
-                    file1Input.dispatchEvent(new Event('change'));
-                } else {
-                    file2Input.files = dataTransfer.files;
-                    file2Input.dispatchEvent(new Event('change'));
-                }
-            }
-        } catch (err) {
-            console.error('Error using cached file:', err);
-            showError('Failed to load cached file');
-        }
-    }
-
-    // Load cached files on page load
-    loadCachedFiles();
-
-    // File upload handlers
-    file1UploadArea.addEventListener('click', () => file1Input.click());
-    file2UploadArea.addEventListener('click', () => file2Input.click());
-
-    file1Input.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            file1 = e.target.files[0];
-            file1SizeInfo.textContent = `File size: ${formatFileSize(file1.size)}`;
-            file1SizeInfo.style.display = 'block';
-            file1UploadArea.classList.add('has-file');
+    // Upload zones (click, keyboard, drag and drop); the first one can also take an earlier result
+    const upload1 = DD.initUpload({
+        zone: file1UploadArea, input: file1Input, sizeInfo: file1SizeInfo,
+        onFile: source => {
+            file1 = source;
             checkReadyToCompare();
-        }
+        },
     });
-
-    file2Input.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            file2 = e.target.files[0];
-            file2SizeInfo.textContent = `File size: ${formatFileSize(file2.size)}`;
-            file2SizeInfo.style.display = 'block';
-            file2UploadArea.classList.add('has-file');
+    const upload2 = DD.initUpload({
+        zone: file2UploadArea, input: file2Input, sizeInfo: file2SizeInfo,
+        onFile: source => {
+            file2 = source;
             checkReadyToCompare();
-        }
+        },
     });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => upload1.choose(source) });
+    let job = null;
 
-    // Drag and drop
-    [file1UploadArea, file2UploadArea].forEach((area, index) => {
-        const fileInput = index === 0 ? file1Input : file2Input;
 
-        area.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            area.classList.add('dragover');
-        });
 
-        area.addEventListener('dragleave', () => {
-            area.classList.remove('dragover');
-        });
 
-        area.addEventListener('drop', (e) => {
-            e.preventDefault();
-            area.classList.remove('dragover');
 
-            if (e.dataTransfer.files.length) {
-                fileInput.files = e.dataTransfer.files;
-                if (index === 0) {
-                    file1 = e.dataTransfer.files[0];
-                    file1SizeInfo.textContent = `File size: ${formatFileSize(file1.size)}`;
-                    file1SizeInfo.style.display = 'block';
-                    file1UploadArea.classList.add('has-file');
-                    checkReadyToCompare();
-                } else {
-                    file2 = e.dataTransfer.files[0];
-                    file2SizeInfo.textContent = `File size: ${formatFileSize(file2.size)}`;
-                    file2SizeInfo.style.display = 'block';
-                    file2UploadArea.classList.add('has-file');
-                    checkReadyToCompare();
-                }
-            }
-        });
-    });
+
+
 
 
     function checkReadyToCompare() {
@@ -1099,10 +1003,7 @@
 
     // Cancel button
     cancelBtn.addEventListener('click', function() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        if (job) { job.cancel(); job = null; }
         cancelBtn.style.display = 'none';
         compareBtn.disabled = false;
         compareBtn.innerHTML = `
@@ -1121,8 +1022,8 @@
         if (!file1 || !file2) return;
 
         const formData = new FormData();
-        formData.append('file1', file1);
-        formData.append('file2', file2);
+        DD.appendFile(formData, 'file1', file1);
+        DD.appendFile(formData, 'file2', file2);
 
         compareBtn.disabled = true;
         compareBtn.innerHTML = `
@@ -1136,118 +1037,58 @@
         resetProgress();
 
         try {
-            const response = await fetch('/compare-columns', {
-                method: 'POST',
-                body: formData
-            }).catch(fetchError => {
-                throw new Error('Could not connect to server. Make sure the server is running.');
-            });
+            job = DD.startJob('/compare-columns', formData, {
+                onProgress: progressData => {
+                    updateProgress(progressData.stage, progressData.percentage || 0, progressData.message || '');
+                },
+                onDone: progressData => {
+                    updateProgress('done', 100, progressData.message || '');
+                    // Close connection immediately when done
 
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonError) {
-                throw new Error('Invalid response from server');
-            }
-
-            if (response.ok && data.success && data.session_id) {
-                if (eventSource) {
-                    eventSource.close();
-                }
-
-                eventSource = new EventSource('/progress/' + data.session_id);
-
-                eventSource.onmessage = function(event) {
-                    const progressData = JSON.parse(event.data);
-
-                    if (progressData.error) {
-                        eventSource.close();
-                        showError('Server error: ' + progressData.error);
-                        compareBtn.disabled = false;
-                        compareBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                            </svg>
-                            Compare Columns
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                        return;
+                    // Always show results, even if download_url is missing (shouldn't happen)
+                    if (progressData.download_url) {
+                        downloadBtn.onclick = () => {
+                            window.location.href = progressData.download_url;
+                        };
+                        downloadBtn.style.display = 'inline-flex';
+                    } else {
+                        downloadBtn.style.display = 'none';
+                        console.warn('No download URL in completion message');
                     }
 
-                    const stage = progressData.stage;
-                    const percentage = progressData.percentage || 0;
-                    const message = progressData.message || '';
+                    // Store progressData
+                    window.progressData = progressData;
 
-                    updateProgress(stage, percentage, message);
+                    // Display results
+                    displayResults(progressData);
 
-                    if (stage === 'done') {
-                        // Close connection immediately when done
-                        eventSource.close();
-
-                        // Always show results, even if download_url is missing (shouldn't happen)
-                        if (progressData.download_url) {
-                            downloadBtn.onclick = () => {
-                                window.location.href = progressData.download_url;
-                            };
-                            downloadBtn.style.display = 'inline-flex';
-                        } else {
-                            downloadBtn.style.display = 'none';
-                            console.warn('No download URL in completion message');
-                        }
-
-                        // Store progressData
-                        window.progressData = progressData;
-
-                        // Display results
-                        displayResults(progressData);
-
-                        // Show results and reset UI
-                        results.classList.add('show');
-                        compareBtn.disabled = false;
-                        compareBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                            </svg>
-                            Compare Columns
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                    }
-
-                    if (stage === 'error') {
-                        eventSource.close();
-                        showError(progressData.message || 'An error occurred during comparison');
-                        compareBtn.disabled = false;
-                        compareBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                    // Show results and reset UI
+                    results.classList.add('show');
+                    compareBtn.disabled = false;
+                    compareBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
                         </svg>
-                            Compare Columns
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                    }
-                };
+                        Compare Columns
+                    `;
+                    cancelBtn.style.display = 'none';
+                    progressContainer.classList.remove('show');
 
-                eventSource.onerror = function(err) {
-                    console.error('EventSource error:', err);
-                    if (eventSource.readyState === EventSource.CLOSED) {
-                        eventSource.close();
-                        showError('Connection lost. Comparison may still be processing...');
-                        compareBtn.disabled = false;
-                        compareBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                            </svg>
-                            Compare Columns
-                        `;
-                        cancelBtn.style.display = 'none';
-                    }
-                };
-            } else {
-                throw new Error(data.error || 'Failed to start comparison');
-            }
+                },
+                onError: message => {
+                    showError(message);
+                    compareBtn.disabled = false;
+                    compareBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                    </svg>
+                        Compare Columns
+                    `;
+                    cancelBtn.style.display = 'none';
+                    progressContainer.classList.remove('show');
+
+                },
+            });
         } catch (error) {
             console.error('Error:', error);
             showError(error.message || 'An error occurred');
@@ -1315,8 +1156,8 @@
 
             comparisonData.forEach(row => {
                 const colName = escapeHtml(row['Column Headers'] || '');
-                const file1Status = row[`Found in ${file1Name}`] || '';
-                const file2Status = row[`Found in ${file2Name}`] || '';
+                const file1Status = row[`Found in ${escapeHtml(file1Name)}`] || '';
+                const file2Status = row[`Found in ${escapeHtml(file2Name)}`] || '';
 
                 // Determine cell styling
                 const file1Style = file1Status === 'Yes'
@@ -1328,9 +1169,9 @@
 
                 tableHTML += `
                     <tr>
-                        <td style="font-weight: 500;">${colName}</td>
-                        <td style="${file1Style}">${escapeHtml(file1Status)}</td>
-                        <td style="${file2Style}">${escapeHtml(file2Status)}</td>
+                        <td style="font-weight: 500;">${escapeHtml(colName)}</td>
+                        <td style="${file1Style /* safe: number, css class/colour or HTML assembled from escaped parts */}">${escapeHtml(file1Status)}</td>
+                        <td style="${file2Style /* safe: number, css class/colour or HTML assembled from escaped parts */}">${escapeHtml(file2Status)}</td>
                     </tr>
                 `;
             });
@@ -1366,6 +1207,8 @@
                 if (typeof html2canvas === 'undefined') {
                     const script = document.createElement('script');
                     script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+                    script.integrity = 'sha256-6H5VB5QyLldKH9oMFUmjxw2uWpPZETQXpCkBaDjquMs=';
+                    script.crossOrigin = 'anonymous';
                     script.onload = () => copyTableAsImage(table, copyImageBtn);
                     document.head.appendChild(script);
                 } else {

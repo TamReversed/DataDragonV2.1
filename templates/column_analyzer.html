@@ -3,9 +3,12 @@
 {% block title %}DataDragon - Column Analyzer{% endblock %}
 
 {% block head_extra %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"
+        integrity="sha256-Mh46P6mNpKqpV9EL5Xy7UU3gmJ7tj51ya10FkCzQGQQ=" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+        integrity="sha512-qZvrmS2ekKPF2mSznTQsxqPgnpkI4DNTlrdUmTzrDgektczlKNRRhy5X5AAOnx5S09ydFYWWNSfcEqDTTHgtNA==" crossorigin="anonymous"
+        referrerpolicy="no-referrer"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 {% endblock %}
 
 {% block styles %}
@@ -124,9 +127,10 @@
 
     .preview-table-wrapper {
         overflow-x: auto;
-        max-height: 250px;
+        max-height: 360px;
         border-radius: var(--radius-md);
         border: 1px solid var(--border-subtle);
+        overscroll-behavior: auto;
     }
 
     .preview-table {
@@ -1048,7 +1052,7 @@
         <div class="file-upload-text">Click to Upload or Drag & Drop</div>
         <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files supported</div>
         <div id="fileSizeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
-        <input type="file" id="fileInput" class="file-upload-input" accept=".xlsx,.xls,.csv" required aria-label="Upload file for analysis">
+        <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" required aria-label="Upload file for analysis">
     </div>
 </div>
 
@@ -1204,7 +1208,7 @@
                     <li><strong>Flask:</strong> Web framework for handling requests</li>
                     <li><strong>Server-Sent Events (SSE):</strong> Real-time progress updates</li>
                     <li><strong>Chart.js:</strong> Client-side chart rendering for visualizations</li>
-                    <li><strong>jsPDF/html2canvas:</strong> PDF export functionality</li>
+                    <li><strong>jsPDF:</strong> PDF export functionality</li>
                 </ul>
             </div>
         </div>
@@ -1249,12 +1253,6 @@
 
 {% block scripts %}
 <script>
-    // XSS Protection: Escape HTML to prevent XSS attacks
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
     // Sanitize text for safe display (allows basic formatting)
     function sanitizeHtml(html) {
@@ -1316,87 +1314,26 @@
     const exportPdfBtn = document.getElementById('exportPdfBtn');
 
     let selectedFile = null;
-    let eventSource = null;
+
+    // Upload zone (click, keyboard, drag and drop); the chosen file may also be an earlier result
+    const upload = DD.initUpload({
+        zone: uploadArea, input: fileInput, sizeInfo: fileSizeInfo,
+        onFile: source => {
+            selectedFile = source;
+            analyzeBtn.disabled = false;
+            error.style.display = 'none';
+            results.classList.remove('show');
+
+            fetchPreview(selectedFile);
+        },
+    });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => upload.choose(source) });
+    let job = null;
     let analysisResult = null;
 
-    // Click to upload
-    uploadArea.addEventListener('click', () => fileInput.click());
 
-    // Format file size
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
 
-    // Load cached files on page load
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
 
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.style.display = 'block';
-                cachedFilesList.innerHTML = data.files.map(file => `
-                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
-                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
-                    </div>
-                `).join('');
-            } else {
-                cachedFilesSection.style.display = 'none';
-            }
-        } catch (err) {
-            console.error('Failed to load cached files:', err);
-            cachedFilesSection.style.display = 'none';
-        }
-    }
-
-    // Use a cached file
-    async function useCachedFile(cacheId) {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-
-            if (data.success) {
-                const fileResponse = await fetch('/download-cached-file/' + cacheId);
-                if (!fileResponse.ok) {
-                    throw new Error('Failed to download cached file');
-                }
-                const blob = await fileResponse.blob();
-                const file = new File([blob], data.filename, { type: blob.type });
-
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                fileInput.files = dataTransfer.files;
-                selectedFile = file;
-                analyzeBtn.disabled = false;
-                error.style.display = 'none';
-                results.classList.remove('show');
-
-                fileSizeInfo.textContent = `File size: ${formatFileSize(file.size)} (from cache)`;
-                fileSizeInfo.style.display = 'block';
-
-                if (data.preview) {
-                    displayPreview(data.preview);
-                }
-            } else {
-                showError('Failed to load cached file: ' + (data.error || 'Unknown error'));
-            }
-        } catch (err) {
-            console.error('Failed to use cached file:', err);
-            showError('Failed to load cached file: ' + err.message);
-        }
-    }
 
     // Display data preview
     function displayPreview(previewData) {
@@ -1432,7 +1369,7 @@
     async function fetchPreview(file) {
         try {
             const formData = new FormData();
-            formData.append('file', file);
+            DD.appendFile(formData, 'file', file);
 
             const response = await fetch('/preview-data', {
                 method: 'POST',
@@ -1448,35 +1385,11 @@
         }
     }
 
-    // Load cached files on page load
-    loadCachedFiles();
 
-    // File selection
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            selectedFile = e.target.files[0];
-            analyzeBtn.disabled = false;
-            error.style.display = 'none';
-            results.classList.remove('show');
-
-            const fileSize = selectedFile.size;
-            fileSizeInfo.textContent = `File size: ${formatFileSize(fileSize)}`;
-            fileSizeInfo.style.display = 'block';
-
-            fetchPreview(selectedFile);
-        } else {
-            analyzeBtn.disabled = true;
-            fileSizeInfo.style.display = 'none';
-            dataPreviewSection.classList.remove('show');
-        }
-    });
 
     // Cancel button handler
     cancelBtn.addEventListener('click', function() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        if (job) { job.cancel(); job = null; }
         cancelBtn.style.display = 'none';
         analyzeBtn.disabled = false;
         analyzeBtn.textContent = 'Analyze Data';
@@ -1485,33 +1398,8 @@
         showError('Analysis cancelled by user');
     });
 
-    // Drag and drop
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
 
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
-    });
 
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-
-        if (e.dataTransfer.files.length) {
-            fileInput.files = e.dataTransfer.files;
-            selectedFile = e.dataTransfer.files[0];
-            analyzeBtn.disabled = false;
-            error.style.display = 'none';
-            results.classList.remove('show');
-
-            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
-            fileSizeInfo.style.display = 'block';
-
-            fetchPreview(selectedFile);
-        }
-    });
 
     // Reset progress bars
     function resetProgress() {
@@ -1616,7 +1504,7 @@
         if (!selectedFile) return;
 
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
 
         analyzeBtn.disabled = true;
         analyzeBtn.textContent = 'Analyzing...';
@@ -1631,170 +1519,87 @@
         lastProgressPercentage = 0;
 
         try {
-            const response = await fetch('/analyze', {
-                method: 'POST',
-                body: formData
-            }).catch(fetchError => {
-                throw new Error('Could not connect to server. Make sure the server is running.');
+            job = DD.startJob('/analyze', formData, {
+                onProgress: progressData => {
+                    updateProgress(progressData.stage, progressData.percentage || 0, progressData.message || '');
+                },
+                onDone: progressData => {
+                    updateProgress('done', 100, progressData.message || '');
+                    console.log('Completion received, has analysis:', !!progressData.analysis);
+                    console.log('Has fetch URL:', !!progressData.analysis_fetch_url);
+
+                    if (progressData.analysis) {
+                        console.log('Displaying results from SSE...');
+                        analysisResult = progressData.analysis;
+                        displayResults(progressData.analysis);
+                        results.classList.add('show');
+                        exportSection.style.display = 'block';
+                        analyzeBtn.disabled = false;
+                        analyzeBtn.textContent = 'Analyze Data';
+                        cancelBtn.style.display = 'none';
+                        progressContainer.classList.remove('show');
+
+                        results.style.animation = 'fadeIn 0.5s ease-in';
+                    }
+                    else if (progressData.analysis_fetch_url) {
+                        console.log('Fetching analysis from separate endpoint...');
+                        updateProgress('finalizing', 100, 'Fetching analysis results...');
+
+                        fetch(progressData.analysis_fetch_url)
+                            .then(response => {
+                                if (!response.ok) {
+                                    throw new Error(`HTTP ${response.status /* safe: number, css class/colour or HTML assembled from escaped parts */}: ${escapeHtml(response.statusText)}`);
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                if (data.success && data.analysis) {
+                                    console.log('Analysis fetched successfully, displaying results...');
+                                    analysisResult = data.analysis;
+                                    displayResults(data.analysis);
+                                    results.classList.add('show');
+                                    exportSection.style.display = 'block';
+                                } else {
+                                    throw new Error(data.error || 'Failed to fetch analysis');
+                                }
+                            })
+                            .catch(fetchErr => {
+                                console.error('Error fetching analysis:', fetchErr);
+                                showError('Analysis completed but failed to retrieve results.',
+                                         'Error: ' + fetchErr.message + '\n\nPlease try again or contact support.');
+                            })
+                            .finally(() => {
+                                analyzeBtn.disabled = false;
+                                analyzeBtn.textContent = 'Analyze Data';
+                                cancelBtn.style.display = 'none';
+                                progressContainer.classList.remove('show');
+                            });
+                    } else {
+                        console.warn('Completion message received but no analysis data or fetch URL!');
+                        showError('Analysis completed but results were not received.',
+                                 'The analysis data may be too large or there was a communication error.');
+                        analyzeBtn.disabled = false;
+                        analyzeBtn.textContent = 'Analyze Data';
+                        progressContainer.classList.remove('show');
+                    }
+
+                },
+                onError: errorMsg => {
+                    let errorDetails = null;
+                    if (errorMsg.includes('Memory') || errorMsg.includes('memory')) {
+                        errorDetails = 'The file is too large to process in memory. Try:\n- Splitting the file first\n- Using a smaller subset\n- Analyzing fewer columns at once';
+                    } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+                        errorDetails = 'Processing took too long. Try:\n- Using a smaller file\n- Checking server resources\n- Processing during off-peak hours';
+                    } else if (errorMsg.includes('too large') || errorMsg.includes('size')) {
+                        errorDetails = 'File size exceeds processing limits. Try:\n- Compressing the file\n- Splitting into smaller chunks\n- Using a sample of the data';
+                    }
+                    showError(errorMsg, errorDetails);
+                    analyzeBtn.disabled = false;
+                    analyzeBtn.textContent = 'Analyze Data';
+                    cancelBtn.style.display = 'none';
+                    progressContainer.classList.remove('show');
+                },
             });
-
-            const data = await response.json();
-
-            if (response.ok && data.success && data.session_id) {
-                if (eventSource) {
-                    eventSource.close();
-                }
-
-                eventSource = new EventSource('/progress/' + data.session_id);
-
-                eventSource.onmessage = function(event) {
-                    console.log('Received SSE message:', event.data.substring(0, 100) + '...');
-
-                    let progressData;
-                    try {
-                        progressData = JSON.parse(event.data);
-                    } catch (parseErr) {
-                        console.error('Failed to parse SSE message:', parseErr);
-                        console.error('Raw message:', event.data);
-                        return;
-                    }
-
-                    console.log('Parsed progress data:', {
-                        stage: progressData.stage,
-                        percentage: progressData.percentage,
-                        hasAnalysis: !!progressData.analysis
-                    });
-
-                    if (progressData.error) {
-                        eventSource.close();
-                        showError('Server error: ' + progressData.error);
-                        analyzeBtn.disabled = false;
-                        analyzeBtn.textContent = 'Analyze Data';
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                        return;
-                    }
-
-                    const stage = progressData.stage;
-                    const percentage = progressData.percentage || 0;
-                    const message = progressData.message || '';
-
-                    updateProgress(stage, percentage, message);
-
-                    if (progressData.stage === 'done' || progressData.stage === 'complete') {
-                        console.log('Completion received, has analysis:', !!progressData.analysis);
-                        console.log('Has fetch URL:', !!progressData.analysis_fetch_url);
-
-                        eventSource.close();
-
-                        if (progressData.analysis) {
-                            console.log('Displaying results from SSE...');
-                            analysisResult = progressData.analysis;
-                            displayResults(progressData.analysis);
-                            results.classList.add('show');
-                            exportSection.style.display = 'block';
-                            analyzeBtn.disabled = false;
-                            analyzeBtn.textContent = 'Analyze Data';
-                            cancelBtn.style.display = 'none';
-                            progressContainer.classList.remove('show');
-
-                            results.style.animation = 'fadeIn 0.5s ease-in';
-                        }
-                        else if (progressData.analysis_fetch_url) {
-                            console.log('Fetching analysis from separate endpoint...');
-                            updateProgress('finalizing', 100, 'Fetching analysis results...');
-
-                            fetch(progressData.analysis_fetch_url)
-                                .then(response => {
-                                    if (!response.ok) {
-                                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                                    }
-                                    return response.json();
-                                })
-                                .then(data => {
-                                    if (data.success && data.analysis) {
-                                        console.log('Analysis fetched successfully, displaying results...');
-                                        analysisResult = data.analysis;
-                                        displayResults(data.analysis);
-                                        results.classList.add('show');
-                                        exportSection.style.display = 'block';
-                                    } else {
-                                        throw new Error(data.error || 'Failed to fetch analysis');
-                                    }
-                                })
-                                .catch(fetchErr => {
-                                    console.error('Error fetching analysis:', fetchErr);
-                                    showError('Analysis completed but failed to retrieve results.',
-                                             'Error: ' + fetchErr.message + '\n\nPlease try again or contact support.');
-                                })
-                                .finally(() => {
-                                    analyzeBtn.disabled = false;
-                                    analyzeBtn.textContent = 'Analyze Data';
-                                    cancelBtn.style.display = 'none';
-                                    progressContainer.classList.remove('show');
-                                });
-                        } else {
-                            console.warn('Completion message received but no analysis data or fetch URL!');
-                            showError('Analysis completed but results were not received.',
-                                     'The analysis data may be too large or there was a communication error.');
-                            analyzeBtn.disabled = false;
-                            analyzeBtn.textContent = 'Analyze Data';
-                            progressContainer.classList.remove('show');
-                        }
-                    }
-
-                    if (progressData.stage === 'error') {
-                        eventSource.close();
-
-                        let errorMsg = progressData.message || 'An error occurred during analysis';
-                        let errorDetails = null;
-
-                        if (errorMsg.includes('Memory') || errorMsg.includes('memory')) {
-                            errorDetails = 'The file is too large to process in memory. Try:\n- Splitting the file first\n- Using a smaller subset\n- Analyzing fewer columns at once';
-                        } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
-                            errorDetails = 'Processing took too long. Try:\n- Using a smaller file\n- Checking server resources\n- Processing during off-peak hours';
-                        } else if (errorMsg.includes('too large') || errorMsg.includes('size')) {
-                            errorDetails = 'File size exceeds processing limits. Try:\n- Compressing the file\n- Splitting into smaller chunks\n- Using a sample of the data';
-                        }
-
-                        showError(errorMsg, errorDetails);
-                        analyzeBtn.disabled = false;
-                        analyzeBtn.textContent = 'Analyze Data';
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                    }
-                };
-
-                eventSource.onerror = function(err) {
-                    console.error('EventSource error:', err);
-                    console.error('EventSource readyState:', eventSource.readyState);
-
-                    if (eventSource.readyState === EventSource.CLOSED) {
-                        eventSource.close();
-
-                        if (analysisResult) {
-                            displayResults(analysisResult);
-                            results.classList.add('show');
-                            analyzeBtn.disabled = false;
-                            analyzeBtn.textContent = 'Analyze Data';
-                            progressContainer.classList.remove('show');
-                        } else {
-                            const errorMsg = 'Connection closed unexpectedly. This may indicate:\n' +
-                                          '- File is too large for processing\n' +
-                                          '- Server timeout occurred\n' +
-                                          '- Memory limit exceeded\n' +
-                                          '- Network connection issue\n\n' +
-                                          'Try a smaller file or check the server logs.';
-                            showError(errorMsg);
-                            analyzeBtn.disabled = false;
-                            analyzeBtn.textContent = 'Analyze Data';
-                            progressContainer.classList.remove('show');
-                        }
-                    }
-                };
-            } else {
-                throw new Error(data.error || 'Analysis failed');
-            }
         } catch (err) {
             console.error('Error details:', err);
             console.error('Error stack:', err.stack);
@@ -1822,9 +1627,7 @@
             analyzeBtn.textContent = 'Analyze Data';
             progressContainer.classList.remove('show');
 
-            if (eventSource) {
-                eventSource.close();
-            }
+            if (job) { job.cancel(); job = null; }
         }
     });
 
@@ -1862,26 +1665,26 @@
 
         let summary = '<p>';
 
-        summary += `This dataset contains <strong>${overview.shape.rows.toLocaleString()} rows</strong> across <strong>${overview.shape.columns} columns</strong>, `;
+        summary += `This dataset contains <strong>${overview.shape.rows.toLocaleString()} rows</strong> across <strong>${Number(overview.shape.columns)} columns</strong>, `;
         summary += `occupying approximately <strong>${overview.memory_usage_mb} MB</strong> of memory. `;
 
         const typeBreakdown = [];
         if (numericCols > 0) typeBreakdown.push(`${numericCols} numeric`);
-        if (categoricalCols > 0) typeBreakdown.push(`${categoricalCols} categorical`);
-        if (datetimeCols > 0) typeBreakdown.push(`${datetimeCols} datetime`);
-        if (booleanCols > 0) typeBreakdown.push(`${booleanCols} boolean`);
+        if (categoricalCols > 0) typeBreakdown.push(`${categoricalCols /* safe: number, css class/colour or HTML assembled from escaped parts */} categorical`);
+        if (datetimeCols > 0) typeBreakdown.push(`${datetimeCols /* safe: number, css class/colour or HTML assembled from escaped parts */} datetime`);
+        if (booleanCols > 0) typeBreakdown.push(`${booleanCols /* safe: number, css class/colour or HTML assembled from escaped parts */} boolean`);
 
         if (typeBreakdown.length > 0) {
-            summary += `The dataset consists of ${typeBreakdown.join(', ')} column${typeBreakdown.length > 1 ? 's' : ''}. `;
+            summary += `The dataset consists of ${typeBreakdown.join(', ') /* safe: only counts and fixed words */} column${typeBreakdown.length > 1 ? 's' : ''}. `;
         }
 
         if (overview.detected_types_count) {
             const detectedTypes = Object.entries(overview.detected_types_count)
                 .filter(([type, count]) => count > 0)
-                .map(([type, count]) => `${count} ${type.toLowerCase()}`)
+                .map(([type, count]) => `${count} ${escapeHtml(type.toLowerCase())}`)
                 .join(', ');
             if (detectedTypes) {
-                summary += `Semantic type analysis identified: ${detectedTypes}. `;
+                summary += `Semantic type analysis identified: ${detectedTypes /* safe: number, css class/colour or HTML assembled from escaped parts */}. `;
             }
             if (overview.reclassified_columns > 0) {
                 summary += `<strong>${overview.reclassified_columns} column${overview.reclassified_columns > 1 ? 's' : ''}</strong> were successfully reclassified from generic text to specific data types. `;
@@ -1893,15 +1696,15 @@
         if (totalMissingCols === 0) {
             summary += `<strong>Data Quality:</strong> Excellent - no missing values detected across any columns. `;
         } else {
-            summary += `<strong>Data Quality:</strong> ${totalMissingCols} column${totalMissingCols > 1 ? 's have' : ' has'} missing data `;
+            summary += `<strong>Data Quality:</strong> ${totalMissingCols /* safe: number, css class/colour or HTML assembled from escaped parts */} column${totalMissingCols > 1 ? 's have' : ' has'} missing data `;
             if (highMissingCols > 0) {
-                summary += `(${highMissingCols} column${highMissingCols > 1 ? 's' : ''} with more than 50% missing values). `;
+                summary += `(${highMissingCols /* safe: number, css class/colour or HTML assembled from escaped parts */} column${highMissingCols > 1 ? 's' : ''} with more than 50% missing values). `;
             } else {
                 summary += `(all missing values are below 50% threshold). `;
             }
             if (totalMissingCols > 0) {
                 const avgMissing = (columnsWithMissing.reduce((sum, col) => sum + col.null_percentage, 0) / totalMissingCols).toFixed(1);
-                summary += `The average missing data percentage across affected columns is ${avgMissing}%. `;
+                summary += `The average missing data percentage across affected columns is ${avgMissing /* safe: number, css class/colour or HTML assembled from escaped parts */}%. `;
             }
         }
 
@@ -1915,13 +1718,13 @@
         summary += '</p><p>';
 
         if (columnsWithOutliers > 0) {
-            summary += `<strong>Outlier Detection:</strong> ${columnsWithOutliers} numeric column${columnsWithOutliers > 1 ? 's contain' : ' contains'} potential outliers `;
+            summary += `<strong>Outlier Detection:</strong> ${columnsWithOutliers /* safe: number, css class/colour or HTML assembled from escaped parts */} numeric column${columnsWithOutliers > 1 ? 's contain' : ' contains'} potential outliers `;
             summary += `(detected using the Interquartile Range method). `;
         }
 
         const completeCols = columns.filter(col => col.null_count === 0).length;
         const completenessPct = ((completeCols / overview.shape.columns) * 100).toFixed(1);
-        summary += `Overall, <strong>${completeCols} of ${overview.shape.columns} columns (${completenessPct}%)</strong> are completely populated with no missing values. `;
+        summary += `Overall, <strong>${completeCols /* safe: number, css class/colour or HTML assembled from escaped parts */} of ${Number(overview.shape.columns)} columns (${completenessPct /* safe: number, css class/colour or HTML assembled from escaped parts */}%)</strong> are completely populated with no missing values. `;
 
         summary += '</p>';
 
@@ -1929,7 +1732,7 @@
             summary += '<p><strong>Recommendations:</strong> ';
             const recommendations = [];
             if (highMissingCols > 0) {
-                recommendations.push(`review the ${highMissingCols} column${highMissingCols > 1 ? 's' : ''} with high missing data rates`);
+                recommendations.push(`review the ${highMissingCols /* safe: number, css class/colour or HTML assembled from escaped parts */} column${highMissingCols > 1 ? 's' : ''} with high missing data rates`);
             }
             if (hasDuplicates) {
                 recommendations.push(`investigate and potentially remove duplicate rows`);
@@ -1961,7 +1764,7 @@
             </div>
             <div class="overview-card">
                 <div class="overview-card-label">Total Columns</div>
-                <div class="overview-card-value">${overview.shape.columns}</div>
+                <div class="overview-card-value">${Number(overview.shape.columns)}</div>
             </div>
             <div class="overview-card">
                 <div class="overview-card-label">Memory Usage</div>
@@ -1976,7 +1779,7 @@
         createMissingDataChart(analysis);
 
         columnsContainer.innerHTML = '';
-        for (const [colName, colInfo] of Object.entries(analysis.columns)) {
+        for (const [idx, [colName, colInfo]] of Object.entries(analysis.columns).entries()) {
             const colCard = document.createElement('div');
             colCard.className = 'column-card';
 
@@ -1996,7 +1799,7 @@
                             <div class="column-summary-stats">
                                 <div class="column-summary-stat">
                                     <span>Type:</span>
-                                    <strong>${detectedType}</strong>
+                                    <strong>${escapeHtml(detectedType)}</strong>
                                 </div>
                                 <div class="column-summary-stat">
                                     <span>Non-Null:</span>
@@ -2014,9 +1817,9 @@
                         </div>
                     </div>
                     <div class="column-header-right">
-                        <div class="detected-type-badge" style="background: ${confidenceColor};">
-                            ${detectedType}
-                            ${typeConfidence < 100 ? `<span class="confidence-badge">${typeConfidence}%</span>` : ''}
+                        <div class="detected-type-badge" style="background: ${confidenceColor /* safe: number, css class/colour or HTML assembled from escaped parts */};">
+                            ${escapeHtml(detectedType)}
+                            ${typeConfidence < 100 ? `<span class="confidence-badge">${typeConfidence /* safe: number, css class/colour or HTML assembled from escaped parts */}%</span>` : ''}
                         </div>
                         <div class="column-expand-icon">v</div>
                     </div>
@@ -2027,12 +1830,12 @@
                 <div class="column-header" style="margin-top: 0;">
                     <div class="column-name">${safeColName}</div>
                     <div class="column-type-info">
-                        <div class="detected-type-badge" style="background: ${confidenceColor};">
-                            ${detectedType}
-                            ${typeConfidence < 100 ? `<span class="confidence-badge">${typeConfidence}%</span>` : ''}
+                        <div class="detected-type-badge" style="background: ${confidenceColor /* safe: number, css class/colour or HTML assembled from escaped parts */};">
+                            ${escapeHtml(detectedType)}
+                            ${typeConfidence < 100 ? `<span class="confidence-badge">${typeConfidence /* safe: number, css class/colour or HTML assembled from escaped parts */}%</span>` : ''}
                         </div>
                         <div class="pandas-dtype">pandas: ${safeDtype}</div>
-                        ${formatInfo ? `<div class="format-info">${formatInfo}</div>` : ''}
+                        ${formatInfo ? `<div class="format-info">${escapeHtml(formatInfo)}</div>` : ''}
                     </div>
                 </div>
                 <div class="column-stats-grid">
@@ -2064,7 +1867,7 @@
                     <div class="chart-container">
                         <div class="chart-title">Distribution Visualization</div>
                         <div class="chart-wrapper">
-                            <canvas id="numericChart_${colName.replace(/[^a-zA-Z0-9]/g, '_')}"></canvas>
+                            <canvas id="numericChart_${Number(idx)}"></canvas>
                         </div>
                     </div>
                 `;
@@ -2087,7 +1890,7 @@
                         <div class="top-values-title">Top 10 Most Frequent Values</div>
                         ${Object.entries(colInfo.top_values).map(([value, count]) => `
                             <div class="value-item">
-                                <span class="value-text">${value}</span>
+                                <span class="value-text">${escapeHtml(String(value))}</span>
                                 <span class="value-count">${count.toLocaleString()}</span>
                             </div>
                         `).join('')}
@@ -2095,7 +1898,7 @@
                     <div class="chart-container">
                         <div class="chart-title">Value Distribution</div>
                         <div class="chart-wrapper">
-                            <canvas id="categoricalChart_${colName.replace(/[^a-zA-Z0-9]/g, '_')}"></canvas>
+                            <canvas id="categoricalChart_${Number(idx)}"></canvas>
                         </div>
                     </div>
                 `;
@@ -2121,8 +1924,8 @@
                     <div class="numeric-stats">
                         <div class="numeric-stats-title">Date Range</div>
                         <div class="numeric-stats-grid">
-                            <div class="numeric-stat"><div class="numeric-stat-label">Min Date</div><div class="numeric-stat-value" style="font-size: 14px;">${colInfo.date_range.min}</div></div>
-                            <div class="numeric-stat"><div class="numeric-stat-label">Max Date</div><div class="numeric-stat-value" style="font-size: 14px;">${colInfo.date_range.max}</div></div>
+                            <div class="numeric-stat"><div class="numeric-stat-label">Min Date</div><div class="numeric-stat-value" style="font-size: 14px;">${escapeHtml(colInfo.date_range.min)}</div></div>
+                            <div class="numeric-stat"><div class="numeric-stat-label">Max Date</div><div class="numeric-stat-value" style="font-size: 14px;">${escapeHtml(colInfo.date_range.max)}</div></div>
                         </div>
                     </div>
                 `;
@@ -2133,7 +1936,7 @@
                 !colInfo.is_categorical) {
                 cardContentHTML += `
                     <div class="top-values">
-                        <div class="top-values-title">Sample Values (${detectedType})</div>
+                        <div class="top-values-title">Sample Values (${escapeHtml(detectedType)})</div>
                         ${colInfo.type_samples.map(value => `
                             <div class="value-item">
                                 <span class="value-text">${escapeHtml(String(value))}</span>
@@ -2149,7 +1952,7 @@
                         <div class="top-values-title">Boolean Value Distribution</div>
                         ${Object.entries(colInfo.boolean_counts).map(([value, count]) => `
                             <div class="value-item">
-                                <span class="value-text">${value}</span>
+                                <span class="value-text">${escapeHtml(String(value))}</span>
                                 <span class="value-count">${count.toLocaleString()}</span>
                             </div>
                         `).join('')}
@@ -2157,7 +1960,7 @@
                 `;
             }
 
-            colCard.innerHTML = cardHeaderHTML + `<div class="column-card-content">${cardContentHTML}</div>`;
+            colCard.innerHTML = cardHeaderHTML + `<div class="column-card-content">${cardContentHTML /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>`;
             columnsContainer.appendChild(colCard);
 
             const cardHeader = colCard.querySelector('.column-card-header');
@@ -2168,10 +1971,10 @@
                 if (colCard.classList.contains('expanded') && !chartsCreated) {
                     setTimeout(() => {
                         if (colInfo.is_numeric && colInfo.statistics) {
-                            createNumericChart(colName, colInfo);
+                            createNumericChart(colName, colInfo, idx);
                         }
                         if (colInfo.is_categorical && colInfo.top_values) {
-                            createCategoricalChart(colName, colInfo);
+                            createCategoricalChart(colName, colInfo, idx);
                         }
                         chartsCreated = true;
                     }, 100);
@@ -2180,230 +1983,103 @@
         }
     }
 
+    let missingDataChart = null;
+
     function createMissingDataChart(analysis) {
-        const ctx = document.getElementById('missingDataChart');
-        if (!ctx) return;
+        const canvas = document.getElementById('missingDataChart');
+        if (!canvas) return;
+        const entries = Object.entries(analysis.columns)
+            .map(([col, info]) => [col, info.null_percentage])
+            .filter(([, pct]) => pct > 0);
 
-        const columns = Object.keys(analysis.columns);
-        const nullPercentages = columns.map(col => analysis.columns[col].null_percentage);
-
-        const filteredData = columns
-            .map((col, idx) => ({ col, pct: nullPercentages[idx] }))
-            .filter(item => item.pct > 0)
-            .sort((a, b) => b.pct - a.pct);
-
-        const chart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: filteredData.map(item => item.col.length > 30 ? item.col.substring(0, 30) + '...' : item.col),
-                datasets: [{
-                    label: 'Missing Data %',
-                    data: filteredData.map(item => item.pct),
-                    backgroundColor: 'rgba(168, 85, 247, 0.6)',
-                    borderColor: 'rgba(168, 85, 247, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return 'Missing: ' + context.parsed.y.toFixed(2) + '%';
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 100,
-                        ticks: {
-                            callback: function(value) {
-                                return value + '%';
-                            },
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    },
-                    x: {
-                        ticks: {
-                            maxRotation: 45,
-                            minRotation: 45,
-                            autoSkip: false,
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    }
-                }
-            }
+        const pct = v => Number(v).toFixed(1) + '%';
+        missingDataChart = DDCharts.horizontalBars(canvas, {
+            title: 'Missing data by column', datasetLabel: 'Missing',
+            labels: entries.map(([col]) => col), values: entries.map(([, p]) => p), format: pct, max: 100,
         });
-
-        chartInstances.push(chart);
+        chartInstances.push(missingDataChart);
+        if (!canvas.parentElement.parentElement.querySelector('.chart-download')) {
+            DDCharts.addDownloadButton(canvas.parentElement, () => DDCharts.chartImage(missingDataChart), 'missing-data');
+        }
     }
 
-    function createNumericChart(colName, colInfo) {
-        const canvasId = `numericChart_${colName.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        const ctx = document.getElementById(canvasId);
-        if (!ctx || !colInfo.statistics) return;
+    function createNumericChart(colName, colInfo, idx) {
+        // Box / range strip on a linear axis from min to max: the box spans Q1-Q3, the tick is the median and the
+        // whiskers reach the minimum and maximum. (A bar chart of five quantile values would suggest quantities.)
+        const canvasId = `numericChart_${idx}`;
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !colInfo.statistics) return;
 
-        const stats = colInfo.statistics;
+        const st = colInfo.statistics;
+        const values = [st.min, st.q25, st.median, st.q75, st.max];
+        if (values.some(v => v === null || v === undefined || !isFinite(v))) {
+            canvas.replaceWith(Object.assign(document.createElement('div'), {
+                className: 'top-values-title', textContent: 'No distribution summary available'
+            }));
+            return;
+        }
 
-        const data = [
-            stats.min,
-            stats.q25,
-            stats.median,
-            stats.q75,
-            stats.max
-        ];
-        const labels = ['Min', 'Q25', 'Median', 'Q75', 'Max'];
+        const W = 640, H = 150, padL = 36, padR = 36, mid = 56, boxH = 34;
+        const lo = st.min, hi = st.max;
+        const x = v => hi === lo ? W / 2 : padL + (v - lo) / (hi - lo) * (W - padL - padR);
+        const names = ['Min', 'Q1', 'Median', 'Q3', 'Max'];
+        const description = 'Distribution of ' + colName + ': ' +
+            values.map((v, i) => names[i] + ' ' + formatNumber(v)).join(', ');
 
-        const chart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: colName,
-                    data: data,
-                    backgroundColor: [
-                        'rgba(168, 85, 247, 0.6)',
-                        'rgba(59, 130, 246, 0.6)',
-                        'rgba(168, 85, 247, 0.8)',
-                        'rgba(59, 130, 246, 0.6)',
-                        'rgba(168, 85, 247, 0.6)'
-                    ],
-                    borderColor: [
-                        'rgba(168, 85, 247, 1)',
-                        'rgba(59, 130, 246, 1)',
-                        'rgba(168, 85, 247, 1)',
-                        'rgba(59, 130, 246, 1)',
-                        'rgba(168, 85, 247, 1)'
-                    ],
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return formatNumber(context.parsed.y);
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: false,
-                        ticks: {
-                            callback: function(value) {
-                                return formatNumber(value);
-                            },
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    },
-                    x: {
-                        ticks: {
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    }
-                }
-            }
-        });
+        // Built with DOM calls (textContent / setAttribute), so column names can never become markup
+        const NS = 'http://www.w3.org/2000/svg';
+        const el = (tag, attrs, text) => {
+            const node = document.createElementNS(NS, tag);
+            Object.entries(attrs || {}).forEach(([k, v]) => node.setAttribute(k, String(v)));
+            if (text !== undefined) node.textContent = text;
+            return node;
+        };
+        const line = (x1, x2, y1, y2, stroke, width) =>
+            el('line', { x1, x2, y1, y2, stroke, 'stroke-width': width });
+        const label = (v, px, py, anchor, bold) => {
+            const attrs = { x: px, y: py, 'text-anchor': anchor, 'font-size': 12, fill: 'currentColor' };
+            if (bold) attrs['font-weight'] = 700;
+            return el('text', attrs, formatNumber(v));
+        };
 
-        chartInstances.push(chart);
+        const svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': description });
+        svg.style.cssText = 'width:100%;height:100%;color:var(--text-secondary);overflow:visible';
+        svg.appendChild(el('title', {}, description));
+        const purple = 'rgba(168,85,247,0.9)';
+        svg.appendChild(line(x(lo), x(hi), mid, mid, purple, 2));
+        svg.appendChild(line(x(lo), x(lo), mid - 10, mid + 10, purple, 2));
+        svg.appendChild(line(x(hi), x(hi), mid - 10, mid + 10, purple, 2));
+        svg.appendChild(el('rect', {
+            x: x(st.q25), y: mid - boxH / 2, width: Math.max(x(st.q75) - x(st.q25), 2), height: boxH,
+            fill: 'rgba(59,130,246,0.45)', stroke: 'rgba(59,130,246,1)', 'stroke-width': 1.5, rx: 3
+        }));
+        svg.appendChild(line(x(st.median), x(st.median), mid - boxH / 2 - 4, mid + boxH / 2 + 4, '#fff', 3));
+        svg.appendChild(label(st.median, x(st.median), mid - boxH / 2 - 10, 'middle', true));
+        svg.appendChild(label(st.q25, x(st.q25), mid + boxH / 2 + 18, 'middle', false));
+        svg.appendChild(label(st.q75, x(st.q75), mid + boxH / 2 + 18, 'middle', false));
+        svg.appendChild(label(lo, x(lo), mid + boxH / 2 + 38, hi === lo ? 'middle' : 'start', false));
+        if (hi !== lo) svg.appendChild(label(hi, x(hi), mid + boxH / 2 + 38, 'end', false));
+        svg.appendChild(el('text', { x: W / 2, y: H - 2, 'text-anchor': 'middle', 'font-size': 11, fill: 'currentColor', opacity: 0.7 },
+            'Box = middle half of the values (Q1 to Q3), white line = median, whiskers = minimum and maximum'));
+        canvas.replaceWith(svg);
+        DDCharts.addDownloadButton(svg.parentElement, () => DDCharts.svgImage(svg), 'distribution-' + idx);
     }
 
-    function createCategoricalChart(colName, colInfo) {
-        const canvasId = `categoricalChart_${colName.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        const ctx = document.getElementById(canvasId);
-        if (!ctx || !colInfo.top_values) return;
+    function categoricalChartOptions(colName, colInfo) {
+        const entries = Object.entries(colInfo.top_values);
+        return {
+            title: 'Most common values of ' + colName, datasetLabel: 'Count',
+            labels: entries.map(([value]) => value), values: entries.map(([, count]) => count),
+            format: v => Number(v).toLocaleString(),
+        };
+    }
 
-        const topValues = Object.entries(colInfo.top_values)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10);
-
-        const labels = topValues.map(([value]) =>
-            value.length > 20 ? value.substring(0, 20) + '...' : value
-        );
-        const data = topValues.map(([, count]) => count);
-
-        const chart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Count',
-                    data: data,
-                    backgroundColor: 'rgba(168, 85, 247, 0.6)',
-                    borderColor: 'rgba(168, 85, 247, 1)',
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                plugins: {
-                    legend: {
-                        display: false
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                return 'Count: ' + context.parsed.x.toLocaleString();
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        beginAtZero: true,
-                        ticks: {
-                            callback: function(value) {
-                                return value.toLocaleString();
-                            },
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    },
-                    y: {
-                        ticks: {
-                            maxRotation: 0,
-                            minRotation: 0,
-                            color: 'rgba(255, 255, 255, 0.7)'
-                        },
-                        grid: {
-                            color: 'rgba(255, 255, 255, 0.1)'
-                        }
-                    }
-                }
-            }
-        });
-
+    function createCategoricalChart(colName, colInfo, idx) {
+        const canvas = document.getElementById(`categoricalChart_${idx}`);
+        if (!canvas || !colInfo.top_values) return;
+        const chart = DDCharts.horizontalBars(canvas, categoricalChartOptions(colName, colInfo));
         chartInstances.push(chart);
+        DDCharts.addDownloadButton(canvas.parentElement, () => DDCharts.chartImage(chart), 'values-' + idx);
     }
 
     function formatNumber(num) {
@@ -2429,7 +2105,7 @@
 
         try {
             const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });   // compress: chart PNGs are otherwise stored raw
             const pageWidth = pdf.internal.pageSize.getWidth();
             const pageHeight = pdf.internal.pageSize.getHeight();
             let yPosition = 20;
@@ -2506,6 +2182,17 @@
                 });
 
                 yPosition += 5;
+
+                // The chart of the same numbers
+                const missing = DDCharts.offscreenImage(canvas => DDCharts.horizontalBars(canvas, {
+                    title: 'Missing data by column', datasetLabel: 'Missing', max: 100, fixedSize: { width: 900 },
+                    labels: columnsWithMissing.map(([name]) => name), values: columnsWithMissing.map(([, info]) => info.null_percentage),
+                    format: v => Number(v).toFixed(1) + '%',
+                }));
+                const missingHeight = maxWidth * missing.height / missing.width;
+                checkNewPage(missingHeight + 5);
+                pdf.addImage(missing.image, 'PNG', margin, yPosition, maxWidth, missingHeight, undefined, 'FAST');
+                yPosition += missingHeight + 8;
             }
 
             pdf.setFontSize(16);
@@ -2571,6 +2258,16 @@
                         pdf.text(count.toLocaleString(), pageWidth - margin - 20, yPosition, { align: 'right' });
                         yPosition += 5;
                     });
+
+                    // The chart of the most common values
+                    const values = DDCharts.offscreenImage(canvas => DDCharts.horizontalBars(canvas, {
+                        ...categoricalChartOptions(colName, colInfo), topN: 10, fixedSize: { width: 900 },
+                    }));
+                    const valuesHeight = maxWidth * values.height / values.width;
+                    checkNewPage(valuesHeight + 5);
+                    yPosition += 2;
+                    pdf.addImage(values.image, 'PNG', margin, yPosition, maxWidth, valuesHeight, undefined, 'FAST');
+                    yPosition += valuesHeight + 2;
                 }
 
                 yPosition += 8;
@@ -2580,7 +2277,7 @@
             }
 
             const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
-            const filename = `Column_Analysis_${timestamp}.pdf`;
+            const filename = 'Column_Analysis_' + timestamp + '.pdf';
 
             pdf.save(filename);
 

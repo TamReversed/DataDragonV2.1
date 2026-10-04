@@ -1,0 +1,145 @@
+{
+ "final": {
+  "current": 100,
+  "message": "Complete!",
+  "percentage": 100,
+  "preview": [
+   {
+    "id": "1",
+    "left_val": "a",
+    "right_val": "x"
+   },
+   {
+    "id": null,
+    "left_val": "b",
+    "right_val": null
+   },
+   {
+    "id": null,
+    "left_val": "c",
+    "right_val": null
+   },
+   {
+    "id": "2",
+    "left_val": "d",
+    "right_val": "p"
+   }
+  ],
+  "stage": "done",
+  "summary": {
+   "join_type": "left",
+   "left_rows": 4,
+   "matched": 2,
+   "merged_rows": 4,
+   "multiplication_factor": 1.0,
+   "right_rows": 5,
+   "unmatched_left": 2,
+   "unmatched_right": 3
+  },
+  "total": 100
+ },
+ "output": {
+  "Join Summary": [
+   [
+    "s:'Metric'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Left File Rows'",
+    "n:4"
+   ],
+   [
+    "s:'Right File Rows'",
+    "n:5"
+   ],
+   [
+    "s:'Merged Rows'",
+    "n:4"
+   ],
+   [
+    "s:'Matched Rows'",
+    "n:2"
+   ],
+   [
+    "s:'Unmatched (Left)'",
+    "n:2"
+   ],
+   [
+    "s:'Unmatched (Right)'",
+    "n:3"
+   ],
+   [
+    "s:'Join Type'",
+    "s:'LEFT'"
+   ]
+  ],
+  "Merged Data": [
+   [
+    "s:'id'",
+    "s:'left_val'",
+    "s:'right_val'"
+   ],
+   [
+    "s:'1'",
+    "s:'a'",
+    "s:'x'"
+   ],
+   [
+    "n:None",
+    "s:'b'",
+    "n:None"
+   ],
+   [
+    "n:None",
+    "s:'c'",
+    "n:None"
+   ],
+   [
+    "s:'2'",
+    "s:'d'",
+    "s:'p'"
+   ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Data Merge'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'9'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'4'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"duplicate_handling\": \"keep_first\", \"join_type\": \"left\", \"left_columns\": [], \"left_key\": \"id\", \"left_rows\": 4, \"right_columns\": [], \"right_key\": \"id\", \"right_rows\": 5}'"
+   ],
+   [
+    "s:'Warnings'",
+    "n:None"
+   ]
+  ]
+ },
+ "stages": [
+  "done",
+  "loading",
+  "merging",
+  "preparing",
+  "saving"
+ ]
+}

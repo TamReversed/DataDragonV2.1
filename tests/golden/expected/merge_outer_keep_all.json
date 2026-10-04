@@ -1,0 +1,185 @@
+{
+ "final": {
+  "current": 100,
+  "message": "Complete!",
+  "percentage": 100,
+  "preview": [
+   {
+    "id": "1",
+    "left_val": "a",
+    "right_val": "x"
+   },
+   {
+    "id": "2",
+    "left_val": "d",
+    "right_val": "p"
+   },
+   {
+    "id": "2",
+    "left_val": "e",
+    "right_val": "p"
+   },
+   {
+    "id": "3",
+    "left_val": null,
+    "right_val": "q"
+   },
+   {
+    "id": null,
+    "left_val": "b",
+    "right_val": null
+   },
+   {
+    "id": null,
+    "left_val": "c",
+    "right_val": null
+   },
+   {
+    "id": null,
+    "left_val": null,
+    "right_val": "y"
+   },
+   {
+    "id": null,
+    "left_val": null,
+    "right_val": "z"
+   }
+  ],
+  "stage": "done",
+  "summary": {
+   "join_type": "outer",
+   "left_rows": 5,
+   "matched": 3,
+   "merged_rows": 8,
+   "multiplication_factor": 1.0,
+   "right_rows": 5,
+   "unmatched_left": 2,
+   "unmatched_right": 3
+  },
+  "total": 100
+ },
+ "output": {
+  "Join Summary": [
+   [
+    "s:'Metric'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Left File Rows'",
+    "n:5"
+   ],
+   [
+    "s:'Right File Rows'",
+    "n:5"
+   ],
+   [
+    "s:'Merged Rows'",
+    "n:8"
+   ],
+   [
+    "s:'Matched Rows'",
+    "n:3"
+   ],
+   [
+    "s:'Unmatched (Left)'",
+    "n:2"
+   ],
+   [
+    "s:'Unmatched (Right)'",
+    "n:3"
+   ],
+   [
+    "s:'Join Type'",
+    "s:'OUTER'"
+   ]
+  ],
+  "Merged Data": [
+   [
+    "s:'id'",
+    "s:'left_val'",
+    "s:'right_val'"
+   ],
+   [
+    "s:'1'",
+    "s:'a'",
+    "s:'x'"
+   ],
+   [
+    "s:'2'",
+    "s:'d'",
+    "s:'p'"
+   ],
+   [
+    "s:'2'",
+    "s:'e'",
+    "s:'p'"
+   ],
+   [
+    "s:'3'",
+    "n:None",
+    "s:'q'"
+   ],
+   [
+    "n:None",
+    "s:'b'",
+    "n:None"
+   ],
+   [
+    "n:None",
+    "s:'c'",
+    "n:None"
+   ],
+   [
+    "n:None",
+    "n:None",
+    "s:'y'"
+   ],
+   [
+    "n:None",
+    "n:None",
+    "s:'z'"
+   ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Data Merge'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'10'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'8'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"duplicate_handling\": \"keep_all\", \"join_type\": \"outer\", \"left_columns\": [], \"left_key\": \"id\", \"left_rows\": 5, \"right_columns\": [], \"right_key\": \"id\", \"right_rows\": 5}'"
+   ],
+   [
+    "s:'Warnings'",
+    "n:None"
+   ]
+  ]
+ },
+ "stages": [
+  "done",
+  "loading",
+  "merging",
+  "preparing",
+  "saving"
+ ]
+}

@@ -116,9 +116,10 @@
 
     .preview-table-wrapper {
         overflow-x: auto;
-        max-height: 300px;
+        max-height: 360px;
         border-radius: var(--radius-lg);
         border: 1px solid var(--border-subtle);
+        overscroll-behavior: auto;
     }
 
     .preview-table {
@@ -519,7 +520,7 @@
         <div class="file-upload-text">Drop your Excel or CSV file here</div>
         <div class="file-upload-hint">or click to browse</div>
         <div class="file-upload-hint mt-2" id="fileSizeInfo"></div>
-        <input type="file" id="fileInput" class="file-upload-input" accept=".xlsx,.xls,.csv">
+        <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" aria-label="Choose a file to upload">
     </div>
 </div>
 
@@ -693,91 +694,17 @@
     const previewFormulaSection = document.getElementById('previewFormulaSection');
 
     let selectedFile = null;
-    let columns = [];
 
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
+    // Upload zone (click, keyboard, drag and drop); the chosen file may also be an earlier result
+    const upload = DD.initUpload({
+        zone: uploadArea, input: fileInput, sizeInfo: fileSizeInfo,
+        onFile: async source => {
+            selectedFile = source;
 
-    // Load cached files
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.classList.add('show');
-                cachedFilesList.innerHTML = data.files.map(file => `
-                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
-                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
-                    </div>
-                `).join('');
-            }
-        } catch (err) {
-            console.error('Error loading cached files:', err);
-        }
-    }
-
-    async function useCachedFile(cacheId) {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
-                const blob = await fileResponse.blob();
-                const file = new File([blob], data.filename, { type: blob.type });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                fileInput.files = dataTransfer.files;
-                fileInput.dispatchEvent(new Event('change'));
-            }
-        } catch (err) {
-            console.error('Error using cached file:', err);
-            showError('Failed to load cached file');
-        }
-    }
-
-    // File upload
-    uploadArea.addEventListener('click', () => fileInput.click());
-
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
-
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
-    });
-
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-        if (e.dataTransfer.files.length) {
-            fileInput.files = e.dataTransfer.files;
-            fileInput.dispatchEvent(new Event('change'));
-        }
-    });
-
-    fileInput.addEventListener('change', async () => {
-        if (fileInput.files.length === 0) return;
-
-        selectedFile = fileInput.files[0];
-        const sizeMB = (selectedFile.size / (1024 * 1024)).toFixed(2);
-        fileSizeInfo.textContent = `${selectedFile.name} (${sizeMB} MB)`;
-        uploadArea.classList.add('has-file');
 
         // Load preview
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
 
         try {
             const response = await fetch('/preview-data', { method: 'POST', body: formData });
@@ -789,7 +716,7 @@
             }
 
             // Show preview
-            previewStats.textContent = `${data.rows.length} of ${data.total_rows.toLocaleString()} rows - ${data.total_cols} columns`;
+            previewStats.textContent = `${data.rows.length} of ${data.total_rows.toLocaleString()} rows - ${data.total_cols /* safe: number, css class/colour or HTML assembled from escaped parts */} columns`;
 
             previewTableHead.innerHTML = '<tr>' + data.columns.map(col =>
                 `<th>${escapeHtml(col)}</th>`
@@ -812,7 +739,18 @@
         } catch (err) {
             showError('Failed to load file preview: ' + err.message);
         }
+        },
     });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => upload.choose(source) });
+    let columns = [];
+
+
+
+
+
+
+
+
 
     function updateColumnChips() {
         columnChips.innerHTML = columns.map(col =>
@@ -821,7 +759,7 @@
 
         document.querySelectorAll('.column-chip').forEach(chip => {
             chip.addEventListener('click', () => {
-                const colRef = `[${chip.dataset.column}]`;
+                const colRef = `[${escapeHtml(chip.dataset.column)}]`;
                 insertAtCursor(formula, colRef);
                 formula.focus();
             });
@@ -866,7 +804,7 @@
     // Preview formula
     previewFormulaBtn.addEventListener('click', async () => {
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
         formData.append('formula', formula.value.trim());
         formData.append('new_column_name', newColumnName.value.trim() || 'Result');
         formData.append('preview_only', 'true');
@@ -904,12 +842,12 @@
         if (preview.length > 0) {
             const cols = Object.keys(preview[0]);
             formulaPreviewHead.innerHTML = '<tr>' + cols.map(col =>
-                `<th${col === newColName ? ' class="new-column"' : ''}>${escapeHtml(col)}</th>`
+                `<th${col === newColName ? ' class="new-column"' : '' /* safe: number, css class/colour or HTML assembled from escaped parts */}>${escapeHtml(col)}</th>`
             ).join('') + '</tr>';
 
             formulaPreviewBody.innerHTML = preview.map(row =>
                 '<tr>' + cols.map(col =>
-                    `<td${col === newColName ? ' class="new-column"' : ''}>${escapeHtml(String(row[col] ?? ''))}</td>`
+                    `<td${col === newColName ? ' class="new-column"' : '' /* safe: number, css class/colour or HTML assembled from escaped parts */}>${escapeHtml(String(row[col] ?? ''))}</td>`
                 ).join('') + '</tr>'
             ).join('');
 
@@ -920,7 +858,7 @@
     // Process
     processBtn.addEventListener('click', async () => {
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
         formData.append('formula', formula.value.trim());
         formData.append('new_column_name', newColumnName.value.trim());
 
@@ -950,8 +888,8 @@
 
             // Show results
             resultsSection.classList.add('show');
-            resultSummary.textContent = `Created column "${data.new_column}" with ${data.rows.toLocaleString()} values`;
-            downloadBtn.href = '/download/' + data.filename;
+            resultSummary.textContent = 'Created column "' + data.new_column + '" with ' + data.rows.toLocaleString() + ' values';
+            downloadBtn.href = data.download_url;
 
             optionsSection.classList.remove('show');
             progressContainer.classList.remove('show');
@@ -973,6 +911,5 @@
     }
 
     // Initialize
-    loadCachedFiles();
 </script>
 {% endblock %}

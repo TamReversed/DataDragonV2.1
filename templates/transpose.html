@@ -122,7 +122,8 @@
         overflow-x: auto;
         border-radius: var(--radius-lg);
         border: 1px solid var(--border-subtle);
-        max-height: 300px;
+        max-height: 360px;
+        overscroll-behavior: auto;
     }
 
     .preview-table {
@@ -599,7 +600,7 @@
         <div class="file-upload-text">Click to Upload or Drag & Drop</div>
         <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files supported</div>
         <div class="file-upload-hint mt-2" id="fileSizeInfo" style="display: none;"></div>
-        <input type="file" id="fileInput" class="file-upload-input" accept=".xlsx,.xls,.csv" required aria-label="Upload file to transpose">
+        <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" required aria-label="Upload file to transpose">
     </div>
 </div>
 
@@ -772,21 +773,7 @@
 
 {% block scripts %}
 <script>
-    // XSS Protection
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
-    // Format file size
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
 
     // Calculate ETA
     function calculateETA(currentPercentage, elapsedTime) {
@@ -834,52 +821,23 @@
     const savingMessage = document.getElementById('savingMessage');
 
     let selectedFile = null;
-    let eventSource = null;
 
-    // Cached files functions
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.style.display = 'block';
-                cachedFilesList.innerHTML = data.files.map(file => `
-                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
-                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
-                    </div>
-                `).join('');
-            }
-        } catch (err) {
-            console.error('Error loading cached files:', err);
-        }
-    }
+    // Upload zone (click, keyboard, drag and drop); the chosen file may also be an earlier result
+    const upload = DD.initUpload({
+        zone: uploadArea, input: fileInput, sizeInfo: fileSizeInfo,
+        onFile: source => {
+            selectedFile = source;
+            error.style.display = 'none';
+            results.classList.remove('show');
+            transposeBtn.disabled = false;
+            // Fetch preview
+            fetchPreview(selectedFile);
+        },
+    });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => upload.choose(source) });
+    let job = null;
 
-    async function useCachedFile(cacheId) {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
-                const blob = await fileResponse.blob();
-                const file = new File([blob], data.filename, { type: blob.type });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                fileInput.files = dataTransfer.files;
-                fileInput.dispatchEvent(new Event('change'));
-            }
-        } catch (err) {
-            console.error('Error using cached file:', err);
-            showError('Failed to load cached file');
-        }
-    }
+
 
     function displayPreview(previewData) {
         previewStats.textContent = `${previewData.total_rows.toLocaleString()} rows x ${previewData.columns.length} columns`;
@@ -898,7 +856,7 @@
     async function fetchPreview(file) {
         try {
             const formData = new FormData();
-            formData.append('file', file);
+            DD.appendFile(formData, 'file', file);
             const response = await fetch('/preview-data', { method: 'POST', body: formData });
             const data = await response.json();
             if (data.success) {
@@ -909,50 +867,11 @@
         }
     }
 
-    // Load cached files on page load
-    loadCachedFiles();
 
-    // Click to upload
-    uploadArea.addEventListener('click', () => fileInput.click());
 
-    // File selection
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            selectedFile = e.target.files[0];
-            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
-            fileSizeInfo.style.display = 'block';
-            uploadArea.classList.add('has-file');
-            error.style.display = 'none';
-            results.classList.remove('show');
-            transposeBtn.disabled = false;
-            // Fetch preview
-            fetchPreview(selectedFile);
-        } else {
-            transposeBtn.disabled = true;
-            fileSizeInfo.style.display = 'none';
-            uploadArea.classList.remove('has-file');
-        }
-    });
 
-    // Drag and drop
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
 
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
-    });
 
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-
-        if (e.dataTransfer.files.length) {
-            fileInput.files = e.dataTransfer.files;
-            fileInput.dispatchEvent(new Event('change'));
-        }
-    });
 
 
     function resetProgress() {
@@ -995,10 +914,7 @@
 
     // Cancel button
     cancelBtn.addEventListener('click', function() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        if (job) { job.cancel(); job = null; }
         cancelBtn.style.display = 'none';
         transposeBtn.disabled = false;
         transposeBtn.innerHTML = `
@@ -1017,7 +933,7 @@
         if (!selectedFile) return;
 
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
 
         transposeBtn.disabled = true;
         transposeBtn.innerHTML = `
@@ -1033,83 +949,26 @@
         resetProgress();
 
         try {
-            const response = await fetch('/transpose-data', {
-                method: 'POST',
-                body: formData
-            }).catch(fetchError => {
-                throw new Error('Could not connect to server. Make sure the server is running.');
-            });
+            job = DD.startJob('/transpose-data', formData, {
+                onProgress: progressData => {
+                    updateProgress(progressData.stage, progressData.percentage || 0, progressData.message || '');
+                },
+                onDone: progressData => {
+                    updateProgress('done', 100, progressData.message || '');
+                    if (progressData.download_url) {
+                        downloadBtn.onclick = () => {
+                            window.location.href = progressData.download_url;
+                        };
 
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonError) {
-                throw new Error('Invalid response from server');
-            }
-
-            if (response.ok && data.success && data.session_id) {
-                if (eventSource) {
-                    eventSource.close();
-                }
-
-                eventSource = new EventSource('/progress/' + data.session_id);
-
-                eventSource.onmessage = function(event) {
-                    const progressData = JSON.parse(event.data);
-
-                    if (progressData.error) {
-                        eventSource.close();
-                        showError('Server error: ' + progressData.error);
-                        transposeBtn.disabled = false;
-                        transposeBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                            </svg>
-                            Transpose Data
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                        return;
-                    }
-
-                    const stage = progressData.stage;
-                    const percentage = progressData.percentage || 0;
-                    const message = progressData.message || '';
-
-                    updateProgress(stage, percentage, message);
-
-                    if (stage === 'done') {
-                        eventSource.close();
-
-                        if (progressData.download_url) {
-                            downloadBtn.onclick = () => {
-                                window.location.href = progressData.download_url;
-                            };
-
-                            // Display summary
-                            if (progressData.original_rows && progressData.original_columns) {
-                                resultsSummary.innerHTML = `
-                                    <p><strong>Original:</strong> ${progressData.original_rows.toLocaleString()} rows x ${progressData.original_columns.toLocaleString()} columns</p>
-                                    <p><strong>Transposed:</strong> ${progressData.transposed_rows.toLocaleString()} rows x ${progressData.transposed_columns.toLocaleString()} columns</p>
-                                `;
-                            }
-
-                            results.classList.add('show');
-                            transposeBtn.disabled = false;
-                            transposeBtn.innerHTML = `
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                                </svg>
-                                Transpose Data
+                        // Display summary
+                        if (progressData.original_rows && progressData.original_columns) {
+                            resultsSummary.innerHTML = `
+                                <p><strong>Original:</strong> ${progressData.original_rows.toLocaleString()} rows x ${progressData.original_columns.toLocaleString()} columns</p>
+                                <p><strong>Transposed:</strong> ${progressData.transposed_rows.toLocaleString()} rows x ${progressData.transposed_columns.toLocaleString()} columns</p>
                             `;
-                            cancelBtn.style.display = 'none';
-                            progressContainer.classList.remove('show');
                         }
-                    }
 
-                    if (stage === 'error') {
-                        eventSource.close();
-                        showError(progressData.message || 'An error occurred during transpose');
+                        results.classList.add('show');
                         transposeBtn.disabled = false;
                         transposeBtn.innerHTML = `
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -1120,26 +979,22 @@
                         cancelBtn.style.display = 'none';
                         progressContainer.classList.remove('show');
                     }
-                };
 
-                eventSource.onerror = function(err) {
-                    console.error('EventSource error:', err);
-                    if (eventSource.readyState === EventSource.CLOSED) {
-                        eventSource.close();
-                        showError('Connection lost. Transpose may still be processing...');
-                        transposeBtn.disabled = false;
-                        transposeBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                            </svg>
-                            Transpose Data
-                        `;
-                        cancelBtn.style.display = 'none';
-                    }
-                };
-            } else {
-                throw new Error(data.error || 'Failed to start transpose');
-            }
+                },
+                onError: message => {
+                    showError(message);
+                    transposeBtn.disabled = false;
+                    transposeBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                        </svg>
+                        Transpose Data
+                    `;
+                    cancelBtn.style.display = 'none';
+                    progressContainer.classList.remove('show');
+
+                },
+            });
         } catch (error) {
             console.error('Error:', error);
             showError(error.message || 'An error occurred');

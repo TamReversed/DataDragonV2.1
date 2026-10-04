@@ -1,0 +1,184 @@
+{
+ "final": {
+  "common_columns": 14,
+  "comparison_data": [
+   {
+    "Column Headers": "Account",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "Amount",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "BigId",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "Date",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "DateText",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "Email",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "EuroNum",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "Flag",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "ID",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "Name",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "Notes",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "Pct",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "Region",
+    "Found in golden": "Yes"
+   },
+   {
+    "Column Headers": "Zip",
+    "Found in golden": "Yes"
+   }
+  ],
+  "current": 14,
+  "file1_columns": 14,
+  "file1_name": "golden",
+  "file1_only": 0,
+  "file2_columns": 14,
+  "file2_name": "golden",
+  "file2_only": 0,
+  "message": "Complete!",
+  "percentage": 100,
+  "sheet_names": [
+   "Main",
+   "Second"
+  ],
+  "stage": "done",
+  "total": 14,
+  "total_columns": 14,
+  "warning": "golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed."
+ },
+ "output": {
+  "Column Comparison": [
+   [
+    "s:'Column Headers'",
+    "s:'Found in golden'"
+   ],
+   [
+    "s:'Account'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'Amount'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'BigId'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'Date'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'DateText'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'Email'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'EuroNum'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'Flag'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'ID'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'Name'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'Notes'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'Pct'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'Region'",
+    "s:'Yes'"
+   ],
+   [
+    "s:'Zip'",
+    "s:'Yes'"
+   ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Schema Comparison'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'28'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'14'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"file1\": \"golden\", \"file2\": \"golden\"}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:\"golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed.\""
+   ]
+  ]
+ },
+ "stages": [
+  "comparing",
+  "done",
+  "loading",
+  "saving"
+ ]
+}

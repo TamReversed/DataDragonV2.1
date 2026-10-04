@@ -5,7 +5,9 @@
 {% block content_class %}wide{% endblock %}
 
 {% block head_extra %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"
+        integrity="sha256-Mh46P6mNpKqpV9EL5Xy7UU3gmJ7tj51ya10FkCzQGQQ=" crossorigin="anonymous"></script>
+<script src="{{ url_for('static', filename='js/charts.js') }}"></script>
 {% endblock %}
 
 {% block styles %}
@@ -914,6 +916,15 @@
     /* Key Cards                                 */
     /* ========================================= */
 
+    .warning-box {
+        margin-bottom: 12px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid rgba(245, 158, 11, 0.5);
+        background: rgba(245, 158, 11, 0.12);
+        font-size: 0.9rem;
+    }
+
     .key-card {
         border: 2px solid var(--border-subtle);
         border-radius: var(--radius-lg);
@@ -975,6 +986,9 @@
     }
 
     .transform-toggle {
+        border: 0;
+        padding: 0;
+        display: block;
         width: 40px;
         height: 22px;
         background: var(--bg-tertiary);
@@ -1505,7 +1519,7 @@
             </svg>
             Back to Tools
         </a>
-        <span class="pipeline-title">Data Readiness Pipeline</span>
+        <h1 class="pipeline-title">Data Readiness Pipeline</h1>
     </div>
     <div class="file-badge" id="fileBadge">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" width="16" height="16">
@@ -1570,7 +1584,7 @@
                 </svg>
                 <div class="upload-text">Drop file here or click to browse</div>
                 <div class="upload-hint">.xlsx, .xls, .csv</div>
-                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" style="display: none;">
+                <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" class="visually-hidden" aria-label="Choose a file to upload">
             </div>
 
             <!-- Upload success info -->
@@ -1719,6 +1733,14 @@
             </div>
 
             <div class="error-message" id="keyError"></div>
+
+            <label for="allowNullKeys" style="display: flex; gap: 10px; align-items: flex-start; cursor: pointer; margin-top: var(--space-4);">
+    <input type="checkbox" id="allowNullKeys" style="margin-top: 4px;">
+    <span>
+        <strong>Allow columns with blank values as keys</strong>
+        <span style="display: block; margin-top: 4px; font-size: 13px; opacity: .8;">Off (recommended): a column with any blank cell is skipped, because a blank is not an identifier. On: blanks count as one more value, so a column with a single blank can still be a key.</span>
+    </span>
+</label>
 
             <div class="btn-group mt-6">
                 <button class="btn btn-secondary" onclick="goToStage(3)">Back</button>
@@ -2062,18 +2084,6 @@
     let typesChart = null;
     let uniquenessChart = null;
 
-    // Chart color palette matching dark theme
-    const chartColors = {
-        purple: 'rgba(168, 85, 247, 0.8)',
-        blue: 'rgba(59, 130, 246, 0.8)',
-        cyan: 'rgba(6, 182, 212, 0.8)',
-        green: 'rgba(16, 185, 129, 0.8)',
-        yellow: 'rgba(250, 204, 21, 0.8)',
-        orange: 'rgba(249, 115, 22, 0.8)',
-        pink: 'rgba(236, 72, 153, 0.8)',
-        red: 'rgba(239, 68, 68, 0.8)'
-    };
-    const colorPalette = Object.values(chartColors);
 
     // Stage Navigation
     function goToStage(num) {
@@ -2147,63 +2157,72 @@
         });
     });
 
+    let job = null;
+
     // File Upload
     const uploadZone = document.getElementById('uploadZone');
     const fileInput = document.getElementById('fileInput');
 
-    uploadZone.addEventListener('click', () => fileInput.click());
-    uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
-    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
-    uploadZone.addEventListener('drop', e => {
-        e.preventDefault();
-        uploadZone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-    });
-    fileInput.addEventListener('change', e => {
-        if (e.target.files.length) handleFile(e.target.files[0]);
-    });
+    DD.initUpload({ zone: uploadZone, input: fileInput, onFile: handleFile });
 
     async function handleFile(file) {
         const formData = new FormData();
-        formData.append('file', file);
+        DD.appendFile(formData, 'file', file);
 
         try {
             hideError('uploadError');
             const response = await fetch('/pipeline/start', { method: 'POST', body: formData });
             const data = await response.json();
             if (!data.success) throw new Error(data.error);
-
-            state.sessionId = data.session_id;
-            state.filename = data.filename;
-            state.columns = data.column_names;
-            state.preview = data.preview || [];
-            state.rowCount = data.rows;
-
-            // Show file badge
-            document.getElementById('fileBadge').classList.add('visible');
-            document.getElementById('fileNameDisplay').textContent = `${data.filename} (${data.rows.toLocaleString()} rows)`;
-
-            // Mark upload zone as complete
-            document.getElementById('uploadZone').classList.add('uploaded');
-
-            // Show upload success info
-            document.getElementById('uploadSuccess').classList.remove('hidden');
-            document.getElementById('uploadFilename').textContent = data.filename;
-            document.getElementById('uploadStats').textContent = `${data.rows.toLocaleString()} rows × ${data.columns} columns`;
-
-            // Show continue button
-            document.getElementById('stage1Buttons').classList.remove('hidden');
-
-            // Load preview into right panel
-            showUploadPreview(data.preview, data.column_names, data.rows);
-
-            // Setup column lists for later stages
-            setupColumnLists();
-
+            applySession(data);
+            // The session id in the address lets a reload (or a bookmark) pick the session up again
+            history.replaceState(null, '', location.pathname + '?s=' + encodeURIComponent(data.session_id));
         } catch (error) {
             showError('uploadError', error.message);
         }
     }
+
+    // Show an uploaded (or resumed) session: badge, upload summary, first rows, column lists
+    function applySession(data) {
+        state.sessionId = data.session_id;
+        state.filename = data.filename;
+        state.columns = data.column_names;
+        state.preview = data.preview || [];
+        state.rowCount = data.rows;
+
+        document.getElementById('fileBadge').classList.add('visible');
+        document.getElementById('fileNameDisplay').textContent = data.filename + ' (' + data.rows.toLocaleString() + ' rows)';
+        document.getElementById('uploadZone').classList.add('uploaded');
+        document.getElementById('uploadSuccess').classList.remove('hidden');
+        document.getElementById('uploadFilename').textContent = data.filename;
+        document.getElementById('uploadStats').textContent = `${data.rows.toLocaleString()} rows × ${Number(data.columns)} columns`;
+        document.getElementById('stage1Buttons').classList.remove('hidden');
+        showUploadPreview(data.preview, data.column_names, data.rows);
+        setupColumnLists();
+    }
+
+    // Reload / bookmark: ?s=<session id> restores the session if this browser owns it and it has not expired
+    async function resumeFromUrl() {
+        const id = new URLSearchParams(location.search).get('s');
+        if (!id) return;
+        try {
+            const response = await fetch('/pipeline/' + encodeURIComponent(id) + '/state');
+            if (!response.ok) throw new Error('expired');
+            const data = await response.json();
+            applySession({
+                session_id: id, filename: data.state.filename, column_names: data.columns, preview: data.preview,
+                rows: data.state.row_count, columns: data.state.col_count,
+            });
+            if (data.analysis) {
+                state.analysis = data.analysis;
+                goToStage(2);
+            }
+        } catch (error) {
+            history.replaceState(null, '', location.pathname);
+            showError('uploadError', 'That session has expired, or it belongs to another browser. Upload the file again.');
+        }
+    }
+    resumeFromUrl();
 
     function showUploadPreview(previewData, columns, totalRows) {
         const thead = document.querySelector('#previewTable thead');
@@ -2216,7 +2235,7 @@
                 '<tr>' + columns.map(col => {
                     const val = row[col];
                     const displayVal = val === null || val === undefined ? '<span style="color:var(--text-muted)">null</span>' : escapeHtml(String(val));
-                    return `<td>${displayVal}</td>`;
+                    return `<td>${displayVal /* safe: escaped where it is built */}</td>`;
                 }).join('') + '</tr>'
             ).join('');
         } else {
@@ -2231,6 +2250,7 @@
     }
 
     function resetUpload() {
+        history.replaceState(null, '', location.pathname);
         // Reset state
         state.sessionId = null;
         state.filename = null;
@@ -2248,31 +2268,6 @@
         document.getElementById('emptyPreview').classList.remove('hidden');
         document.getElementById('previewContainer').classList.add('hidden');
         document.getElementById('previewInfo').classList.add('hidden');
-    }
-
-    async function loadPreview() {
-        try {
-            const formData = new FormData();
-            // We need to get preview data - let's use the state's file
-            const response = await fetch(`/pipeline/${state.sessionId}/state`);
-            const data = await response.json();
-
-            // For now, show columns in preview header
-            const thead = document.querySelector('#previewTable thead');
-            const tbody = document.querySelector('#previewTable tbody');
-
-            thead.innerHTML = '<tr>' + state.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('') + '</tr>';
-            tbody.innerHTML = '<tr><td colspan="' + state.columns.length + '" style="text-align:center;color:var(--text-muted);padding:30px;">Preview loads after analysis</td></tr>';
-
-            document.getElementById('emptyPreview').classList.add('hidden');
-            document.getElementById('previewContainer').classList.remove('hidden');
-            document.getElementById('previewInfo').classList.remove('hidden');
-            document.getElementById('previewCount').textContent = `${state.columns.length} columns`;
-            document.getElementById('previewInfo').textContent = 'Run analysis to see data statistics';
-
-        } catch (error) {
-            console.error('Preview error:', error);
-        }
     }
 
     function setupColumnLists() {
@@ -2314,6 +2309,8 @@
         }
     }
 
+    document.getElementById('allowNullKeys').addEventListener('change', onKeyColumnSelectionChange);
+
     // Select All/None
     document.getElementById('selectAllAnalysis').addEventListener('click', () => {
         document.querySelectorAll('#analysisColumnList input').forEach(cb => cb.checked = true);
@@ -2339,35 +2336,8 @@
             document.getElementById('analysisProgress').classList.add('active');
             document.getElementById('runAnalysisBtn').disabled = true;
 
-            const response = await fetch(`/pipeline/${state.sessionId}/analyze`, { method: 'POST' });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.error);
-
-            const eventSource = new EventSource(`/progress/${state.sessionId}`);
-
-            eventSource.onmessage = (event) => {
-                const progress = JSON.parse(event.data);
-
-                if (progress.stage === 'done') {
-                    eventSource.close();
-                    state.analysis = progress.analysis;
-                    // Update to 100% before transitioning
-                    document.getElementById('analysisFill').style.width = '100%';
-                    document.getElementById('analysisPercent').textContent = '100%';
-                    document.getElementById('analysisStage').textContent = 'Complete';
-                    document.getElementById('analysisText').textContent = 'Analysis complete!';
-                    setTimeout(() => {
-                        document.getElementById('analysisProgress').classList.remove('active');
-                        document.getElementById('runAnalysisBtn').style.display = 'none';
-                        document.getElementById('continueToGapsBtn').style.display = 'block';
-                        updatePreviewWithAnalysis(progress.analysis);
-                    }, 300);
-                } else if (progress.stage === 'error') {
-                    eventSource.close();
-                    showError('analysisError', progress.message);
-                    document.getElementById('analysisProgress').classList.remove('active');
-                    document.getElementById('runAnalysisBtn').disabled = false;
-                } else {
+            job = DD.startJob(`/pipeline/${state.sessionId}/analyze`, null, {
+                onProgress: progress => {
                     const pct = progress.percentage || 0;
                     document.getElementById('analysisFill').style.width = `${pct}%`;
                     document.getElementById('analysisPercent').textContent = `${pct}%`;
@@ -2390,8 +2360,30 @@
                     } else {
                         document.getElementById('analysisDetails').textContent = '';
                     }
-                }
-            };
+
+                },
+                onDone: progress => {
+                    state.analysis = progress.analysis;
+                    // Update to 100% before transitioning
+                    document.getElementById('analysisFill').style.width = '100%';
+                    document.getElementById('analysisPercent').textContent = '100%';
+                    document.getElementById('analysisStage').textContent = 'Complete';
+                    document.getElementById('analysisText').textContent = 'Analysis complete!';
+                    setTimeout(() => {
+                        document.getElementById('analysisProgress').classList.remove('active');
+                        document.getElementById('runAnalysisBtn').style.display = 'none';
+                        document.getElementById('continueToGapsBtn').style.display = 'block';
+                        updatePreviewWithAnalysis(progress.analysis);
+                    }, 300);
+
+                },
+                onError: message => {
+                    showError('analysisError', message);
+                    document.getElementById('analysisProgress').classList.remove('active');
+                    document.getElementById('runAnalysisBtn').disabled = false;
+
+                },
+            });
 
         } catch (error) {
             showError('analysisError', error.message);
@@ -2457,157 +2449,31 @@
 
     function renderTypesChart(typesCount) {
         const canvas = document.getElementById('typesChart');
-        if (!canvas) {
-            console.error('typesChart canvas not found');
-            return;
-        }
-        const ctx = canvas.getContext('2d');
-
-        // Destroy existing chart
-        if (typesChart) {
-            typesChart.destroy();
-        }
-
+        if (!canvas) return;
+        if (typesChart) typesChart.destroy();
         const labels = Object.keys(typesCount);
-        const data = Object.values(typesCount);
-
-        if (labels.length === 0) {
-            console.warn('No data types to display');
-            return;
-        }
-
-        typesChart = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: labels,
-                datasets: [{
-                    data: data,
-                    backgroundColor: colorPalette.slice(0, labels.length),
-                    borderColor: 'rgba(18, 18, 26, 1)',
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: {
-                            color: 'rgba(255, 255, 255, 0.7)',
-                            font: { size: 11 },
-                            padding: 12,
-                            usePointStyle: true,
-                            pointStyle: 'circle'
-                        }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(18, 18, 26, 0.95)',
-                        titleColor: '#fff',
-                        bodyColor: 'rgba(255, 255, 255, 0.8)',
-                        borderColor: 'rgba(255, 255, 255, 0.1)',
-                        borderWidth: 1,
-                        padding: 12,
-                        callbacks: {
-                            label: function(context) {
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const pct = ((context.raw / total) * 100).toFixed(1);
-                                return `${context.label}: ${context.raw} (${pct}%)`;
-                            }
-                        }
-                    }
-                },
-                cutout: '60%'
-            }
+        if (labels.length === 0) return;
+        typesChart = DDCharts.doughnut(canvas, {
+            title: 'Columns by data type', labels, values: Object.values(typesCount),
         });
     }
 
     function renderUniquenessChart(columnEntries, totalRows) {
         const canvas = document.getElementById('uniquenessChart');
-        if (!canvas) {
-            console.error('uniquenessChart canvas not found');
-            return;
-        }
-        const ctx = canvas.getContext('2d');
+        if (!canvas) return;
+        if (uniquenessChart) uniquenessChart.destroy();
+        if (columnEntries.length === 0) return;
 
-        // Destroy existing chart
-        if (uniquenessChart) {
-            uniquenessChart.destroy();
-        }
-
-        if (columnEntries.length === 0) {
-            console.warn('No columns to display in uniqueness chart');
-            return;
-        }
-
-        // Sort by uniqueness ratio and take top 10
-        const sorted = columnEntries
-            .map(([col, info]) => ({
-                name: col.length > 15 ? col.substring(0, 15) + '...' : col,
-                fullName: col,
-                ratio: totalRows > 0 ? (info.unique_count || 0) / totalRows * 100 : 0
-            }))
-            .sort((a, b) => b.ratio - a.ratio)
-            .slice(0, 10);
-
-        uniquenessChart = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: sorted.map(c => c.name),
-                datasets: [{
-                    label: 'Uniqueness %',
-                    data: sorted.map(c => c.ratio),
-                    backgroundColor: sorted.map(c =>
-                        c.ratio >= 99 ? chartColors.green :
-                        c.ratio >= 50 ? chartColors.cyan :
-                        chartColors.purple
-                    ),
-                    borderRadius: 4,
-                    borderSkipped: false
-                }]
-            },
-            options: {
-                indexAxis: 'y',
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: 'rgba(18, 18, 26, 0.95)',
-                        titleColor: '#fff',
-                        bodyColor: 'rgba(255, 255, 255, 0.8)',
-                        borderColor: 'rgba(255, 255, 255, 0.1)',
-                        borderWidth: 1,
-                        padding: 12,
-                        callbacks: {
-                            title: function(items) {
-                                return sorted[items[0].dataIndex].fullName;
-                            },
-                            label: function(context) {
-                                return `Uniqueness: ${context.raw.toFixed(1)}%`;
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        beginAtZero: true,
-                        max: 100,
-                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                        ticks: {
-                            color: 'rgba(255, 255, 255, 0.5)',
-                            callback: v => v + '%'
-                        }
-                    },
-                    y: {
-                        grid: { display: false },
-                        ticks: {
-                            color: 'rgba(255, 255, 255, 0.7)',
-                            font: { size: 11 }
-                        }
-                    }
-                }
-            }
+        // Colour = how close to a key; the legend says so
+        const ratio = info => totalRows > 0 ? (info.unique_count || 0) / totalRows * 100 : 0;
+        const [green, blue, orange] = [DDCharts.palette[2], DDCharts.palette[0], DDCharts.palette[1]];
+        uniquenessChart = DDCharts.horizontalBars(canvas, {
+            title: 'Uniqueness by column', datasetLabel: 'Uniqueness', max: 100, topN: 10,
+            labels: columnEntries.map(([col]) => col), values: columnEntries.map(([, info]) => ratio(info)),
+            colors: columnEntries.map(([, info]) => ratio(info) >= 99 ? green : ratio(info) >= 50 ? blue : orange),
+            format: v => Number(v).toFixed(1) + '%',
+            legend: [{ label: '99% or more (key candidate)', color: green }, { label: '50-99%', color: blue },
+                     { label: 'under 50%', color: orange }],
         });
     }
 
@@ -2628,7 +2494,7 @@
                 <div class="completeness-row">
                     <span class="completeness-label" title="${escapeHtml(col.name)}">${escapeHtml(col.name)}</span>
                     <div class="completeness-bar-bg">
-                        <div class="completeness-bar-fill ${level}" style="width: ${col.completeness}%"></div>
+                        <div class="completeness-bar-fill ${escapeHtml(level)}" style="width: ${col.completeness /* safe: number, css class/colour or HTML assembled from escaped parts */}%"></div>
                     </div>
                     <span class="completeness-value">${col.completeness.toFixed(1)}%</span>
                 </div>
@@ -2662,7 +2528,7 @@
             let statsHtml = `
                 <div class="column-stat">
                     <span class="column-stat-label">Completeness</span>
-                    <span class="column-stat-value ${completenessClass}">${completeness.toFixed(1)}%</span>
+                    <span class="column-stat-value ${completenessClass /* safe: number, css class/colour or HTML assembled from escaped parts */}">${completeness.toFixed(1)}%</span>
                 </div>
                 <div class="column-stat">
                     <span class="column-stat-label">Unique Values</span>
@@ -2691,11 +2557,11 @@
                 statsHtml += `
                     <div class="column-stat">
                         <span class="column-stat-label">Date Range</span>
-                        <span class="column-stat-value">${info.date_range.min || 'N/A'}</span>
+                        <span class="column-stat-value">${escapeHtml(info.date_range.min || 'N/A')}</span>
                     </div>
                     <div class="column-stat">
                         <span class="column-stat-label">To</span>
-                        <span class="column-stat-value">${info.date_range.max || 'N/A'}</span>
+                        <span class="column-stat-value">${escapeHtml(info.date_range.max || 'N/A')}</span>
                     </div>
                 `;
             }
@@ -2731,13 +2597,13 @@
                 <div class="column-card" data-column="${escapeHtml(col)}">
                     <div class="column-card-header">
                         <span class="column-name">${escapeHtml(col)}</span>
-                        <span class="column-type-badge ${typeClass}">${escapeHtml(info.detected_type || 'Text')}</span>
+                        <span class="column-type-badge ${typeClass /* safe: number, css class/colour or HTML assembled from escaped parts */}">${escapeHtml(info.detected_type || 'Text')}</span>
                     </div>
                     <div class="column-completeness-bar">
-                        <div class="column-completeness-fill ${completenessLevel}" style="width: ${completeness}%"></div>
+                        <div class="column-completeness-fill ${completenessLevel /* safe: number, css class/colour or HTML assembled from escaped parts */}" style="width: ${completeness /* safe: number, css class/colour or HTML assembled from escaped parts */}%"></div>
                     </div>
-                    <div class="column-stats">${statsHtml}</div>
-                    ${samplesHtml}
+                    <div class="column-stats">${statsHtml /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>
+                    ${samplesHtml /* safe: number, css class/colour or HTML assembled from escaped parts */}
                 </div>
             `;
         }).join('');
@@ -2792,7 +2658,7 @@
             tbody.innerHTML = gaps.map(gap => `
                 <tr data-column="${escapeHtml(gap.column)}">
                     <td>
-                        <input type="checkbox" name="gap_${gap.column}" value="needs_attention">
+                        <input type="checkbox" name="gap_${escapeHtml(gap.column)}" value="needs_attention">
                     </td>
                     <td>${escapeHtml(gap.column)}</td>
                     <td>${gap.null_percentage.toFixed(1)}%</td>
@@ -2867,49 +2733,9 @@
             document.getElementById('findKeysBtn').disabled = true;
             document.getElementById('keyResults').classList.add('hidden');
 
-            const response = await fetch(`/pipeline/${state.sessionId}/keys`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ selected_columns: selectedCols })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.error);
-
-            const eventSource = new EventSource(`/progress/${state.sessionId}`);
-
-            eventSource.onmessage = (event) => {
-                const progress = JSON.parse(event.data);
-
-                if (progress.stage === 'done' && progress.results) {
-                    // Only process 'done' if it has 'results' (key discovery completion)
-                    eventSource.close();
-                    // Update to 100% before hiding
-                    document.getElementById('keyFill').style.width = '100%';
-                    document.getElementById('keyPercent').textContent = '100%';
-                    document.getElementById('keyStage').textContent = 'Complete';
-                    document.getElementById('keyText').textContent = 'Analysis complete!';
-                    // Mark all stage dots as completed
-                    document.querySelectorAll('#keyStages .progress-stage-dot').forEach(dot => {
-                        dot.classList.remove('active');
-                        dot.classList.add('completed');
-                    });
-                    // Brief delay to show 100% before transitioning
-                    setTimeout(() => {
-                        displayKeyResults(progress.results);
-                        document.getElementById('keyProgress').classList.remove('active');
-                        document.getElementById('findKeysBtn').textContent = 'Confirm Selection';
-                        document.getElementById('findKeysBtn').disabled = false;
-                        document.getElementById('findKeysBtn').onclick = confirmKeys;
-                    }, 300);
-                } else if (progress.stage === 'done') {
-                    // Ignore 'done' messages from other stages (e.g., shape analysis with 'analysis' not 'results')
-                    return;
-                } else if (progress.stage === 'error') {
-                    eventSource.close();
-                    showError('keyError', progress.message);
-                    document.getElementById('keyProgress').classList.remove('active');
-                    document.getElementById('findKeysBtn').disabled = false;
-                } else {
+            job = DD.startJob(`/pipeline/${state.sessionId}/keys`, { json: { selected_columns: selectedCols, allow_null_keys: document.getElementById('allowNullKeys').checked } }, {
+                acceptDone: progress => !!progress.results,
+                onProgress: progress => {
                     // Update progress bar
                     const pct = progress.percentage || 0;
                     document.getElementById('keyFill').style.width = `${pct}%`;
@@ -2976,8 +2802,37 @@
                             dot.classList.add('completed');
                         }
                     });
-                }
-            };
+
+                },
+                onDone: progress => {
+                    // Only process 'done' if it has 'results' (key discovery completion)
+                    // Update to 100% before hiding
+                    document.getElementById('keyFill').style.width = '100%';
+                    document.getElementById('keyPercent').textContent = '100%';
+                    document.getElementById('keyStage').textContent = 'Complete';
+                    document.getElementById('keyText').textContent = 'Analysis complete!';
+                    // Mark all stage dots as completed
+                    document.querySelectorAll('#keyStages .progress-stage-dot').forEach(dot => {
+                        dot.classList.remove('active');
+                        dot.classList.add('completed');
+                    });
+                    // Brief delay to show 100% before transitioning
+                    setTimeout(() => {
+                        displayKeyResults(progress.results);
+                        document.getElementById('keyProgress').classList.remove('active');
+                        document.getElementById('findKeysBtn').textContent = 'Confirm Selection';
+                        document.getElementById('findKeysBtn').disabled = false;
+                        document.getElementById('findKeysBtn').onclick = confirmKeys;
+                    }, 300);
+
+                },
+                onError: message => {
+                    showError('keyError', message);
+                    document.getElementById('keyProgress').classList.remove('active');
+                    document.getElementById('findKeysBtn').disabled = false;
+
+                },
+            });
 
         } catch (error) {
             showError('keyError', error.message);
@@ -2989,19 +2844,34 @@
     function displayKeyResults(results) {
         document.getElementById('keyResults').classList.remove('hidden');
         const container = document.getElementById('keyCards');
-        const keys = (results && results.minimal_combinations) || [];
+        const full = (results && results.minimal_combinations) || [];
+        const afterDedup = (results && results.minimal_combinations_after_dedup) || [];
+        const dupRows = (results && results.duplicate_rows) || 0;
+        const skipped = (results && results.excluded_null_columns) || [];
+        const keys = full.length ? full : afterDedup;
+        let note = '';
+        if (dupRows && keys.length) {
+            note += `<div class="warning-box">No column combination is unique on all rows: ${dupRows.toLocaleString()} rows are exact duplicates. `
+                  + 'These candidates are unique only after those duplicates are removed.</div>';
+        }
+        if (results && results.truncated) {
+            note += `<div class="warning-box">The key search stopped early (${escapeHtml(results.truncated_reason)}), so there may be more keys.</div>`;
+        }
+        if (skipped.length) {
+            note += `<div class="warning-box">Skipped columns with blank values: ${escapeHtml(skipped.join(', '))}</div>`;
+        }
 
         if (keys.length === 0) {
-            container.innerHTML = '<div class="empty-state"><div>No unique key combinations found</div></div>';
+            container.innerHTML = note + '<div class="empty-state"><div>No unique key combinations found</div></div>';
             return;
         }
 
         state.selectedKey = keys[0];
 
-        container.innerHTML = keys.map((key, idx) => `
+        container.innerHTML = note + keys.map((key, idx) => `
             <div class="key-card ${idx === 0 ? 'selected' : ''}" data-idx="${idx}">
                 <div class="key-card-title">${idx === 0 ? 'Recommended' : `Option ${idx + 1}`}</div>
-                <div class="key-card-columns">${key.join(' + ')}</div>
+                <div class="key-card-columns">${escapeHtml(key.join(' + '))}</div>
             </div>
         `).join('');
 
@@ -3056,14 +2926,14 @@
                         } else if (col.detected) {
                             badge = `<span class="column-detail-badge">${escapeHtml(col.detected)}</span>`;
                         } else if (col.missing_percentage) {
-                            badge = `<span class="column-detail-badge">${col.missing_percentage}% missing</span>`;
+                            badge = `<span class="column-detail-badge">${col.missing_percentage /* safe: number, css class/colour or HTML assembled from escaped parts */}% missing</span>`;
                         }
 
                         return `
                             <div class="column-detail">
                                 <div class="column-detail-header">
                                     <span class="column-detail-name">${escapeHtml(col.column)}</span>
-                                    ${badge}
+                                    ${badge /* safe: escaped where it is built */}
                                 </div>
                                 <div class="column-detail-explanation">${escapeHtml(col.explanation)}</div>
                             </div>
@@ -3073,7 +2943,7 @@
                     columnDetailsHtml = `
                         <div class="transform-columns">
                             <div class="transform-columns-title">Affected Columns (${rec.column_details.length})</div>
-                            ${detailsItems}
+                            ${detailsItems /* safe: number, css class/colour or HTML assembled from escaped parts */}
                         </div>
                     `;
                 }
@@ -3082,95 +2952,39 @@
                 let substepsHtml = '';
                 if (rec.type === 'anonymization') {
                     substepsHtml = `
-                        <div class="substep-options" data-type="${rec.type}">
-                            <div class="substep-title">How should we anonymize?</div>
+                        <div class="substep-options" data-type="${escapeHtml(rec.type)}">
+                            <div class="substep-title">What will happen</div>
                             <div class="substep-option">
-                                <input type="radio" name="anon_method" id="anon_fake" value="fake" checked>
+                                <input type="radio" name="anon_method" id="anon_method_only" value="placeholder" checked>
                                 <div class="substep-option-content">
-                                    <label class="substep-option-label" for="anon_fake">Replace with realistic fake data</label>
-                                    <div class="substep-option-desc">Generate fake names, emails, etc. that look real but aren't. Preserves data format and length.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="anon_method" id="anon_mask" value="mask">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="anon_mask">Partial masking</label>
-                                    <div class="substep-option-desc">Show first/last characters, mask the rest. e.g., "jo***@email.com" or "John D***"</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="anon_method" id="anon_hash" value="hash">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="anon_hash">Hash values</label>
-                                    <div class="substep-option-desc">Replace with SHA-256 hash. Irreversible but consistent - same input = same hash.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="anon_method" id="anon_redact" value="redact">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="anon_redact">Full redaction</label>
-                                    <div class="substep-option-desc">Replace entirely with "[REDACTED]". Maximum privacy, loses all data utility.</div>
+                                    <label class="substep-option-label" for="anon_method_only">Replace with consistent placeholders</label>
+                                    <div class="substep-option-desc">Each distinct value becomes a placeholder such as NAM_00001. The same value always gets the same placeholder, so joins and counts still work. The original values are not kept in the output.</div>
                                 </div>
                             </div>
                         </div>
                     `;
                 } else if (rec.type === 'normalization') {
                     substepsHtml = `
-                        <div class="substep-options" data-type="${rec.type}">
-                            <div class="substep-title">How should we normalize?</div>
+                        <div class="substep-options" data-type="${escapeHtml(rec.type)}">
+                            <div class="substep-title">What will happen</div>
                             <div class="substep-option">
-                                <input type="radio" name="norm_method" id="norm_convert" value="convert" checked>
+                                <input type="radio" name="norm_method" id="norm_method_only" value="report" checked>
                                 <div class="substep-option-content">
-                                    <label class="substep-option-label" for="norm_convert">Convert to detected type</label>
-                                    <div class="substep-option-desc">Automatically convert text to numbers, dates, etc. Invalid values become empty.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="norm_method" id="norm_flag" value="flag">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="norm_flag">Flag invalid values only</label>
-                                    <div class="substep-option-desc">Add a new column marking which rows have values that don't match the expected type.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="norm_method" id="norm_skip" value="skip">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="norm_skip">Report only (no changes)</label>
-                                    <div class="substep-option-desc">Include in the report but don't modify the data. Good for awareness only.</div>
+                                    <label class="substep-option-label" for="norm_method_only">Report only (data is not changed)</label>
+                                    <div class="substep-option-desc">The columns are listed in the report as having a different type than they look. This pipeline does not convert them; use the Data Normalizer tool afterwards.</div>
                                 </div>
                             </div>
                         </div>
                     `;
                 } else if (rec.type === 'gap_handling') {
                     substepsHtml = `
-                        <div class="substep-options" data-type="${rec.type}">
-                            <div class="substep-title">How should we handle missing data?</div>
+                        <div class="substep-options" data-type="${escapeHtml(rec.type)}">
+                            <div class="substep-title">What will happen</div>
                             <div class="substep-option">
-                                <input type="radio" name="gap_method" id="gap_flag" value="flag" checked>
+                                <input type="radio" name="gap_method" id="gap_method_only" value="report" checked>
                                 <div class="substep-option-content">
-                                    <label class="substep-option-label" for="gap_flag">Add flag column</label>
-                                    <div class="substep-option-desc">Create a new column indicating which rows have missing values. Preserves original data.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="gap_method" id="gap_default" value="default">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="gap_default">Fill with default value</label>
-                                    <div class="substep-option-desc">Replace empty cells with "N/A", "Unknown", or 0 depending on column type.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="gap_method" id="gap_remove" value="remove">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="gap_remove">Remove rows with gaps</label>
-                                    <div class="substep-option-desc">Delete any row that has missing values in these columns. Use with caution.</div>
-                                </div>
-                            </div>
-                            <div class="substep-option">
-                                <input type="radio" name="gap_method" id="gap_report" value="report">
-                                <div class="substep-option-content">
-                                    <label class="substep-option-label" for="gap_report">Report only (no changes)</label>
-                                    <div class="substep-option-desc">Document the gaps in the report but don't modify any data.</div>
+                                    <label class="substep-option-label" for="gap_method_only">Report only (data is not changed)</label>
+                                    <div class="substep-option-desc">The gaps are documented in the report. This pipeline does not fill or remove them.</div>
                                 </div>
                             </div>
                         </div>
@@ -3178,16 +2992,16 @@
                 }
 
                 return `
-                    <div class="transform-card" data-type="${rec.type}">
+                    <div class="transform-card" data-type="${escapeHtml(rec.type)}">
                         <div class="transform-header">
                             <span class="transform-title">${escapeHtml(rec.title)}
                                 <span class="priority-badge priority-${rec.priority}">${rec.priority}</span>
                             </span>
-                            <div class="transform-toggle" data-type="${rec.type}"></div>
+                            <button type="button" class="transform-toggle" role="switch" aria-checked="false" aria-label="Apply ${escapeHtml(rec.title)}" data-type="${escapeHtml(rec.type)}"></button>
                         </div>
                         <div class="transform-desc">${escapeHtml(rec.description)}</div>
-                        ${columnDetailsHtml}
-                        ${substepsHtml}
+                        ${columnDetailsHtml /* safe: number, css class/colour or HTML assembled from escaped parts */}
+                        ${substepsHtml /* safe: number, css class/colour or HTML assembled from escaped parts */}
                     </div>
                 `;
             }).join('');
@@ -3195,9 +3009,7 @@
             recs.forEach(rec => {
                 // Initialize with default method based on type
                 let defaultMethod = 'report';
-                if (rec.type === 'anonymization') defaultMethod = 'fake';
-                else if (rec.type === 'normalization') defaultMethod = 'convert';
-                else if (rec.type === 'gap_handling') defaultMethod = 'flag';
+                if (rec.type === 'anonymization') defaultMethod = 'placeholder';
 
                 state.transformations[rec.type] = {
                     enabled: false,
@@ -3209,6 +3021,7 @@
             container.querySelectorAll('.transform-toggle').forEach(toggle => {
                 toggle.addEventListener('click', () => {
                     toggle.classList.toggle('active');
+                    toggle.setAttribute('aria-checked', toggle.classList.contains('active') ? 'true' : 'false');
                     const card = toggle.closest('.transform-card');
                     card.classList.toggle('enabled');
                     const transformType = toggle.dataset.type;
@@ -3254,29 +3067,21 @@
         const content = document.getElementById('summaryContent');
 
         const methodLabels = {
-            'fake': 'Replace with fake data',
-            'mask': 'Partial masking',
-            'hash': 'Hash values',
-            'redact': 'Full redaction',
-            'convert': 'Convert to detected type',
-            'flag': 'Add flag column',
-            'skip': 'Report only',
-            'default': 'Fill with defaults',
-            'remove': 'Remove rows',
-            'report': 'Report only'
+            'placeholder': 'Replace with consistent placeholders',
+            'report': 'Report only (data unchanged)'
         };
 
         const transforms = Object.entries(state.transformations)
             .filter(([_, c]) => c.enabled)
             .map(([t, c]) => {
                 const method = methodLabels[c.method] || c.method;
-                return `<div>&#8226; ${t}: ${c.columns.length} columns (${method})</div>`;
+                return `<div>&#8226; ${escapeHtml(t)}: ${c.columns.length} columns (${escapeHtml(method)})</div>`;
             });
 
         content.innerHTML = `
-            <div>File: ${state.filename}</div>
-            <div>Key: ${state.selectedKey.join(' + ') || 'None selected'}</div>
-            <div style="margin-top:var(--space-3);">${transforms.length ? transforms.join('') : 'No transformations selected'}</div>
+            <div>File: ${escapeHtml(state.filename)}</div>
+            <div>Key: ${escapeHtml(state.selectedKey.join(' + ') || 'None selected')}</div>
+            <div style="margin-top:var(--space-3);">${transforms.length ? transforms.join('') : 'No transformations selected' /* safe: items are built from escaped parts */}</div>
         `;
     }
 
@@ -3288,37 +3093,8 @@
             document.getElementById('executeProgress').classList.add('active');
             document.getElementById('executeButtons').classList.add('hidden');
 
-            const response = await fetch(`/pipeline/${state.sessionId}/execute`, { method: 'POST' });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.error);
-
-            const eventSource = new EventSource(`/progress/${state.sessionId}`);
-
-            eventSource.onmessage = (event) => {
-                const progress = JSON.parse(event.data);
-
-                if (progress.stage === 'done') {
-                    eventSource.close();
-                    // Update to 100% before transitioning
-                    document.getElementById('executeFill').style.width = '100%';
-                    document.getElementById('executePercent').textContent = '100%';
-                    document.getElementById('executeStage').textContent = 'Complete';
-                    document.getElementById('executeText').textContent = 'Pipeline complete!';
-                    setTimeout(() => {
-                        document.getElementById('executeProgress').classList.remove('active');
-                        document.getElementById('successSection').classList.remove('hidden');
-                        document.getElementById('downloadBtn').href = progress.download_url;
-                        document.querySelectorAll('.step').forEach(s => {
-                            s.classList.remove('active');
-                            s.classList.add('completed');
-                        });
-                    }, 300);
-                } else if (progress.stage === 'error') {
-                    eventSource.close();
-                    showError('executeError', progress.message);
-                    document.getElementById('executeProgress').classList.remove('active');
-                    document.getElementById('executeButtons').classList.remove('hidden');
-                } else {
+            job = DD.startJob(`/pipeline/${state.sessionId}/execute`, null, {
+                onProgress: progress => {
                     const pct = progress.percentage || 0;
                     document.getElementById('executeFill').style.width = `${pct}%`;
                     document.getElementById('executePercent').textContent = `${pct}%`;
@@ -3341,8 +3117,32 @@
                     } else {
                         document.getElementById('executeDetails').textContent = '';
                     }
-                }
-            };
+
+                },
+                onDone: progress => {
+                    // Update to 100% before transitioning
+                    document.getElementById('executeFill').style.width = '100%';
+                    document.getElementById('executePercent').textContent = '100%';
+                    document.getElementById('executeStage').textContent = 'Complete';
+                    document.getElementById('executeText').textContent = 'Pipeline complete!';
+                    setTimeout(() => {
+                        document.getElementById('executeProgress').classList.remove('active');
+                        document.getElementById('successSection').classList.remove('hidden');
+                        document.getElementById('downloadBtn').href = progress.download_url;
+                        document.querySelectorAll('.step').forEach(s => {
+                            s.classList.remove('active');
+                            s.classList.add('completed');
+                        });
+                    }, 300);
+
+                },
+                onError: message => {
+                    showError('executeError', message);
+                    document.getElementById('executeProgress').classList.remove('active');
+                    document.getElementById('executeButtons').classList.remove('hidden');
+
+                },
+            });
 
         } catch (error) {
             showError('executeError', error.message);
@@ -3362,11 +3162,6 @@
         document.getElementById(id).classList.remove('visible');
     }
 
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
     // Modal handling
     document.getElementById('howDidWeDoThis').addEventListener('click', () => {

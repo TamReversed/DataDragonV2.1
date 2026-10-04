@@ -84,6 +84,9 @@
 
     /* Example Values Section */
     .examples-toggle {
+        background: none;
+        border: 0;
+        padding: 0;
         flex: 0 0 40px;
         display: flex;
         align-items: center;
@@ -304,7 +307,8 @@
         overflow-x: auto;
         border-radius: var(--radius-md);
         border: 1px solid var(--border-subtle);
-        max-height: 300px;
+        max-height: 360px;
+        overscroll-behavior: auto;
     }
 
     .preview-table {
@@ -833,7 +837,7 @@
     <div class="file-upload-text">Click to upload or drag and drop</div>
     <div class="file-upload-hint">Excel or CSV files (.xlsx, .xls, .csv)</div>
     <div class="file-size-info" id="fileSizeInfo" style="display: none;"></div>
-    <input type="file" class="file-upload-input" id="fileInput" name="file" accept=".xlsx,.xls,.csv" required aria-label="Upload file for normalization">
+    <input type="file" class="visually-hidden file-upload-input" id="fileInput" name="file" accept=".xlsx,.xls,.csv" required aria-label="Upload file for normalization">
 </div>
 
 <!-- Data Preview Section -->
@@ -870,6 +874,32 @@
                     Remove leading and trailing whitespace from text values during normalization.
                 </div>
             </label>
+        </div>
+        <div class="option-item">
+            <label for="decimalSeparator">
+                Number format
+                <div class="option-description">
+                    How numbers are written in this file. Values that do not fit are left unchanged and reported.
+                </div>
+            </label>
+            <select class="form-select" id="decimalSeparator" style="max-width: 280px;">
+                <option value=".">1,234.56 (dot is the decimal point)</option>
+                <option value=",">1.234,56 (comma is the decimal point)</option>
+            </select>
+        </div>
+        <div class="option-item">
+            <label for="dateOrder">
+                Date order
+                <div class="option-description">
+                    How dates like 03/04/2024 are read. Auto-detect only works when the column itself settles it (for example it contains 13/04/2024); otherwise choose one.
+                </div>
+            </label>
+            <select class="form-select" id="dateOrder" style="max-width: 280px;">
+                <option value="auto">Auto-detect</option>
+                <option value="MDY">Month first (MM/DD/YYYY)</option>
+                <option value="DMY">Day first (DD/MM/YYYY)</option>
+                <option value="YMD">Year first (YYYY-MM-DD)</option>
+            </select>
         </div>
     </div>
 </div>
@@ -929,6 +959,7 @@
     <div class="result-section">
         <div class="result-title">File Normalized!</div>
         <p>Your normalized file is ready for download</p>
+        <div id="resultWarning" role="alert" style="display: none; margin: 12px 0 16px; padding: 12px 16px; border-radius: 8px; border: 1px solid rgba(234, 179, 8, 0.5); background: rgba(234, 179, 8, 0.12); color: var(--accent-yellow); text-align: left;"></div>
         <button class="btn btn-primary btn-lg" id="downloadBtn">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -953,7 +984,7 @@
         <div class="help-section">
             <div class="help-section-title">What This Tool Does</div>
             <div class="help-section-content">
-                The Column Normalizer converts column data types to your specified formats. You can transform columns to text, integers, floats, currency, dates, booleans, percentages, and more. Values are trimmed and formatted appropriately.
+                The Column Normalizer converts column data types to your specified formats. You can transform columns to text, integers, floats, currency, dates, booleans, percentages, and more. Values that cannot be converted are left exactly as they were and reported.
             </div>
         </div>
 
@@ -1023,21 +1054,7 @@
 
 {% block scripts %}
 <script>
-    // XSS Protection
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
-    // Format file size
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
 
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
@@ -1070,95 +1087,12 @@
     const savingMessage = document.getElementById('savingMessage');
 
     let selectedFile = null;
-    let eventSource = null;
-    let fileColumns = [];
 
-    // Cached files functions
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.style.display = 'block';
-                cachedFilesList.innerHTML = data.files.map(file => `
-                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
-                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns - ${file.cached_at}</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
-                    </div>
-                `).join('');
-            }
-        } catch (err) {
-            console.error('Error loading cached files:', err);
-        }
-    }
-
-    async function useCachedFile(cacheId) {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
-                const blob = await fileResponse.blob();
-                const file = new File([blob], data.filename, { type: blob.type });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                fileInput.files = dataTransfer.files;
-                fileInput.dispatchEvent(new Event('change'));
-            }
-        } catch (err) {
-            console.error('Error using cached file:', err);
-            showError('Failed to load cached file');
-        }
-    }
-
-    function displayPreview(previewData) {
-        previewStats.textContent = `${previewData.total_rows.toLocaleString()} rows x ${previewData.columns.length} columns`;
-        previewTableHead.innerHTML = '<tr>' + previewData.columns.map(col => `<th>${escapeHtml(col)}</th>`).join('') + '</tr>';
-        previewTableBody.innerHTML = previewData.rows.map(row =>
-            '<tr>' + previewData.columns.map(col => `<td>${escapeHtml(String(row[col] ?? ''))}</td>`).join('') + '</tr>'
-        ).join('');
-        if (previewData.total_rows > previewData.rows.length) {
-            previewMoreIndicator.textContent = `Showing first ${previewData.rows.length} of ${previewData.total_rows.toLocaleString()} rows`;
-        } else {
-            previewMoreIndicator.textContent = '';
-        }
-        dataPreviewSection.classList.add('show');
-    }
-
-    async function fetchPreview(file) {
-        try {
-            const formData = new FormData();
-            formData.append('file', file);
-            const response = await fetch('/preview-data', { method: 'POST', body: formData });
-            const data = await response.json();
-            if (data.success) {
-                displayPreview(data);
-            }
-        } catch (err) {
-            console.error('Error fetching preview:', err);
-        }
-    }
-
-    // Load cached files on page load
-    loadCachedFiles();
-
-    // Click to upload
-    uploadArea.addEventListener('click', () => fileInput.click());
-
-    // File selection
-    fileInput.addEventListener('change', async (e) => {
-        if (e.target.files.length > 0) {
-            selectedFile = e.target.files[0];
-            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
-            fileSizeInfo.style.display = 'block';
-            uploadArea.classList.add('has-file');
+    // Upload zone (click, keyboard, drag and drop); the chosen file may also be an earlier result
+    const upload = DD.initUpload({
+        zone: uploadArea, input: fileInput, sizeInfo: fileSizeInfo,
+        onFile: async source => {
+            selectedFile = source;
             error.classList.remove('show');
             results.classList.remove('show');
             columnList.classList.remove('show');
@@ -1167,7 +1101,7 @@
             // Get columns with sample values from server
             try {
                 const formData = new FormData();
-                formData.append('file', selectedFile);
+                DD.appendFile(formData, 'file', selectedFile);
 
                 const response = await fetch('/get-columns-with-samples', {
                     method: 'POST',
@@ -1191,28 +1125,47 @@
                 console.error('Error reading file:', err);
                 showError('Failed to read file: ' + err.message);
             }
+        },
+    });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => upload.choose(source) });
+    let job = null;
+    let fileColumns = [];
+
+
+
+    function displayPreview(previewData) {
+        previewStats.textContent = `${previewData.total_rows.toLocaleString()} rows x ${previewData.columns.length} columns`;
+        previewTableHead.innerHTML = '<tr>' + previewData.columns.map(col => `<th>${escapeHtml(col)}</th>`).join('') + '</tr>';
+        previewTableBody.innerHTML = previewData.rows.map(row =>
+            '<tr>' + previewData.columns.map(col => `<td>${escapeHtml(String(row[col] ?? ''))}</td>`).join('') + '</tr>'
+        ).join('');
+        if (previewData.total_rows > previewData.rows.length) {
+            previewMoreIndicator.textContent = `Showing first ${previewData.rows.length} of ${previewData.total_rows.toLocaleString()} rows`;
+        } else {
+            previewMoreIndicator.textContent = '';
         }
-    });
+        dataPreviewSection.classList.add('show');
+    }
 
-    // Drag and drop
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
-
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
-    });
-
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-
-        if (e.dataTransfer.files.length) {
-            fileInput.files = e.dataTransfer.files;
-            fileInput.dispatchEvent(new Event('change'));
+    async function fetchPreview(file) {
+        try {
+            const formData = new FormData();
+            DD.appendFile(formData, 'file', file);
+            const response = await fetch('/preview-data', { method: 'POST', body: formData });
+            const data = await response.json();
+            if (data.success) {
+                displayPreview(data);
+            }
+        } catch (err) {
+            console.error('Error fetching preview:', err);
         }
-    });
+    }
+
+
+
+
+
+
 
     function displayColumns() {
         columnsContainer.innerHTML = '';
@@ -1239,11 +1192,11 @@
                         <option value="percentage">Percentage</option>
                     </select>
                 </div>
-                <div class="examples-toggle" onclick="toggleExamples(${idx})">
+                <button type="button" class="examples-toggle" onclick="toggleExamples(${idx})" aria-label="Show or hide example values" aria-expanded="false">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                     </svg>
-                </div>
+                </button>
                 <div class="examples-section" id="examples-${idx}">
                     <div class="examples-title">Sample Values</div>
                     <div class="examples-grid" id="examples-grid-${idx}"></div>
@@ -1258,7 +1211,7 @@
                 sampleValues.forEach(val => {
                     const exampleEl = document.createElement('div');
                     exampleEl.className = 'example-value';
-                    exampleEl.textContent = escapeHtml(String(val));
+                    exampleEl.textContent = String(val);
                     examplesGrid.appendChild(exampleEl);
                 });
             } else {
@@ -1278,6 +1231,8 @@
         const row = document.getElementById(`column-row-${idx}`);
         row.classList.toggle('collapsed');
         row.classList.toggle('expanded');
+        const button = row.querySelector('.examples-toggle');
+        if (button) button.setAttribute('aria-expanded', row.classList.contains('expanded') ? 'true' : 'false');
     };
 
     function resetProgress() {
@@ -1320,10 +1275,7 @@
 
     // Cancel button
     cancelBtn.addEventListener('click', function() {
-        if (eventSource) {
-            eventSource.close();
-            eventSource = null;
-        }
+        if (job) { job.cancel(); job = null; }
         cancelBtn.style.display = 'none';
         generateBtn.disabled = false;
         generateBtn.innerHTML = `
@@ -1360,9 +1312,11 @@
         }
 
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
         formData.append('column_types', JSON.stringify(columnTypes));
         formData.append('trim_whitespace', trimWhitespace.checked);
+        formData.append('decimal_separator', document.getElementById('decimalSeparator').value);
+        formData.append('date_order', document.getElementById('dateOrder').value);
 
         generateBtn.disabled = true;
         generateBtn.innerHTML = '<span class="spinner"></span> Normalizing...';
@@ -1373,112 +1327,49 @@
         resetProgress();
 
         try {
-            const response = await fetch('/normalize-columns', {
-                method: 'POST',
-                body: formData
-            }).catch(fetchError => {
-                throw new Error('Could not connect to server. Make sure the server is running.');
+            job = DD.startJob('/normalize-columns', formData, {
+                onProgress: progressData => {
+                    updateProgress(progressData.stage, progressData.percentage || 0, progressData.message || '');
+                },
+                onDone: progressData => {
+                    updateProgress('done', 100, progressData.message || '');
+                    if (progressData.download_url) {
+                        downloadBtn.onclick = () => {
+                            window.location.href = progressData.download_url;
+                        };
+
+                        const warningBox = document.getElementById('resultWarning');
+                        warningBox.textContent = progressData.warning || '';
+                        warningBox.style.display = progressData.warning ? 'block' : 'none';
+                        results.classList.add('show');
+                        generateBtn.disabled = false;
+                        generateBtn.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            Generate New File
+                        `;
+                        cancelBtn.style.display = 'none';
+                        progressContainer.classList.remove('show');
+                    }
+
+                },
+                onError: message => {
+                    showError(message);
+                    generateBtn.disabled = false;
+                    generateBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Generate New File
+                    `;
+                    cancelBtn.style.display = 'none';
+                    progressContainer.classList.remove('show');
+
+                },
             });
-
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonError) {
-                throw new Error('Invalid response from server');
-            }
-
-            if (response.ok && data.success && data.session_id) {
-                if (eventSource) {
-                    eventSource.close();
-                }
-
-                // Small delay to ensure session is registered before connecting
-                await new Promise(resolve => setTimeout(resolve, 100));
-
-                eventSource = new EventSource('/progress/' + data.session_id);
-
-                eventSource.onmessage = function(event) {
-                    const progressData = JSON.parse(event.data);
-
-                    if (progressData.error) {
-                        eventSource.close();
-                        showError('Server error: ' + progressData.error);
-                        generateBtn.disabled = false;
-                        generateBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                            Generate New File
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                        return;
-                    }
-
-                    const stage = progressData.stage;
-                    const percentage = progressData.percentage || 0;
-                    const message = progressData.message || '';
-
-                    updateProgress(stage, percentage, message);
-
-                    if (stage === 'done') {
-                        eventSource.close();
-
-                        if (progressData.download_url) {
-                            downloadBtn.onclick = () => {
-                                window.location.href = progressData.download_url;
-                            };
-
-                            results.classList.add('show');
-                            generateBtn.disabled = false;
-                            generateBtn.innerHTML = `
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                </svg>
-                                Generate New File
-                            `;
-                            cancelBtn.style.display = 'none';
-                            progressContainer.classList.remove('show');
-                        }
-                    }
-
-                    if (stage === 'error') {
-                        eventSource.close();
-                        showError(progressData.message || 'An error occurred during normalization');
-                        generateBtn.disabled = false;
-                        generateBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                            Generate New File
-                        `;
-                        cancelBtn.style.display = 'none';
-                        progressContainer.classList.remove('show');
-                    }
-                };
-
-                eventSource.onerror = function(err) {
-                    console.error('EventSource error:', err);
-                    if (eventSource.readyState === EventSource.CLOSED) {
-                        eventSource.close();
-                        showError('Connection lost. Normalization may still be processing...');
-                        generateBtn.disabled = false;
-                        generateBtn.innerHTML = `
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                            Generate New File
-                        `;
-                        cancelBtn.style.display = 'none';
-                    }
-                };
-            } else {
-                throw new Error(data.error || 'Failed to start normalization');
-            }
         } catch (error) {
             console.error('Error:', error);
             showError(error.message || 'An error occurred');

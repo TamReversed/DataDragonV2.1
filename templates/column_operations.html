@@ -351,7 +351,7 @@
         <div class="file-upload-text">Click to Upload or Drag & Drop</div>
         <div class="file-upload-hint">Excel (.xlsx, .xls) or CSV files supported</div>
         <div id="fileSizeInfo" class="file-upload-hint mt-2" style="display: none;"></div>
-        <input type="file" id="fileInput" class="file-upload-input" accept=".xlsx,.xls,.csv">
+        <input type="file" id="fileInput" class="visually-hidden file-upload-input" accept=".xlsx,.xls,.csv" aria-label="Choose a file to upload">
     </div>
 </div>
 
@@ -436,19 +436,7 @@
 
 {% block scripts %}
 <script>
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
-    function formatFileSize(bytes) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
-    }
 
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
@@ -463,71 +451,18 @@
     const cachedFilesList = document.getElementById('cachedFilesList');
 
     let selectedFile = null;
-    let downloadFilename = null;
-    let fileColumns = [];
-    let currentTab = 'reorder';
-    let columnOrder = [];
 
-    async function loadCachedFiles() {
-        try {
-            const response = await fetch('/get-cached-files');
-            const data = await response.json();
-            if (data.files && data.files.length > 0) {
-                cachedFilesSection.style.display = 'block';
-                cachedFilesList.innerHTML = data.files.map(file => `
-                    <div class="cached-file-item" onclick="useCachedFile('${file.cache_id}')">
-                        <div class="cached-file-info">
-                            <div class="cached-file-name">${escapeHtml(file.filename)}</div>
-                            <div class="cached-file-meta">${file.rows.toLocaleString()} rows x ${file.cols} columns</div>
-                        </div>
-                        <div class="cached-file-source">${escapeHtml(file.source_tool)}</div>
-                    </div>
-                `).join('');
-            }
-        } catch (err) {
-            console.error('Error loading cached files:', err);
-        }
-    }
-
-    async function useCachedFile(cacheId) {
-        try {
-            const response = await fetch('/use-cached-file', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cache_id: cacheId })
-            });
-            const data = await response.json();
-            if (data.success) {
-                const fileResponse = await fetch(`/download-cached-file/${cacheId}`);
-                const blob = await fileResponse.blob();
-                const file = new File([blob], data.filename, { type: blob.type });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                fileInput.files = dataTransfer.files;
-                fileInput.dispatchEvent(new Event('change'));
-            }
-        } catch (err) {
-            console.error('Error using cached file:', err);
-            showError('Failed to load cached file');
-        }
-    }
-
-    loadCachedFiles();
-
-    uploadArea.addEventListener('click', () => fileInput.click());
-
-    fileInput.addEventListener('change', async (e) => {
-        if (e.target.files.length > 0) {
-            selectedFile = e.target.files[0];
-            fileSizeInfo.textContent = `File size: ${formatFileSize(selectedFile.size)}`;
-            fileSizeInfo.style.display = 'block';
-            uploadArea.classList.add('has-file');
+    // Upload zone (click, keyboard, drag and drop); the chosen file may also be an earlier result
+    const upload = DD.initUpload({
+        zone: uploadArea, input: fileInput, sizeInfo: fileSizeInfo,
+        onFile: async source => {
+            selectedFile = source;
             error.style.display = 'none';
             results.classList.remove('show');
 
             try {
                 const formData = new FormData();
-                formData.append('file', selectedFile);
+                DD.appendFile(formData, 'file', selectedFile);
                 const response = await fetch('/get-columns', { method: 'POST', body: formData });
                 const data = await response.json();
                 if (data.success && data.columns) {
@@ -543,26 +478,21 @@
                 console.error('Error reading file:', err);
                 showError('Failed to read file: ' + err.message);
             }
-        }
+        },
     });
+    DD.cachedFiles({ section: cachedFilesSection, list: cachedFilesList, onPick: source => upload.choose(source) });
+    let downloadUrl = null;
+    let fileColumns = [];
+    let currentTab = 'reorder';
+    let columnOrder = [];
 
-    uploadArea.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    });
 
-    uploadArea.addEventListener('dragleave', () => {
-        uploadArea.classList.remove('dragover');
-    });
 
-    uploadArea.addEventListener('drop', (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-        if (e.dataTransfer.files.length) {
-            fileInput.files = e.dataTransfer.files;
-            fileInput.dispatchEvent(new Event('change'));
-        }
-    });
+
+
+
+
+
 
     // Tabs
     document.querySelectorAll('.tab').forEach(tab => {
@@ -570,7 +500,7 @@
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             tab.classList.add('active');
-            document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
+            document.getElementById(`${escapeHtml(tab.dataset.tab)}-tab`).classList.add('active');
             currentTab = tab.dataset.tab;
         });
     });
@@ -677,7 +607,7 @@
         if (!selectedFile) return;
 
         const formData = new FormData();
-        formData.append('file', selectedFile);
+        DD.appendFile(formData, 'file', selectedFile);
         formData.append('operation', currentTab);
 
         if (currentTab === 'reorder') {
@@ -714,8 +644,8 @@
             const response = await fetch('/column-operations', { method: 'POST', body: formData });
             const data = await response.json();
             if (data.success) {
-                downloadFilename = data.filename;
-                resultsSummary.innerHTML = `<strong>Column Operations Complete!</strong><br><br>${data.message}`;
+                downloadUrl = data.download_url;
+                resultsSummary.innerHTML = `<strong>Column Operations Complete!</strong><br><br>${escapeHtml(data.message)}`;
                 results.classList.add('show');
             } else {
                 throw new Error(data.error || 'Operation failed');
@@ -730,7 +660,7 @@
     });
 
     downloadBtn.addEventListener('click', () => {
-        if (downloadFilename) window.location.href = `/download/${downloadFilename}`;
+        if (downloadUrl) window.location.href = downloadUrl;
     });
 </script>
 {% endblock %}
