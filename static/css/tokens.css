@@ -1,0 +1,201 @@
+/* DataDragon design tokens: "Ember & Ink"
+ * ======================================
+ * Light is the default; dark follows the system unless the page sets data-theme="light" or "dark" on <html>.
+ * Every text/background pair used by components is checked by scripts/contrast.py (WCAG 2.2 AA).
+ * Rules of use are in docs/redesign/design-system.md. The short version:
+ *   ember  = the one primary action on a page, and the dragon
+ *   teal   = anything interactive (links, selection, focus)
+ *   status = success / warning / danger only
+ */
+
+:root {
+    color-scheme: light;
+
+    /* Surfaces */
+    --dd-bg: #F6F1E7;                 /* page: paper */
+    --dd-surface: #FFFDF8;            /* panels, inputs, table body */
+    --dd-sunken: #EDE6D6;             /* table header, code, wells */
+    --dd-selected: #DCEBE6;           /* selected row or tree item */
+    --dd-overlay: rgba(20, 33, 31, 0.45);
+
+    /* Ink (text) */
+    --dd-ink: #14211F;                /* primary text */
+    --dd-ink-2: #44524E;              /* secondary text */
+    --dd-ink-3: #5E6A66;              /* hints, placeholders (>= 4.5:1 on every surface) */
+    --dd-ink-inverse: #FFFDF8;
+
+    /* Lines */
+    --dd-rule: #D9D1BF;               /* decorative hairlines between things */
+    --dd-line: #6F7A74;               /* borders of controls (>= 3:1) */
+
+    /* Interactive */
+    --dd-teal: #17605C;               /* links, focus, selection marks */
+    --dd-teal-hover: #0F4744;
+    --dd-focus: #17605C;
+
+    /* The ember */
+    --dd-ember: #E4572E;              /* brand colour: the mark, decoration, large shapes */
+    --dd-primary: #C4411B;            /* primary button fill (white text on it >= 4.5:1) */
+    --dd-primary-hover: #A93514;
+    --dd-on-primary: #FFFFFF;
+
+    /* Status (text or icon colour on any surface) and their tinted backgrounds */
+    --dd-ok: #1F6B3A;
+    --dd-ok-bg: #E2F0E4;
+    --dd-warn: #8A5A00;
+    --dd-warn-bg: #F8EBC8;
+    --dd-bad: #B3261E;
+    --dd-bad-bg: #F9E1DC;
+    --dd-info: #17605C;
+    --dd-info-bg: #DCEBE6;
+
+    /* Data visualisation: categorical series (colour-blind-safe hues, each >= 3:1 on the surface) */
+    --dd-viz-1: #17605C;
+    --dd-viz-2: #C4411B;
+    --dd-viz-3: #0072B2;
+    --dd-viz-4: #A8507F;
+    --dd-viz-5: #8A6A00;
+    --dd-viz-6: #2E7D4F;
+    --dd-viz-7: #2B7FB8;
+    --dd-viz-8: #6B6B6B;
+    --dd-viz-grid: #D9D1BF;
+    --dd-viz-text: #44524E;
+
+    /* Mark (static/images/brand/datadragon-mark.svg reads these) */
+    --dd-mark-eye: var(--dd-bg);
+
+    /* Typography */
+    --dd-font-display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    --dd-font-ui: 'Instrument Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --dd-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --dd-font-pixel: 'Pixelify Sans', 'JetBrains Mono', ui-monospace, monospace;   /* small labels only */
+
+    --dd-text-xs: 0.75rem;            /* 12  pixel labels, table meta */
+    --dd-text-sm: 0.8125rem;          /* 13  tables, tree, hints */
+    --dd-text-md: 0.9375rem;          /* 15  body */
+    --dd-text-lg: 1.125rem;           /* 18  lead paragraph, card titles */
+    --dd-text-xl: 1.5rem;             /* 24  section headings (display) */
+    --dd-text-2xl: 2.25rem;           /* 36  page title (display) */
+    --dd-text-3xl: clamp(2.75rem, 6vw, 4.5rem);   /* hub headline (display) */
+    --dd-leading-tight: 1.1;
+    --dd-leading: 1.55;
+
+    /* Spacing (4 px base) */
+    --dd-space-1: 4px;
+    --dd-space-2: 8px;
+    --dd-space-3: 12px;
+    --dd-space-4: 16px;
+    --dd-space-5: 24px;
+    --dd-space-6: 32px;
+    --dd-space-7: 48px;
+    --dd-space-8: 64px;
+
+    /* Shape: document-like, nearly square */
+    --dd-radius-sm: 2px;
+    --dd-radius: 4px;
+    --dd-radius-lg: 8px;              /* dialogs only */
+
+    /* Elevation: flat. Borders separate; only things that float cast a shadow */
+    --dd-shadow-float: 0 12px 32px rgba(20, 33, 31, 0.18), 0 0 0 1px var(--dd-line);
+
+    /* Motion */
+    --dd-ease: cubic-bezier(0.2, 0, 0, 1);
+    --dd-fast: 120ms;
+    --dd-base: 180ms;
+
+    /* Layout */
+    --dd-sidebar: 272px;
+    --dd-content: 1080px;
+}
+
+/* Dark: "river ink". Used when the system asks for dark (unless the page forces light), or when forced. */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        color-scheme: dark;
+        --dd-bg: #0F1B1E;
+        --dd-surface: #16262A;
+        --dd-sunken: #0B1517;
+        --dd-selected: #1F3A3C;
+        --dd-overlay: rgba(0, 0, 0, 0.6);
+        --dd-ink: #F2ECDD;
+        --dd-ink-2: #BFC8C0;
+        --dd-ink-3: #98A49E;
+        --dd-ink-inverse: #0F1B1E;
+        --dd-rule: #2A3D40;
+        --dd-line: #6E7C78;
+        --dd-teal: #8FE0CF;
+        --dd-teal-hover: #B4EEE2;
+        --dd-focus: #8FE0CF;
+        --dd-ember: #FF7A45;
+        --dd-primary: #FF7A45;
+        --dd-primary-hover: #FF9468;
+        --dd-on-primary: #0F1B1E;
+        --dd-ok: #7FD99A;
+        --dd-ok-bg: #173224;
+        --dd-warn: #F2C14E;
+        --dd-warn-bg: #3A2F12;
+        --dd-bad: #FF8A80;
+        --dd-bad-bg: #3F1D1A;
+        --dd-info: #8FE0CF;
+        --dd-info-bg: #1F3A3C;
+        --dd-viz-1: #8FE0CF;
+        --dd-viz-2: #FF7A45;
+        --dd-viz-3: #56B4E9;
+        --dd-viz-4: #CC79A7;
+        --dd-viz-5: #F0E442;
+        --dd-viz-6: #009E73;
+        --dd-viz-7: #E69F00;
+        --dd-viz-8: #999999;
+        --dd-viz-grid: #2A3D40;
+        --dd-viz-text: #BFC8C0;
+        --dd-shadow-float: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--dd-line);
+    }
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --dd-bg: #0F1B1E;
+    --dd-surface: #16262A;
+    --dd-sunken: #0B1517;
+    --dd-selected: #1F3A3C;
+    --dd-overlay: rgba(0, 0, 0, 0.6);
+    --dd-ink: #F2ECDD;
+    --dd-ink-2: #BFC8C0;
+    --dd-ink-3: #98A49E;
+    --dd-ink-inverse: #0F1B1E;
+    --dd-rule: #2A3D40;
+    --dd-line: #6E7C78;
+    --dd-teal: #8FE0CF;
+    --dd-teal-hover: #B4EEE2;
+    --dd-focus: #8FE0CF;
+    --dd-ember: #FF7A45;
+    --dd-primary: #FF7A45;
+    --dd-primary-hover: #FF9468;
+    --dd-on-primary: #0F1B1E;
+    --dd-ok: #7FD99A;
+    --dd-ok-bg: #173224;
+    --dd-warn: #F2C14E;
+    --dd-warn-bg: #3A2F12;
+    --dd-bad: #FF8A80;
+    --dd-bad-bg: #3F1D1A;
+    --dd-info: #8FE0CF;
+    --dd-info-bg: #1F3A3C;
+    --dd-viz-1: #8FE0CF;
+    --dd-viz-2: #FF7A45;
+    --dd-viz-3: #56B4E9;
+    --dd-viz-4: #CC79A7;
+    --dd-viz-5: #F0E442;
+    --dd-viz-6: #009E73;
+    --dd-viz-7: #E69F00;
+    --dd-viz-8: #999999;
+    --dd-viz-grid: #2A3D40;
+    --dd-viz-text: #BFC8C0;
+    --dd-shadow-float: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--dd-line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    :root {
+        --dd-fast: 0ms;
+        --dd-base: 0ms;
+    }
+}

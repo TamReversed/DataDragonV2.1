@@ -2,6 +2,7 @@
 
 Usage: python scripts/contrast.py        (prints the table; exit 1 if a required pair is below its minimum)
 Semi-transparent text colours are composited over the page background, as a browser does.
+Also checks the "Ember & Ink" tokens (static/css/tokens.css) in both themes.
 """
 import re
 import sys
@@ -66,9 +67,44 @@ def checks():
     return rows
 
 
+TOKENS = CSS.parent / 'tokens.css'
+TEXT_TOKENS = ('ink', 'ink-2', 'ink-3', 'teal', 'ok', 'warn', 'bad')
+SURFACES = ('bg', 'surface', 'sunken', 'selected')
+
+
+def theme_tokens(css, selector):
+    start = css.index(selector)
+    block = css[css.index('{', start):css.index('}', start)]
+    return {name: value.strip() for name, value in re.findall(r'--dd-([\w-]+):\s*(#[0-9a-fA-F]{6});', block)}
+
+
+def token_checks():
+    css = TOKENS.read_text(encoding='utf-8')
+    light = theme_tokens(css, ':root {')
+    themes = {'light': light, 'dark': {**light, **theme_tokens(css, ':root[data-theme="dark"]')}}
+    rows = []
+    for theme, t in themes.items():
+        color = {name: parse_color(value) for name, value in t.items()}
+        for fg in TEXT_TOKENS:
+            for bg in SURFACES:
+                rows.append((f'{theme}: {fg} on {bg}', ratio(color[fg], color[bg]), 4.5))
+        rows.append((f'{theme}: on-primary on primary', ratio(color['on-primary'], color['primary']), 4.5))
+        rows.append((f'{theme}: on-primary on primary-hover', ratio(color['on-primary'], color['primary-hover']), 4.5))
+        for status in ('ok', 'warn', 'bad', 'info'):
+            rows.append((f'{theme}: {status} on {status}-bg', ratio(color[status], color[f'{status}-bg']), 4.5))
+            rows.append((f'{theme}: ink on {status}-bg', ratio(color['ink'], color[f'{status}-bg']), 4.5))
+        for bg in ('bg', 'surface'):                                   # borders of controls, focus ring, chart marks: 3:1
+            rows.append((f'{theme}: line on {bg}', ratio(color['line'], color[bg]), 3.0))
+            rows.append((f'{theme}: focus on {bg}', ratio(color['focus'], color[bg]), 3.0))
+        for i in range(1, 9):
+            rows.append((f'{theme}: viz-{i} on surface', ratio(color[f'viz-{i}'], color['surface']), 3.0))
+        rows.append((f'{theme}: viz-text on surface', ratio(color['viz-text'], color['surface']), 4.5))
+    return rows
+
+
 if __name__ == '__main__':
     failed = False
-    for label, value, minimum in checks():
+    for label, value, minimum in checks() + (token_checks() if TOKENS.exists() else []):
         ok = value >= minimum
         failed |= not ok
         print(f'{"ok  " if ok else "FAIL"} {value:5.2f}  (min {minimum})  {label}')
