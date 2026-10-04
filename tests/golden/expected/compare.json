@@ -93,6 +93,40 @@
     "s:'2'",
     "s:'b'"
    ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Data Comparison'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'5'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'0'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"added\": 0, \"changed\": 0, \"compare_columns\": [], \"file1_rows\": 2, \"file2_rows\": 3, \"key_columns\": [\"k1\"], \"removed\": 0}'"
+   ],
+   [
+    "s:'Warnings'",
+    "n:None"
+   ]
   ]
  },
  "stages": [

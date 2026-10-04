@@ -696,6 +696,40 @@
      "s:'dave39@example.com'",
      "s:'café'"
     ]
+   ],
+   "_DataDragon_Log": [
+    [
+     "s:'Item'",
+     "s:'Value'"
+    ],
+    [
+     "s:'Tool'",
+     "s:'Data Readiness Pipeline'"
+    ],
+    [
+     "s:'Version'",
+     "s:'<VERSION>'"
+    ],
+    [
+     "s:'Timestamp (UTC)'",
+     "s:'<TIMESTAMP>'"
+    ],
+    [
+     "s:'Rows in'",
+     "s:'40'"
+    ],
+    [
+     "s:'Rows out'",
+     "s:'40'"
+    ],
+    [
+     "s:'Parameters'",
+     "s:'{\"transformations\": [{\"columns\": [\"Name\"], \"note\": \"Values replaced with consistent placeholders (e.g. NAM_00001); the same value always gets the same placeholder\", \"rows_affected\": 40, \"status\": \"applied\", \"type\": \"anonymization\"}, {\"columns\": [\"EuroNum\"], \"note\": \"Type conversion was not performed on the data; use the Data Normalizer tool\", \"status\": \"recorded, not applied\", \"type\": \"normalization\"}]}'"
+    ],
+    [
+     "s:'Warnings'",
+     "s:''"
+    ]
    ]
   },
   "data_readiness_report_<TS>_report.pdf": {

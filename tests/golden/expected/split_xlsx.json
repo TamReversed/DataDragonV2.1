@@ -14,6 +14,14 @@
   "warning": "golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed."
  },
  "output": {
+  "_DataDragon_Log.json": {
+   "Parameters": "{\"base_filename\": \"gold\", \"chunk_size\": 15, \"files\": 3}",
+   "Rows in": 40,
+   "Rows out": 40,
+   "Tool": "File Splitter",
+   "Version": "<VERSION>",
+   "Warnings": "golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed."
+  },
   "gold_1of3.xlsx": {
    "Sheet1": [
     [

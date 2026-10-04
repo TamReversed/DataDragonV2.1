@@ -139,6 +139,40 @@
     "s:'Zip'",
     "s:'Yes'"
    ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Schema Comparison'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'28'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'14'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"file1\": \"golden\", \"file2\": \"golden\"}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:\"golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed.\""
+   ]
   ]
  },
  "stages": [

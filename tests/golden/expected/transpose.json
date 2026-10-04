@@ -27,6 +27,40 @@
     "s:'a'",
     "s:'b'"
    ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Transpose'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'2'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'2'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"columns_in\": 2, \"columns_out\": 3}'"
+   ],
+   [
+    "s:'Warnings'",
+    "n:None"
+   ]
   ]
  },
  "stages": [

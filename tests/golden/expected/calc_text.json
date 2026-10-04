@@ -709,6 +709,40 @@
     "s:'café'",
     "s:'Dave-N'"
    ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Calculated Columns'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'40'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'40'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"formula\": \"CONCAT([Name], \\\\\"-\\\\\", [Region])\", \"new_column\": \"Calc\"}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:\"golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed.\""
+   ]
   ]
  },
  "status": 200

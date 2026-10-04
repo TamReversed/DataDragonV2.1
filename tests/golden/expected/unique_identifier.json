@@ -786,6 +786,40 @@
      "s:'Zip'",
      "n:1"
     ]
+   ],
+   "_DataDragon_Log": [
+    [
+     "s:'Item'",
+     "s:'Value'"
+    ],
+    [
+     "s:'Tool'",
+     "s:'Natural Key Finder'"
+    ],
+    [
+     "s:'Version'",
+     "s:'<VERSION>'"
+    ],
+    [
+     "s:'Timestamp (UTC)'",
+     "s:'<TIMESTAMP>'"
+    ],
+    [
+     "s:'Rows in'",
+     "s:'40'"
+    ],
+    [
+     "s:'Rows out'",
+     "s:'40'"
+    ],
+    [
+     "s:'Parameters'",
+     "s:'{\"allow_null_keys\": false, \"exact_duplicate_rows\": 1, \"key\": [\"ID\"], \"selected_columns\": [\"ID\", \"Zip\"], \"skipped_columns_with_blanks\": [\"Account\", \"Region\"]}'"
+    ],
+    [
+     "s:'Warnings'",
+     "s:\"golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed.\""
+    ]
    ]
   },
   "natural_key_analysis_<TS>_report.pdf": {

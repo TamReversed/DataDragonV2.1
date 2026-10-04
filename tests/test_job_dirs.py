@@ -55,7 +55,8 @@ def test_splitter_keeps_only_its_zip_in_the_job_directory(client):
     final, _ = post_job(client, "/upload", {"file": GOLDEN_XLSX}, {"chunk_size": "15", "base_filename": "gold"})
     job_id, name = URL.match(final["download_url"]).groups()
     assert os.listdir(os.path.join(output_root(), job_id)) == [name]      # temporary chunk folder is gone
-    assert len(zipfile.ZipFile(output_path(final)).namelist()) == 3
+    names = zipfile.ZipFile(output_path(final)).namelist()
+    assert len(names) == 4 and names[-1] == "_DataDragon_Log.json"      # the 3 chunks and the record of the split
 
 
 def test_anonymizer_mapping_key_is_in_the_same_job_directory(client):

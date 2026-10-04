@@ -283,7 +283,7 @@ def test_concurrent_split_isolated(client, tmp_path, monkeypatch):
     assert finals[0]["download_url"] != finals[1]["download_url"]
     for final, owner, rows in zip(finals, ("ALICE", "BOB"), (30, 50)):
         zf = zipfile.ZipFile(output_path(final))
-        frames = [pd.read_excel(io.BytesIO(zf.read(n))) for n in zf.namelist()]
+        frames = [pd.read_excel(io.BytesIO(zf.read(n))) for n in zf.namelist() if n.endswith('.xlsx')]
         combined = pd.concat(frames)
         assert len(combined) == rows and set(combined["owner"]) == {owner}
 

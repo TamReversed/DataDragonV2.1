@@ -744,6 +744,40 @@
     "n:39",
     "n:0"
    ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Column Normalizer'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'40'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'40'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"column_types\": {\"Account\": \"integer\", \"Amount\": \"float\", \"DateText\": \"date\", \"EuroNum\": \"float\", \"Pct\": \"percentage\"}, \"date_order\": \"auto\", \"decimal_separator\": \".\", \"trim_whitespace\": false}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:\"golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed.\""
+   ]
   ]
  },
  "stages": [

@@ -37,9 +37,22 @@ def _cell(c):
     return f"{c.data_type}:{v!r}"
 
 
+LOG_SHEET = "_DataDragon_Log"
+LOG_VOLATILE = {"Timestamp (UTC)": "<TIMESTAMP>", "Version": "<VERSION>"}      # change with every run / commit
+
+
+def mask_log(rows):
+    """Rows of the log sheet with the values that change from run to run replaced by placeholders."""
+    return [[row[0], f"s:{LOG_VOLATILE[row[0][3:-1]]!r}"] if len(row) == 2 and row[0][3:-1] in LOG_VOLATILE else row
+            for row in rows]
+
+
 def describe_xlsx(data):
     wb = openpyxl.load_workbook(io.BytesIO(data))
-    return {ws.title: [[_cell(c) for c in row] for row in ws.iter_rows()] for ws in wb.worksheets}
+    sheets = {ws.title: [[_cell(c) for c in row] for row in ws.iter_rows()] for ws in wb.worksheets}
+    if LOG_SHEET in sheets:
+        sheets[LOG_SHEET] = mask_log(sheets[LOG_SHEET])
+    return sheets
 
 
 def describe_bytes(name, data):
@@ -47,7 +60,10 @@ def describe_bytes(name, data):
     if lower.endswith(".xlsx"):
         return describe_xlsx(data)
     if lower.endswith(".json"):
-        return scrub(json.loads(data.decode("utf-8")))
+        loaded = json.loads(data.decode("utf-8"))
+        if os.path.basename(lower).endswith("log.json") and isinstance(loaded, dict):
+            loaded.update({key: placeholder for key, placeholder in LOG_VOLATILE.items() if key in loaded})
+        return scrub(loaded)
     if lower.endswith(".csv"):
         return data.decode("utf-8", errors="replace").splitlines()
     return {"binary_bytes_present": len(data) > 0}

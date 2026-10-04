@@ -47,7 +47,7 @@ def test_merge_with_oversize_sheet_becomes_zip_of_csvs(client, tmp_path, small_e
     assert final["stage"] == "done", final
     assert final["output_filename"].endswith(".zip") and "zip of CSV" in final["warning"]
     z = zipfile.ZipFile(output_path(final))
-    assert sorted(z.namelist()) == ["Join Summary.csv", "Merged Data.csv"]
+    assert sorted(z.namelist()) == ["Join Summary.csv", "Merged Data.csv", "_DataDragon_Log.json"]
     assert len(list(csv.reader(io.StringIO(z.read("Merged Data.csv").decode())))) == ROWS + 1
 
 

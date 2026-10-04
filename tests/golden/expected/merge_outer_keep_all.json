@@ -139,6 +139,40 @@
     "n:None",
     "s:'z'"
    ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Data Merge'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'10'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'8'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"duplicate_handling\": \"keep_all\", \"join_type\": \"outer\", \"left_columns\": [], \"left_key\": \"id\", \"left_rows\": 5, \"right_columns\": [], \"right_key\": \"id\", \"right_rows\": 5}'"
+   ],
+   [
+    "s:'Warnings'",
+    "n:None"
+   ]
   ]
  },
  "stages": [

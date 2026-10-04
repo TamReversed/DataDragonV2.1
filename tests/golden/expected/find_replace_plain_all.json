@@ -667,6 +667,40 @@
     "s:'dave39@example.com'",
     "s:'café'"
    ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Find & Replace'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'40'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'40'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"case_sensitive\": false, \"column\": \"__all__\", \"find_text\": \"alice\", \"match_whole_cell\": false, \"replace_text\": \"ALICE\", \"replacements_made\": 20, \"rows_affected\": 10, \"use_regex\": false}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:\"golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed.\""
+   ]
   ]
  },
  "status": 200

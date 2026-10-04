@@ -171,6 +171,40 @@
     "s:'bob37@example.com'",
     "s:'x|||y'"
    ]
+  ],
+  "_DataDragon_Log": [
+   [
+    "s:'Item'",
+    "s:'Value'"
+   ],
+   [
+    "s:'Tool'",
+    "s:'Row Filter'"
+   ],
+   [
+    "s:'Version'",
+    "s:'<VERSION>'"
+   ],
+   [
+    "s:'Timestamp (UTC)'",
+    "s:'<TIMESTAMP>'"
+   ],
+   [
+    "s:'Rows in'",
+    "s:'40'"
+   ],
+   [
+    "s:'Rows out'",
+    "s:'9'"
+   ],
+   [
+    "s:'Parameters'",
+    "s:'{\"conditions\": [{\"column\": \"Amount\", \"operator\": \"greater_than\", \"value\": \"0\"}, {\"column\": \"Region\", \"logic\": \"AND\", \"operator\": \"equals\", \"value\": \"S\"}]}'"
+   ],
+   [
+    "s:'Warnings'",
+    "s:\"golden.xlsx has 2 sheets (Main, Second); only the first sheet, 'Main', was processed.\""
+   ]
   ]
  },
  "status": 200

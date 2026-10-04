@@ -6,7 +6,7 @@ import zipfile
 from werkzeug.datastructures import FileStorage, ImmutableMultiDict, MultiDict
 from werkzeug.utils import cached_property, secure_filename
 import shutil
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import inspect
 import traceback
 import json
@@ -774,7 +774,7 @@ def sheet_names_of(file_path):
         return []
     try:
         with pd.ExcelFile(file_path) as workbook:
-            return list(workbook.sheet_names)
+            return [name for name in workbook.sheet_names if name != LOG_SHEET]   # our own log sheet is not user data
     except Exception:
         return []
 
@@ -790,6 +790,8 @@ def add_job_notes(message, job_id):
     if note:
         message['sheet_names'] = note['sheet_names']
         message['warning'] = (message.get('warning', '') + ' ' + note['warning']).strip()
+        if note.get('log_url'):
+            message['log_url'] = note['log_url']
     return message
 
 
@@ -824,13 +826,77 @@ EXCEL_MAX_COLUMNS = 16384
 PIVOT_SOURCE_SHEET_LIMIT = 100000   # the pivot workbook repeats the source rows; skip that copy for big files
 
 
-def write_excel(df, path, sheet_name='Sheet1', **kwargs):
+LOG_SHEET = '_DataDragon_Log'
+APP_VERSION = '4.0.0'
+_SECRET_PARAM = re.compile(r'pass(word)?|secret|token|api[_-]?key|credential', re.I)
+
+
+def _git_commit():
+    """Short commit id of the running code, or 'unknown' (a deployment without .git can set DATADRAGON_COMMIT)."""
+    if os.environ.get('DATADRAGON_COMMIT'):
+        return os.environ['DATADRAGON_COMMIT'][:12]
+    try:
+        import subprocess
+        out = subprocess.run(['git', 'rev-parse', '--short', 'HEAD'], cwd=os.path.dirname(os.path.abspath(__file__)),
+                             capture_output=True, text=True, timeout=3)
+        return out.stdout.strip() or 'unknown'
+    except Exception:
+        return 'unknown'
+
+
+APP_COMMIT = _git_commit()
+
+
+def make_log(tool, rows_in=None, rows_out=None, params=None, job_id=None):
+    """The record embedded in every output: what ran, with which code, when, with which settings, what went in and out.
+    Parameters named like secrets are dropped; cell values are never included."""
+    def clean(value):
+        if isinstance(value, dict):
+            return {str(k): clean(v) for k, v in value.items() if not _SECRET_PARAM.search(str(k))}
+        if isinstance(value, (list, tuple, set)):
+            return [clean(v) for v in value]
+        return make_json_serializable(value)
+    notes = job_notes.get(job_id) if job_id else None
+    return {
+        'Tool': tool,
+        'Version': f'DataDragon {APP_VERSION} ({APP_COMMIT})',
+        'Timestamp (UTC)': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+        'Rows in': None if rows_in is None else int(rows_in),
+        'Rows out': None if rows_out is None else int(rows_out),
+        'Parameters': json.dumps(clean(params or {}), ensure_ascii=False, sort_keys=True),
+        'Warnings': (notes or {}).get('warning', ''),
+    }
+
+
+def log_frame(log):
+    return pd.DataFrame({'Item': list(log), 'Value': ['' if v is None else str(v) for v in log.values()]})
+
+
+def log_as_json(log):
+    return json.dumps(log, ensure_ascii=False, indent=2)
+
+
+def write_log_sheet(workbook, log):
+    """Add the `_DataDragon_Log` sheet (Item / Value) to an xlsxwriter workbook."""
+    sheet = workbook.add_worksheet(LOG_SHEET)
+    header = workbook.add_format({'bold': True, 'border': 1, 'align': 'center', 'valign': 'top'})
+    sheet.write_row(0, 0, ['Item', 'Value'], header)
+    for row_number, (item, value) in enumerate(log.items(), 1):
+        sheet.write_string(row_number, 0, item)
+        sheet.write_string(row_number, 1, '' if value is None else str(value))
+    sheet.set_column(0, 0, 18)
+    sheet.set_column(1, 1, 80)
+
+
+def write_excel(df, path, sheet_name='Sheet1', log=None, **kwargs):
     """Write one DataFrame to a single-sheet xlsx. Same cell types, blanks and header style as pandas' own writer,
     but written straight through xlsxwriter (about 40% faster on large frames), with formula-like text kept as text."""
     kwargs.setdefault('index', False)
     if kwargs != {'index': False}:
         with excel_writer(path) as writer:      # unusual options: let pandas handle them
             df.to_excel(writer, sheet_name=sheet_name, **kwargs)
+            if log:
+                log_frame(log).to_excel(writer, sheet_name=LOG_SHEET, index=False)
         return
     if len(df) + 1 > EXCEL_MAX_ROWS or len(df.columns) > EXCEL_MAX_COLUMNS:
         raise UserError(f"This sheet is too large for Excel ({len(df):,} rows x {len(df.columns):,} columns; the "
@@ -847,6 +913,8 @@ def write_excel(df, path, sheet_name='Sheet1', **kwargs):
         for row_number, row in enumerate(cells.itertuples(index=False, name=None), 1):
             sheet.write_row(row_number, 0, [('inf' if v == float('inf') else '-inf' if v == float('-inf') else v)
                                             if isinstance(v, float) else v for v in row])
+        if log:
+            write_log_sheet(workbook, log)
     finally:
         workbook.close()
 
@@ -875,6 +943,13 @@ def sanitize_csv(df):
     return out
 
 
+def note_extra(job_id, **values):
+    """Attach extra fields (for example `log_url`) to the job's final message."""
+    while len(job_notes) >= MAX_JOB_NOTES and job_id not in job_notes:
+        job_notes.pop(next(iter(job_notes)))
+    job_notes.setdefault(job_id, {'sheet_names': [], 'warning': ''}).update(values)
+
+
 def note_warning(job_id, text):
     """Add a warning to the job's notes; it reaches the final progress message (and the sync routes' JSON)."""
     while len(job_notes) >= MAX_JOB_NOTES and job_id not in job_notes:
@@ -887,14 +962,25 @@ def sheet_too_big(df):
     return len(df) + 1 > EXCEL_MAX_ROWS or len(df.columns) > EXCEL_MAX_COLUMNS
 
 
-def save_table(df, path, job_id=None):
-    """Write one table as .xlsx, or as .csv when it is too big for an Excel sheet. Returns the path written; the
-    fallback is announced in the job's warning."""
+def write_log_sidecar(csv_path, log, job_id):
+    """For a CSV output: `<name>.log.json` next to it, offered through the job's `log_url`."""
+    sidecar = os.path.splitext(csv_path)[0] + '.log.json'
+    with open(sidecar, 'w', encoding='utf-8') as handle:
+        handle.write(log_as_json(log))
+    if job_id:
+        note_extra(job_id, log_url=job_download_url(job_id, os.path.basename(sidecar)))
+
+
+def save_table(df, path, job_id=None, log=None):
+    """Write one table as .xlsx (with the log sheet), or as .csv (with a .log.json next to it) when it is too big
+    for an Excel sheet. Returns the path written; the fallback is announced in the job's warning."""
     if not sheet_too_big(df):
-        write_excel(df, path)
+        write_excel(df, path, log=log)
         return path
     csv_path = os.path.splitext(path)[0] + '.csv'
     sanitize_csv(df).to_csv(csv_path, index=False)
+    if log:
+        write_log_sidecar(csv_path, log, job_id)
     if job_id:
         note_warning(job_id, f"The result has {len(df):,} rows x {len(df.columns):,} columns, more than an Excel sheet "
                              f"can hold ({EXCEL_MAX_ROWS - 1:,} rows x {EXCEL_MAX_COLUMNS:,} columns), so it was "
@@ -902,7 +988,7 @@ def save_table(df, path, job_id=None):
     return csv_path
 
 
-def write_sheets(path, sheets, job_id=None):
+def write_sheets(path, sheets, job_id=None, log=None):
     """Write several named tables [(sheet_name, df), ...] to one .xlsx. If any table is too big for an Excel sheet
     the tables are written as one CSV each inside a .zip instead, so nothing is lost. Returns the path written."""
     sheets = [(name, frame) for name, frame in sheets if frame is not None]
@@ -910,11 +996,15 @@ def write_sheets(path, sheets, job_id=None):
         with excel_writer(path) as writer:
             for name, frame in sheets:
                 frame.to_excel(writer, sheet_name=name, index=False)
+            if log:
+                log_frame(log).to_excel(writer, sheet_name=LOG_SHEET, index=False)
         return path
     zip_path = os.path.splitext(path)[0] + '.zip'
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as archive:
         for name, frame in sheets:
             archive.writestr(f"{name}.csv", sanitize_csv(frame).to_csv(index=False))
+        if log:
+            archive.writestr('_DataDragon_Log.json', log_as_json(log))
     if job_id:
         note_warning(job_id, f"A table has more rows or columns than an Excel sheet can hold ({EXCEL_MAX_ROWS - 1:,} "
                              "rows x {:,} columns), so the result is a zip of CSV files, one per sheet.".format(EXCEL_MAX_COLUMNS))
@@ -1404,6 +1494,10 @@ def process_file_async(upload_path, output_folder, chunk_size, base_filename, ti
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for file_path in output_files:
             zipf.write(file_path, os.path.basename(file_path))
+        # The chunks stay clean (they are loaded into other systems); the record of the split sits beside them
+        zipf.writestr('_DataDragon_Log.json', log_as_json(make_log(
+            'File Splitter', total_rows, total_rows,
+            {'chunk_size': chunk_size, 'base_filename': base_filename or 'split', 'files': num_splits}, session_id)))
         
     # Clean up individual files
     log.info("Cleaning up temporary files...")
@@ -2164,13 +2258,16 @@ def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, expor
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     output_filename = f"anonymized_{timestamp}"
         
+    scrub_log = make_log('Data Anonymizer', len(df), len(anonymized_df),
+                         {'columns': list(scrubbed_columns), 'relationship_preserved': bool(relationship_preserve),
+                          'mapping_exported': bool(export_mapping)}, session_id)
     if filename.endswith('.csv'):
         output_path = job_output_path(session_id, f"{output_filename}.csv")
         sanitize_csv(anonymized_df).to_csv(output_path, index=False)
         download_url = job_download_url(session_id, f"{output_filename}.csv")
     else:
         output_path = job_output_path(session_id, f"{output_filename}.xlsx")
-        write_excel(anonymized_df, output_path)
+        write_excel(anonymized_df, output_path, log=scrub_log)
         download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
     # Read the saved file back and check it too: what the user downloads is what must be anonymous
@@ -2179,7 +2276,9 @@ def scrub_file_async(upload_path, columns_to_scrub, relationship_preserve, expor
     except Exception:
         os.remove(output_path)
         raise
-        
+    if output_path.endswith('.csv'):
+        write_log_sidecar(output_path, scrub_log, session_id)      # only for a result that passed the check
+
     send_progress('saving', 50, 100, 'Anonymized data saved...', 95)
         
     # Save mapping key if requested: one record per distinct value (or combination), nothing is lost
@@ -2482,7 +2581,9 @@ def find_duplicates_async(upload_path, id_column, duplicate_columns, progress_qu
         ('Duplicates', results_df),
         # IDs to remove: a single column for easy copy/paste
         ('IDs to Remove', pd.DataFrame({'ID': all_ids_to_remove}) if all_ids_to_remove else None),
-    ], session_id)
+    ], session_id, log=make_log('Duplicate Finder', len(df), len(results_df),
+                                {'id_column': id_column, 'duplicate_columns': duplicate_columns,
+                                 'treat_blank_as_value': treat_blank_as_value}, session_id))
 
     download_url = job_download_url(session_id, os.path.basename(output_path))
         
@@ -3027,6 +3128,10 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
             'Column Count': len(combo)
         })
     alternatives_df = pd.DataFrame(alternatives_data)
+    key_log = make_log('Natural Key Finder', original_row_count, len(df),
+                       {'selected_columns': selected_columns, 'allow_null_keys': allow_null_keys,
+                        'skipped_columns_with_blanks': skipped_null_columns, 'key': primary_combo,
+                        'exact_duplicate_rows': duplicate_count}, session_id)
     data_too_big = sheet_too_big(df)
     if data_too_big:
         # More rows than an Excel sheet holds: the data goes into the zip as CSV instead
@@ -3038,6 +3143,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         with excel_writer(excel_path) as writer:
             df.to_excel(writer, sheet_name='Data with Unique IDs', index=False)
             alternatives_df.to_excel(writer, sheet_name='Key Candidates', index=False)
+            log_frame(key_log).to_excel(writer, sheet_name=LOG_SHEET, index=False)
 
     # Create ZIP package containing both files
     send_progress('saving', 85, 100, 'Packaging results...', 93)
@@ -3048,6 +3154,7 @@ def find_unique_identifier_async(upload_path, selected_columns, progress_queue, 
         zipf.write(excel_path, f"{output_basename}_data.{'csv' if data_too_big else 'xlsx'}")
         if data_too_big:
             zipf.writestr(f"{output_basename}_key_candidates.csv", sanitize_csv(alternatives_df).to_csv(index=False))
+            zipf.writestr('_DataDragon_Log.json', log_as_json(key_log))
 
     # Clean up individual files (keep only ZIP)
     os.remove(pdf_path)
@@ -3311,7 +3418,12 @@ def merge_files_async(left_file_path, right_file_path, left_key, right_key, join
     output_filename = f"merged_{timestamp}"
     output_path = job_output_path(session_id, f"{output_filename}.xlsx")
         
-    output_path = write_sheets(output_path, [('Merged Data', merged_df), ('Join Summary', summary_df)], session_id)
+    output_path = write_sheets(output_path, [('Merged Data', merged_df), ('Join Summary', summary_df)], session_id,
+                               log=make_log('Data Merge', len(df_left) + len(df_right), len(merged_df),
+                                            {'left_rows': len(df_left), 'right_rows': len(df_right), 'join_type': join_type,
+                                             'left_key': left_key, 'right_key': right_key, 'left_columns': left_columns,
+                                             'right_columns': right_columns, 'duplicate_handling': duplicate_handling},
+                                            session_id))
 
     download_url = job_download_url(session_id, os.path.basename(output_path))
         
@@ -3590,7 +3702,10 @@ def compare_files_async(file1_path, file2_path, key_columns, compare_columns, pr
         ('Changed Rows', changed_df if len(changed_df) > 0 else None),
         ('Unchanged Rows', unchanged_df if len(unchanged_df) > 0 else None),
         ('Rows Without Key', keyless_df if len(keyless_df) > 0 else None),
-    ], session_id)
+    ], session_id, log=make_log('Data Comparison', len(df1) + len(df2), len(added_df) + len(removed_df) + len(changed_df),
+                                {'file1_rows': len(df1), 'file2_rows': len(df2), 'key_columns': key_columns,
+                                 'compare_columns': compare_columns, 'added': len(added_df), 'removed': len(removed_df),
+                                 'changed': len(changed_df)}, session_id))
 
     download_url = job_download_url(session_id, os.path.basename(output_path))
         
@@ -3975,6 +4090,9 @@ def generate_pivot_async(file_path, rows, columns, values, aggfunc, filters, pro
                                      f"{PIVOT_SOURCE_SHEET_LIMIT:,} rows.")
         else:
             plain_sheet('Source Data', df)
+        write_log_sheet(workbook, make_log('Pivot Table Generator', len(df), n_rows,
+                                           {'rows': rows, 'columns': columns, 'values': values, 'aggfunc': aggfunc,
+                                            'filters': filters}, session_id))
         send_progress('saving', max(n_cols, 1), max(n_cols, 1), 'Saving file...', 95)
     finally:
         workbook.close()
@@ -4236,6 +4354,9 @@ def validate_data_async(file_path, validation_rules, progress_queue, session_id)
             invalid_df.to_excel(writer, sheet_name='Invalid Records', index=False)
         if write_valid and len(valid_df) > 0:
             valid_df.to_excel(writer, sheet_name='Valid Records', index=False)
+        log_frame(make_log('Data Validation', total_rows, valid_count,
+                           {'rules': rules, 'invalid_rows': invalid_count, 'rule_failures': failures_total,
+                            'details_truncated': truncated}, session_id)).to_excel(writer, sheet_name=LOG_SHEET, index=False)
         
     download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
@@ -4567,7 +4688,10 @@ def normalize_columns_async(file_path, column_types, trim_whitespace, progress_q
         'Conversion Errors': [t['errors'] for t in transformations_applied]
     })
     output_path = write_sheets(output_path, [('Normalized Data', normalized_df),
-                                             ('Transformation Summary', summary_df)], session_id)
+                                             ('Transformation Summary', summary_df)], session_id,
+                               log=make_log('Column Normalizer', len(df), len(normalized_df),
+                                            {'column_types': column_types, 'trim_whitespace': trim_whitespace,
+                                             'decimal_separator': decimal_separator, 'date_order': date_order}, session_id))
     formatted = output_path.endswith('.xlsx')   # cell formatting only applies to the workbook, not CSV files
 
     if formatted:
@@ -4872,6 +4996,9 @@ def compare_columns_async(file1_path, file2_path, file1_name, file2_name, progre
         comparison_df.to_excel(writer, sheet_name='Column Comparison', index=False)
             
         # Green for Yes, red for No in the two file columns (conditional formats: no per-cell work, any size)
+        log_frame(make_log('Schema Comparison', len(columns1) + len(columns2), len(comparison_df),
+                           {'file1': file1_name, 'file2': file2_name}, session_id)).to_excel(
+            writer, sheet_name=LOG_SHEET, index=False)
         worksheet = writer.sheets['Column Comparison']
         green = writer.book.add_format({'bg_color': '#90EE90', 'font_color': '#006400', 'bold': True})
         red = writer.book.add_format({'bg_color': '#FFB6C1', 'font_color': '#8B0000', 'bold': True})
@@ -5003,6 +5130,9 @@ def transpose_file_async(upload_path, progress_queue, session_id):
         
     with excel_writer(output_path) as writer:
         transposed_df.to_excel(writer, sheet_name='Transposed Data', index=False)
+        log_frame(make_log('Transpose', original_shape[0], new_shape[0],
+                           {'columns_in': int(original_shape[1]), 'columns_out': int(new_shape[1])},
+                           session_id)).to_excel(writer, sheet_name=LOG_SHEET, index=False)
         
     download_url = job_download_url(session_id, f"{output_filename}.xlsx")
         
@@ -5160,7 +5290,8 @@ def row_filter():
 
     # Save filtered file
     base_name = os.path.splitext(filename)[0]
-    output_path = save_table(filtered_df, job_output_path(session_id, f"{base_name}_filtered_{session_id}.xlsx"), session_id)
+    output_path = save_table(filtered_df, job_output_path(session_id, f"{base_name}_filtered_{session_id}.xlsx"), session_id,
+                             log=make_log('Row Filter', original_rows, matching_rows, {'conditions': conditions}, session_id))
     output_filename = os.path.basename(output_path)
 
     # Cache the result
@@ -5266,7 +5397,12 @@ def find_replace():
 
     # Save the modified file
     base_name = os.path.splitext(filename)[0]
-    output_path = save_table(df, job_output_path(session_id, f"{base_name}_replaced_{session_id}.xlsx"), session_id)
+    output_path = save_table(df, job_output_path(session_id, f"{base_name}_replaced_{session_id}.xlsx"), session_id,
+                             log=make_log('Find & Replace', len(df), len(df),
+                                          {'find_text': find_text, 'replace_text': replace_text, 'column': column,
+                                           'case_sensitive': case_sensitive, 'use_regex': use_regex,
+                                           'match_whole_cell': match_whole_cell, 'replacements_made': int(total_replacements),
+                                           'rows_affected': len(rows_affected)}, session_id))
     output_filename = os.path.basename(output_path)
 
     # Cache the result
@@ -5367,7 +5503,9 @@ def calculated_columns():
 
     # Save the modified file
     base_name = os.path.splitext(filename)[0]
-    output_path = save_table(df, job_output_path(session_id, f"{base_name}_calculated_{session_id}.xlsx"), session_id)
+    output_path = save_table(df, job_output_path(session_id, f"{base_name}_calculated_{session_id}.xlsx"), session_id,
+                             log=make_log('Calculated Columns', len(df), len(df),
+                                          {'new_column': new_column_name, 'formula': formula}, session_id))
     output_filename = os.path.basename(output_path)
 
     # Cache the result
@@ -5627,7 +5765,9 @@ def column_operations():
 
     # Save the modified file
     base_name = os.path.splitext(filename)[0]
-    output_path = save_table(df, job_output_path(session_id, f"{base_name}_modified_{session_id}.xlsx"), session_id)
+    output_path = save_table(df, job_output_path(session_id, f"{base_name}_modified_{session_id}.xlsx"), session_id,
+                             log=make_log('Column Operations', len(df), len(df),
+                                          {'operation': operation, 'summary': operation_summary}, session_id))
     output_filename = os.path.basename(output_path)
 
     # Cache the result
@@ -6215,7 +6355,9 @@ def pipeline_execute(session_id):
         send_progress(80, 'Saving transformed data...')
 
         # Save transformed data
-        excel_path = save_table(result_df, job_output_path(session_id, f"{output_basename}_data.xlsx"), session_id)
+        excel_path = save_table(result_df, job_output_path(session_id, f"{output_basename}_data.xlsx"), session_id,
+                                log=make_log('Data Readiness Pipeline', len(state.df), len(result_df),
+                                             {'transformations': transformation_log}, session_id))
 
         # Create ZIP package
         send_progress(90, 'Packaging results...')
