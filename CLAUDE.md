@@ -5,7 +5,7 @@
 - Run: `DATADRAGON_DATA_DIR=$(mktemp -d) .venv/bin/python datadragon.py` → http://127.0.0.1:5002 (port 5002, not 5000: macOS AirPlay owns 5000)
 - Tests: `.venv/bin/python -m pytest -q` (slow perf tests: `-m slow`)
 - Regenerate golden snapshots ONLY with justification: `.venv/bin/python -m pytest tests/golden --update-golden`
-- Lint: `.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py` (must print nothing)
+- Lint: `.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py datadragon_report.py datadragon_tools.py datadragon_cover.py` (must print nothing)
 - Audit deps: `.venv/bin/pip-audit -r requirements.txt`
 - Benchmarks: `.venv/bin/python scripts/gen_synthetic.py 100000 csv /tmp/dd && .venv/bin/python scripts/bench.py /tmp/dd/syn_100000.csv <case>`
 

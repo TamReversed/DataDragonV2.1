@@ -366,7 +366,7 @@
                     <div class="columns-grid" id="valuesGrid" style="max-height: 150px;"></div>
                 </div>
                 <div class="config-item">
-                    <label class="config-label">Aggregation Function *</label>
+                    <label class="config-label" for="aggfunc">Aggregation Function *</label>
                     <p class="config-description">How to aggregate the values</p>
                     <select id="aggfunc" required>
                         <option value="sum">Sum</option>
@@ -374,8 +374,44 @@
                         <option value="count">Count</option>
                         <option value="min">Minimum</option>
                         <option value="max">Maximum</option>
+                        <option value="median">Median</option>
                         <option value="std">Standard Deviation</option>
+                        <option value="nunique">Distinct count</option>
                     </select>
+                </div>
+            </div>
+            <div class="config-row">
+                <div class="config-item">
+                    <label class="config-label" id="extraAggLabel">Also calculate</label>
+                    <p class="config-description">Optional: more aggregations of the same values, side by side</p>
+                    <div class="columns-grid" id="extraAggGrid" role="group" aria-labelledby="extraAggLabel" style="max-height: 200px;">
+                        {% for value, text in [('sum', 'Sum'), ('mean', 'Average'), ('count', 'Count'), ('min', 'Minimum'), ('max', 'Maximum'), ('median', 'Median'), ('std', 'Standard Deviation'), ('nunique', 'Distinct count')] %}
+                        <div class="column-checkbox-item">
+                            <input type="checkbox" id="extra_agg_{{ value }}" name="extraAgg" value="{{ value }}">
+                            <label for="extra_agg_{{ value }}">{{ text }}</label>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="config-item">
+                    <label class="config-label" for="showAs">Show values as</label>
+                    <p class="config-description">Percentages need Sum or Count; % of row total needs a column field</p>
+                    <select id="showAs">
+                        <option value="values">Values</option>
+                        <option value="row">% of row total</option>
+                        <option value="column">% of column total</option>
+                        <option value="total">% of grand total</option>
+                    </select>
+                    <label class="config-label" for="dateGroupColumn" style="margin-top: var(--dd-space-4);">Group a date field</label>
+                    <p class="config-description">Optional: turn the dates of a row or column field into years, quarters or months</p>
+                    <div style="display: flex; gap: var(--dd-space-2);">
+                        <select id="dateGroupColumn" aria-label="Date field to group"><option value="">None</option></select>
+                        <select id="dateGroupUnit" aria-label="Group dates by">
+                            <option value="month">by month</option>
+                            <option value="quarter">by quarter</option>
+                            <option value="year">by year</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>
@@ -700,7 +736,18 @@
         });
     }
 
+    // The date field to group is one of the chosen row/column fields
+    function refreshDateGroupChoices() {
+        const select = document.getElementById('dateGroupColumn');
+        const chosen = Array.from(document.querySelectorAll('input[name="rows"]:checked, input[name="columns"]:checked')).map(cb => cb.value);
+        const current = select.value;
+        select.replaceChildren(new Option('None', ''));
+        Array.from(new Set(chosen)).forEach(name => select.appendChild(new Option(name, name)));
+        select.value = chosen.includes(current) ? current : '';
+    }
+
     function checkReadyToGenerate() {
+        refreshDateGroupChoices();
         const ready = file && allColumns.length > 0;
         if (ready) {
             pivotConfig.classList.add('show');
@@ -798,6 +845,15 @@
         values.forEach(col => formData.append('values[]', col));
 
         formData.append('aggfunc', aggfunc.value);
+        document.querySelectorAll('input[name="extraAgg"]:checked').forEach(cb => {
+            if (cb.value !== aggfunc.value) formData.append('extra_aggfuncs[]', cb.value);
+        });
+        formData.append('show_as', document.getElementById('showAs').value);
+        const dateGroupColumn = document.getElementById('dateGroupColumn').value;
+        if (dateGroupColumn) {
+            formData.append('date_group_columns[]', dateGroupColumn);
+            formData.append('date_group_units[]', document.getElementById('dateGroupUnit').value);
+        }
 
         generateBtn.disabled = true;
         generateBtn.innerHTML = `
@@ -887,7 +943,7 @@
                     </div>
                     <div class="summary-item">
                         <div class="summary-label">Aggregation</div>
-                        <div class="summary-value" style="font-size: 18px;">${summary.aggfunc.toUpperCase() /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>
+                        <div class="summary-value" style="font-size: 18px;">${escapeHtml(summary.aggfunc.toUpperCase() + (summary.show_as ? ' · ' + summary.show_as : '')) /* safe: number, css class/colour or HTML assembled from escaped parts */}</div>
                     </div>
                 </div>
             `;
@@ -915,7 +971,8 @@
                     const raw = row[col];
                     const number = typeof raw === 'number' ? raw : (typeof raw === 'string' && /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN);
                     const isNumber = Number.isFinite(number) && col !== columns[0];
-                    const val = raw === null || raw === undefined ? '' : (isNumber && !Number.isInteger(number) ? number.toFixed(2) : String(raw));
+                    const asPercent = isNumber && progressData.summary && progressData.summary.show_as;
+                    const val = raw === null || raw === undefined ? '' : asPercent ? (number * 100).toFixed(1) + '%' : (isNumber && !Number.isInteger(number) ? number.toFixed(2) : String(raw));
                     tableHTML += `<td${isNumber ? ' class="num"' : '' /* safe: number, css class/colour or HTML assembled from escaped parts */}>${escapeHtml(val)}</td>`;
                 });
                 tableHTML += '</tr>';

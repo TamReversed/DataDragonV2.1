@@ -5,6 +5,8 @@ import tempfile
 # Must be set before datadragon is imported: it creates uploads/ and output/ at import time.
 _DATA_DIR = tempfile.mkdtemp(prefix="datadragon_tests_")
 os.environ["DATADRAGON_DATA_DIR"] = _DATA_DIR
+# The suite checks data, sheet by sheet; the cover sheet of Excel outputs has its own tests (tests/test_cover_sheet.py)
+os.environ["DATADRAGON_COVER_SHEET"] = "0"
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)

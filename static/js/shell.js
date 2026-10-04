@@ -26,6 +26,22 @@
         labelTheme();
     }
 
+    /* ---------- cover sheet of Excel outputs: on unless this browser switched it off (cookie read by the server) ---------- */
+    const coverToggle = document.getElementById('coverToggle');
+    if (coverToggle) {
+        const coverOn = () => !/(?:^|;\s*)dd_cover=0(?:;|$)/.test(document.cookie);
+        const labelCover = () => {
+            coverToggle.textContent = coverOn() ? 'on' : 'off';
+            coverToggle.setAttribute('aria-pressed', String(coverOn()));
+        };
+        coverToggle.addEventListener('click', () => {
+            document.cookie = coverOn() ? 'dd_cover=0; path=/; max-age=31536000; SameSite=Lax'
+                                        : 'dd_cover=; path=/; max-age=0; SameSite=Lax';
+            labelCover();
+        });
+        labelCover();
+    }
+
     /* ---------- phone menu ---------- */
     const sidebar = document.getElementById('sidebar');
     const navToggle = document.getElementById('navToggle');
