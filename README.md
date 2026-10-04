@@ -71,7 +71,7 @@ gunicorn -k gthread -w 1 --threads 8 -t 0 -b 0.0.0.0:${PORT:-5002} datadragon:ap
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q                      # the suite (about 90 seconds)
-.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py
+.venv/bin/python -m pyflakes datadragon.py datadragon_formula.py datadragon_regex.py datadragon_logging.py datadragon_report.py
 .venv/bin/pip-audit -r requirements.txt            # known vulnerabilities in the dependencies
 .venv/bin/python scripts/check_innerhtml.py        # file-derived text must be escaped in the page scripts
 .venv/bin/python scripts/contrast.py               # WCAG contrast of the colour tokens, light and dark
@@ -101,6 +101,8 @@ datadragon.py            Flask app: routes, jobs, tools
 datadragon_formula.py    Safe evaluator for Calculated Columns (no eval)
 datadragon_regex.py      Time-limited regular expressions for Find & Replace and Validation
 datadragon_logging.py    JSON-style logging with the job id
+datadragon_report.py     The Data Readiness Report (branded PDF with charts)
+report_assets/           Fonts and images the report embeds (not served)
 templates/               One page per tool; base.html is the shell (sidebar, theme), _tools.html the tool list,
                          brand/ the inline SVG mark and illustrations
 static/                  css/ (tokens.css, main.css, a11y.css), js/ (shell.js, common.js, charts.js), images/brand/
