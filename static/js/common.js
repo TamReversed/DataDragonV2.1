@@ -120,10 +120,12 @@ const DD = (() => {
 
     /**
      * Start a job and follow it. Returns { cancel() }.
+     *  body: a FormData, { json: {...} }, or nothing.
+     *  acceptDone(message) optionally rejects a 'done' message that is not this job's.
      *  onProgress(message) for every progress message, onDone(message) once with the final message,
      *  onError(text) once if the job could not start, failed, was cancelled, or the stream was lost for good.
      */
-    function startJob(url, formData, { onProgress, onDone, onError }) {
+    function startJob(url, body, { onProgress, onDone, onError, acceptDone }) {
         let jobId = null;
         let source = null;
         let finished = false;
@@ -150,6 +152,7 @@ const DD = (() => {
                 if (message.error) return fail(message.error);
                 if (message.stage === 'error') return fail(message.message || 'The job failed');
                 if (message.stage === 'done') {
+                    if (acceptDone && !acceptDone(message)) return;   // a 'done' that belongs to another stage
                     finished = true;
                     source.close();
                     if (onDone) onDone(message);
@@ -172,7 +175,14 @@ const DD = (() => {
             try {
                 let response;
                 try {
-                    response = await fetch(url, { method: 'POST', body: formData });
+                    const init = { method: 'POST' };
+                    if (body && body.json !== undefined) {            // { json: {...} } is sent as JSON
+                        init.headers = { 'Content-Type': 'application/json' };
+                        init.body = JSON.stringify(body.json);
+                    } else if (body) {
+                        init.body = body;
+                    }
+                    response = await fetch(url, init);
                 } catch (err) {
                     return fail('Could not reach the server. Check that it is running.');
                 }

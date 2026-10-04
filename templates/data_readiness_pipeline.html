@@ -2159,25 +2159,17 @@
         });
     });
 
+    let job = null;
+
     // File Upload
     const uploadZone = document.getElementById('uploadZone');
     const fileInput = document.getElementById('fileInput');
 
-    uploadZone.addEventListener('click', () => fileInput.click());
-    uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
-    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
-    uploadZone.addEventListener('drop', e => {
-        e.preventDefault();
-        uploadZone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
-    });
-    fileInput.addEventListener('change', e => {
-        if (e.target.files.length) handleFile(e.target.files[0]);
-    });
+    DD.initUpload({ zone: uploadZone, input: fileInput, onFile: handleFile });
 
     async function handleFile(file) {
         const formData = new FormData();
-        formData.append('file', file);
+        DD.appendFile(formData, 'file', file);
 
         try {
             hideError('uploadError');
@@ -2351,35 +2343,8 @@
             document.getElementById('analysisProgress').classList.add('active');
             document.getElementById('runAnalysisBtn').disabled = true;
 
-            const response = await fetch(`/pipeline/${state.sessionId}/analyze`, { method: 'POST' });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.error);
-
-            const eventSource = new EventSource(`/progress/${state.sessionId}`);
-
-            eventSource.onmessage = (event) => {
-                const progress = JSON.parse(event.data);
-
-                if (progress.stage === 'done') {
-                    eventSource.close();
-                    state.analysis = progress.analysis;
-                    // Update to 100% before transitioning
-                    document.getElementById('analysisFill').style.width = '100%';
-                    document.getElementById('analysisPercent').textContent = '100%';
-                    document.getElementById('analysisStage').textContent = 'Complete';
-                    document.getElementById('analysisText').textContent = 'Analysis complete!';
-                    setTimeout(() => {
-                        document.getElementById('analysisProgress').classList.remove('active');
-                        document.getElementById('runAnalysisBtn').style.display = 'none';
-                        document.getElementById('continueToGapsBtn').style.display = 'block';
-                        updatePreviewWithAnalysis(progress.analysis);
-                    }, 300);
-                } else if (progress.stage === 'error') {
-                    eventSource.close();
-                    showError('analysisError', progress.message);
-                    document.getElementById('analysisProgress').classList.remove('active');
-                    document.getElementById('runAnalysisBtn').disabled = false;
-                } else {
+            job = DD.startJob(`/pipeline/${state.sessionId}/analyze`, null, {
+                onProgress: progress => {
                     const pct = progress.percentage || 0;
                     document.getElementById('analysisFill').style.width = `${pct}%`;
                     document.getElementById('analysisPercent').textContent = `${pct}%`;
@@ -2402,8 +2367,30 @@
                     } else {
                         document.getElementById('analysisDetails').textContent = '';
                     }
-                }
-            };
+
+                },
+                onDone: progress => {
+                    state.analysis = progress.analysis;
+                    // Update to 100% before transitioning
+                    document.getElementById('analysisFill').style.width = '100%';
+                    document.getElementById('analysisPercent').textContent = '100%';
+                    document.getElementById('analysisStage').textContent = 'Complete';
+                    document.getElementById('analysisText').textContent = 'Analysis complete!';
+                    setTimeout(() => {
+                        document.getElementById('analysisProgress').classList.remove('active');
+                        document.getElementById('runAnalysisBtn').style.display = 'none';
+                        document.getElementById('continueToGapsBtn').style.display = 'block';
+                        updatePreviewWithAnalysis(progress.analysis);
+                    }, 300);
+
+                },
+                onError: message => {
+                    showError('analysisError', message);
+                    document.getElementById('analysisProgress').classList.remove('active');
+                    document.getElementById('runAnalysisBtn').disabled = false;
+
+                },
+            });
 
         } catch (error) {
             showError('analysisError', error.message);
@@ -2879,49 +2866,9 @@
             document.getElementById('findKeysBtn').disabled = true;
             document.getElementById('keyResults').classList.add('hidden');
 
-            const response = await fetch(`/pipeline/${state.sessionId}/keys`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ selected_columns: selectedCols })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.error);
-
-            const eventSource = new EventSource(`/progress/${state.sessionId}`);
-
-            eventSource.onmessage = (event) => {
-                const progress = JSON.parse(event.data);
-
-                if (progress.stage === 'done' && progress.results) {
-                    // Only process 'done' if it has 'results' (key discovery completion)
-                    eventSource.close();
-                    // Update to 100% before hiding
-                    document.getElementById('keyFill').style.width = '100%';
-                    document.getElementById('keyPercent').textContent = '100%';
-                    document.getElementById('keyStage').textContent = 'Complete';
-                    document.getElementById('keyText').textContent = 'Analysis complete!';
-                    // Mark all stage dots as completed
-                    document.querySelectorAll('#keyStages .progress-stage-dot').forEach(dot => {
-                        dot.classList.remove('active');
-                        dot.classList.add('completed');
-                    });
-                    // Brief delay to show 100% before transitioning
-                    setTimeout(() => {
-                        displayKeyResults(progress.results);
-                        document.getElementById('keyProgress').classList.remove('active');
-                        document.getElementById('findKeysBtn').textContent = 'Confirm Selection';
-                        document.getElementById('findKeysBtn').disabled = false;
-                        document.getElementById('findKeysBtn').onclick = confirmKeys;
-                    }, 300);
-                } else if (progress.stage === 'done') {
-                    // Ignore 'done' messages from other stages (e.g., shape analysis with 'analysis' not 'results')
-                    return;
-                } else if (progress.stage === 'error') {
-                    eventSource.close();
-                    showError('keyError', progress.message);
-                    document.getElementById('keyProgress').classList.remove('active');
-                    document.getElementById('findKeysBtn').disabled = false;
-                } else {
+            job = DD.startJob(`/pipeline/${state.sessionId}/keys`, { json: { selected_columns: selectedCols } }, {
+                acceptDone: progress => !!progress.results,
+                onProgress: progress => {
                     // Update progress bar
                     const pct = progress.percentage || 0;
                     document.getElementById('keyFill').style.width = `${pct}%`;
@@ -2988,8 +2935,37 @@
                             dot.classList.add('completed');
                         }
                     });
-                }
-            };
+
+                },
+                onDone: progress => {
+                    // Only process 'done' if it has 'results' (key discovery completion)
+                    // Update to 100% before hiding
+                    document.getElementById('keyFill').style.width = '100%';
+                    document.getElementById('keyPercent').textContent = '100%';
+                    document.getElementById('keyStage').textContent = 'Complete';
+                    document.getElementById('keyText').textContent = 'Analysis complete!';
+                    // Mark all stage dots as completed
+                    document.querySelectorAll('#keyStages .progress-stage-dot').forEach(dot => {
+                        dot.classList.remove('active');
+                        dot.classList.add('completed');
+                    });
+                    // Brief delay to show 100% before transitioning
+                    setTimeout(() => {
+                        displayKeyResults(progress.results);
+                        document.getElementById('keyProgress').classList.remove('active');
+                        document.getElementById('findKeysBtn').textContent = 'Confirm Selection';
+                        document.getElementById('findKeysBtn').disabled = false;
+                        document.getElementById('findKeysBtn').onclick = confirmKeys;
+                    }, 300);
+
+                },
+                onError: message => {
+                    showError('keyError', message);
+                    document.getElementById('keyProgress').classList.remove('active');
+                    document.getElementById('findKeysBtn').disabled = false;
+
+                },
+            });
 
         } catch (error) {
             showError('keyError', error.message);
@@ -3250,37 +3226,8 @@
             document.getElementById('executeProgress').classList.add('active');
             document.getElementById('executeButtons').classList.add('hidden');
 
-            const response = await fetch(`/pipeline/${state.sessionId}/execute`, { method: 'POST' });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.error);
-
-            const eventSource = new EventSource(`/progress/${state.sessionId}`);
-
-            eventSource.onmessage = (event) => {
-                const progress = JSON.parse(event.data);
-
-                if (progress.stage === 'done') {
-                    eventSource.close();
-                    // Update to 100% before transitioning
-                    document.getElementById('executeFill').style.width = '100%';
-                    document.getElementById('executePercent').textContent = '100%';
-                    document.getElementById('executeStage').textContent = 'Complete';
-                    document.getElementById('executeText').textContent = 'Pipeline complete!';
-                    setTimeout(() => {
-                        document.getElementById('executeProgress').classList.remove('active');
-                        document.getElementById('successSection').classList.remove('hidden');
-                        document.getElementById('downloadBtn').href = progress.download_url;
-                        document.querySelectorAll('.step').forEach(s => {
-                            s.classList.remove('active');
-                            s.classList.add('completed');
-                        });
-                    }, 300);
-                } else if (progress.stage === 'error') {
-                    eventSource.close();
-                    showError('executeError', progress.message);
-                    document.getElementById('executeProgress').classList.remove('active');
-                    document.getElementById('executeButtons').classList.remove('hidden');
-                } else {
+            job = DD.startJob(`/pipeline/${state.sessionId}/execute`, null, {
+                onProgress: progress => {
                     const pct = progress.percentage || 0;
                     document.getElementById('executeFill').style.width = `${pct}%`;
                     document.getElementById('executePercent').textContent = `${pct}%`;
@@ -3303,8 +3250,32 @@
                     } else {
                         document.getElementById('executeDetails').textContent = '';
                     }
-                }
-            };
+
+                },
+                onDone: progress => {
+                    // Update to 100% before transitioning
+                    document.getElementById('executeFill').style.width = '100%';
+                    document.getElementById('executePercent').textContent = '100%';
+                    document.getElementById('executeStage').textContent = 'Complete';
+                    document.getElementById('executeText').textContent = 'Pipeline complete!';
+                    setTimeout(() => {
+                        document.getElementById('executeProgress').classList.remove('active');
+                        document.getElementById('successSection').classList.remove('hidden');
+                        document.getElementById('downloadBtn').href = progress.download_url;
+                        document.querySelectorAll('.step').forEach(s => {
+                            s.classList.remove('active');
+                            s.classList.add('completed');
+                        });
+                    }, 300);
+
+                },
+                onError: message => {
+                    showError('executeError', message);
+                    document.getElementById('executeProgress').classList.remove('active');
+                    document.getElementById('executeButtons').classList.remove('hidden');
+
+                },
+            });
 
         } catch (error) {
             showError('executeError', error.message);
@@ -3324,12 +3295,6 @@
         document.getElementById(id).classList.remove('visible');
     }
 
-    function escapeHtml(text) {
-        // Escapes quotes as well, so the result is safe inside attribute values (value="...") too
-        return String(text === null || text === undefined ? '' : text).replace(/[&<>"']/g, ch => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[ch]));
-    }
 
     // Modal handling
     document.getElementById('howDidWeDoThis').addEventListener('click', () => {

@@ -4,10 +4,12 @@ import re
 
 import pytest
 
-# Grows with each migration batch; the last batch makes it every template that has these helpers.
+# Every tool page except the Excel Splitter (index.html), which T3.6 rebuilds on the base layout.
 MIGRATED = ["find_replace", "row_filter", "column_operations", "transpose",
             "data_validation", "duplicate_finder", "unique_identifier_finder", "data_scrubber",
-            "column_normalizer", "calculated_columns", "column_analyzer", "pivot_generator"]
+            "column_normalizer", "calculated_columns", "column_analyzer", "pivot_generator",
+            "data_merge", "data_comparison", "column_comparison", "data_readiness_pipeline", "pdf_to_word"]
+NO_CACHED_LIST = {"data_readiness_pipeline", "pdf_to_word"}      # these pages never offered earlier results
 
 
 def read(path):
@@ -25,7 +27,8 @@ def test_migrated_pages_have_no_private_copies(name):
     for private in ("function escapeHtml", "function formatFileSize", "function loadCachedFiles",
                     "function useCachedFile", "/download-cached-file/", "new EventSource"):
         assert private not in html, (name, private)
-    assert "DD.initUpload" in html and "DD.cachedFiles" in html
+    assert "DD.initUpload" in html
+    assert name in NO_CACHED_LIST or "DD.cachedFiles" in html
     assert not re.search(r"formData\.append\('file'", html), "uploads go through DD.appendFile"
 
 
@@ -35,3 +38,8 @@ def test_common_js_defines_the_shared_pieces():
                    "cancel()", "modal", "MAX_RECONNECTS = 5"):
         assert needed in js
     assert "alert(" not in js
+
+
+def test_no_template_still_defines_its_own_escapehtml_except_the_splitter():
+    leftovers = [p for p in glob.glob("templates/*.html") if "function escapeHtml" in read(p)]
+    assert [p.replace("\\", "/") for p in leftovers] in ([], ["templates/index.html"])
