@@ -64,6 +64,12 @@ class CacheAwareRequest(Request):
 
 app = Flask(__name__)
 app.request_class = CacheAwareRequest
+if os.environ.get('DATADRAGON_TRUST_PROXY', '') == '1':
+    # Behind exactly one reverse proxy (Railway, nginx ...): believe its X-Forwarded-For/-Host/-Proto, so the client
+    # address used for rate limits and the host used by the same-origin check are the public ones. Never enable this
+    # when the app is reachable directly: anyone could then forge those headers.
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_host=1, x_proto=1)
 _configured_secret = os.environ.get('DATADRAGON_SECRET_KEY')
 app.config['SECRET_KEY'] = _configured_secret or secrets.token_hex(32)
 if not _configured_secret:
@@ -398,21 +404,25 @@ def rate_limit(max_requests=10, window=60):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            ip = request.remote_addr
+            bucket_key = (request.remote_addr, request.endpoint)   # each route has its own allowance per client
             now = time.time()
-            
-            # Clean old entries
-            rate_limit_store[ip] = [req_time for req_time in rate_limit_store[ip] if now - req_time < window]
-            
-            # Check rate limit
-            if len(rate_limit_store[ip]) >= max_requests:
+            recent = [t for t in rate_limit_store.get(bucket_key, ()) if now - t < window]
+            if len(recent) >= max_requests:
+                rate_limit_store[bucket_key] = recent
                 return jsonify({'error': 'Rate limit exceeded. Please try again later.'}), 429
-            
-            # Add current request
-            rate_limit_store[ip].append(now)
+            recent.append(now)
+            rate_limit_store[bucket_key] = recent
             return f(*args, **kwargs)
         return decorated_function
     return decorator
+
+def cleanup_rate_limits(now=None):
+    """Forget buckets with no request inside the window, so the table does not grow with every client ever seen."""
+    now = now or time.time()
+    for key, times in list(rate_limit_store.items()):
+        if not times or now - times[-1] > RATE_LIMIT_WINDOW:
+            rate_limit_store.pop(key, None)
+
 
 # Cleanup old analysis results periodically
 def cleanup_old_analysis_results():
@@ -475,7 +485,8 @@ def cleanup_progress_queues(now=None):
 def run_cleanup():
     """One sweep. Each step is isolated: a failure in one must not stop the others or kill the sweeper."""
     for step in (cleanup_old_analysis_results, cleanup_session_cache, cleanup_pipeline_sessions,
-                 cleanup_owner_registries, cleanup_outputs, cleanup_uploads, cleanup_progress_queues):
+                 cleanup_owner_registries, cleanup_outputs, cleanup_uploads, cleanup_progress_queues,
+                 cleanup_rate_limits):
         try:
             step()
         except Exception:
@@ -1035,6 +1046,31 @@ def split_excel_file(input_file_path, output_folder, chunk_size=40000, base_file
 @app.route('/')
 def index():
     return render_template('landing.html')
+
+CONTENT_SECURITY_POLICY = "; ".join([
+    "default-src 'self'",
+    # Inline scripts and styles are still used by every page (technical debt: move them to files, then drop 'unsafe-inline')
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src https://fonts.gstatic.com",
+    "img-src 'self' data: blob:",
+    "media-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+])
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('Referrer-Policy', 'same-origin')
+    response.headers.setdefault('Content-Security-Policy', CONTENT_SECURITY_POLICY)
+    return response
+
 
 @app.route('/healthz')
 def healthz():
