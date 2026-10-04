@@ -55,3 +55,14 @@ def test_pipeline_charts_use_the_shared_helpers():
     html = read("templates/data_readiness_pipeline.html")
     assert "DDCharts.doughnut" in html and "DDCharts.horizontalBars" in html
     assert "new Chart(" not in html
+
+
+def test_logo_is_served_in_right_sized_files_with_srcset():
+    import os
+    for name, limit in (("datadragon-logo-128.png", 30_000), ("datadragon-logo-256.png", 30_000)):
+        assert os.path.getsize(f"static/images/{name}") < limit, name
+    assert os.path.exists("design/source/datadragon-logo.png")
+    assert not os.path.exists("static/images/datadragon-logo.png")
+    for page in ("index", "landing", "security_info"):
+        html = read(f"templates/{page}.html")
+        assert "datadragon-logo-128.png" in html and "datadragon-logo-256.png" in html and "srcset=" in html

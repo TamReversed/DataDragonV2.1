@@ -591,7 +591,9 @@
         <div class="container">
             <header class="page-header">
                 <div class="logo-container">
-                    <img src="{{ url_for('static', filename='images/datadragon-logo.png') }}" alt="DataDragon Logo" class="datadragon-logo">
+                    <img src="{{ url_for('static', filename='images/datadragon-logo-128.png') }}"
+                         srcset="{{ url_for('static', filename='images/datadragon-logo-128.png') }} 1x, {{ url_for('static', filename='images/datadragon-logo-256.png') }} 2x"
+                         alt="DataDragon Logo" class="datadragon-logo" width="128" height="78">
                     <h1>DataDragon</h1>
                 </div>
                 <p class="subtitle">Enterprise data processing toolkit</p>

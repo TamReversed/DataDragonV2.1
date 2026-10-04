@@ -1018,7 +1018,9 @@
             <div style="flex: 1;">
                 <a href="/" class="back-home-link">← Back to DataDragon</a>
                 <h1 style="margin-bottom: 10px; display: flex; align-items: center;">
-                    <img src="{{ url_for('static', filename='images/datadragon-logo.png') }}" alt="DataDragon Logo" class="datadragon-logo" >
+                    <img src="{{ url_for('static', filename='images/datadragon-logo-128.png') }}"
+                         srcset="{{ url_for('static', filename='images/datadragon-logo-128.png') }} 1x, {{ url_for('static', filename='images/datadragon-logo-256.png') }} 2x"
+                         alt="DataDragon Logo" class="datadragon-logo" width="128" height="78">
                     <span>DataDragon - Excel File Splitter</span>
                 </h1>
                 <p class="subtitle" style="margin-bottom: 0;">Split large Excel files into smaller, manageable chunks</p>
