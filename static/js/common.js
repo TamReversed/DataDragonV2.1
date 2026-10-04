@@ -265,5 +265,43 @@ const DD = (() => {
         return { close };
     }
 
-    return { cachedSource, appendFile, initUpload, cachedFiles, startJob, modal };
+    /* ---------- screen-reader semantics for the markup every tool page shares ---------- */
+    function enhanceAccessibility(root = document) {
+        // A scrollable area must be reachable (and scrollable) with the keyboard
+        root.querySelectorAll('.preview-table-wrapper, .preview-table-container, .results-table-container, ' +
+                              '.table-wrapper, .table-container, .column-list, .preview-panel').forEach(el => {
+            if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+            if (!el.hasAttribute('role')) el.setAttribute('role', 'region');
+            if (!el.hasAttribute('aria-label') && !el.hasAttribute('aria-labelledby')) {
+                el.setAttribute('aria-label', el.classList.contains('column-list') ? 'Columns' : 'Table (scrollable)');
+            }
+        });
+        root.querySelectorAll('.alert-error, .error-message').forEach(el => el.setAttribute('role', 'alert'));
+        root.querySelectorAll('.progress-message, .progress-text, .stage-message').forEach(el => {
+            el.setAttribute('role', 'status');
+            el.setAttribute('aria-live', 'polite');
+        });
+        root.querySelectorAll('.progress-bar-fill, .progress-fill').forEach(bar => {
+            if (bar.dataset.a11y) return;                       // already set up (this runs again for new content)
+            bar.dataset.a11y = '1';
+            bar.setAttribute('role', 'progressbar');
+            bar.setAttribute('aria-valuemin', '0');
+            bar.setAttribute('aria-valuemax', '100');
+            const sync = () => bar.setAttribute('aria-valuenow', String(Math.round(parseFloat(bar.style.width) || 0)));
+            if (!bar.getAttribute('aria-label')) {
+                const stage = bar.parentElement && bar.parentElement.parentElement &&
+                    bar.parentElement.parentElement.querySelector('.stage-name');
+                bar.setAttribute('aria-label', (stage && stage.textContent.trim()) || 'Progress');
+            }
+            sync();
+            new MutationObserver(sync).observe(bar, { attributes: true, attributeFilter: ['style'] });
+        });
+    }
+    document.addEventListener('DOMContentLoaded', () => enhanceAccessibility());
+    // Tables and lists that pages build later (previews, results) get the same treatment
+    new MutationObserver(records => {
+        if (records.some(r => r.addedNodes.length)) enhanceAccessibility();
+    }).observe(document.documentElement, { childList: true, subtree: true });
+
+    return { cachedSource, appendFile, initUpload, cachedFiles, startJob, modal, enhanceAccessibility };
 })();

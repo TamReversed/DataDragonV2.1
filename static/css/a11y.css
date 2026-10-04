@@ -1,0 +1,26 @@
+/* Accessibility rules shared by every page, including the standalone ones that do not load main.css */
+
+/* Keyboard focus: one visible ring everywhere */
+:focus-visible {
+    outline: 2px solid var(--accent-purple);
+    outline-offset: 2px;
+}
+
+/* People who asked for less motion get no ambient animation, no blur and no animated transitions.
+   (A spinner is a status indicator, so it keeps turning.) */
+@media (prefers-reduced-motion: reduce) {
+    *:not(.spinner),
+    *:not(.spinner)::before,
+    *:not(.spinner)::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+    }
+
+    .gradient-orb {
+        animation: none;
+    }
+}

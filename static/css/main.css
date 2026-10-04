@@ -14,7 +14,7 @@
     --text-primary: #ffffff;
     --text-secondary: rgba(255, 255, 255, 0.7);
     --text-tertiary: rgba(255, 255, 255, 0.5);
-    --text-muted: rgba(255, 255, 255, 0.4);
+    --text-muted: rgba(255, 255, 255, 0.6);    /* >= 4.5:1 on the page background (scripts/contrast.py) */
 
     /* Accent colors */
     --accent-purple: #a855f7;
@@ -28,6 +28,7 @@
 
     /* Gradients */
     --gradient-purple-blue: linear-gradient(135deg, #a855f7 0%, #3b82f6 100%);
+    --gradient-button: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);   /* white text on it is >= 4.5:1 */
     --gradient-blue-cyan: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
     --gradient-pink-purple: linear-gradient(135deg, #ec4899 0%, #a855f7 100%);
     --gradient-cyan-green: linear-gradient(135deg, #06b6d4 0%, #10b981 100%);
@@ -109,7 +110,22 @@ body {
     border-radius: 50%;
     filter: blur(80px);
     opacity: 0.5;
-    animation: float 20s ease-in-out infinite;
+}
+
+/* Ambient motion and backdrop blur only for people who have not asked for less motion */
+@media (prefers-reduced-motion: no-preference) {
+    .gradient-orb {
+        animation: float 20s ease-in-out infinite;
+    }
+
+    .card {
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+    }
+
+    .modal-backdrop {
+        backdrop-filter: blur(4px);
+    }
 }
 
 .orb-1 {
@@ -260,8 +276,6 @@ body {
 
 .card {
     background: var(--bg-card);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     border-radius: var(--radius-xl);
     border: 1px solid var(--border-subtle);
     padding: var(--space-6);
@@ -411,7 +425,7 @@ body {
 
 /* Primary button */
 .btn-primary {
-    background: var(--gradient-purple-blue);
+    background: var(--gradient-button);
     color: white;
     box-shadow: var(--shadow-sm), var(--shadow-glow-purple);
 }
@@ -771,7 +785,6 @@ button.cached-file-item {
     width: 100%;
     height: 100%;
     background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(4px);
     z-index: 1000;
     display: flex;
     align-items: center;
