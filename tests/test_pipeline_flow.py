@@ -207,3 +207,32 @@ def test_transposed_first_column_is_named_by_rename_not_by_mutation(client, tmp_
     ws = openpyxl.load_workbook(output_path(final)).active
     assert [c.value for c in ws[1]][0] == "Original Column/Row"
     assert [[c.value for c in r][0] for r in ws.iter_rows(min_row=2)] == ["a", "b"]
+
+
+# ------------------------------------------------------------------ T3.7: preview and resumable sessions
+def test_state_carries_the_first_twenty_rows_and_the_columns(client):
+    sid = start(client)                                   # golden.csv: 40 rows
+    payload = client.get(f"/pipeline/{sid}/state").get_json()
+    assert len(payload["preview"]) == 20
+    assert payload["columns"][:3] == ["ID", "Zip", "Account"]
+    assert payload["preview"][0]["ID"] == "PR-00001" and payload["analysis"] is None
+    assert payload["state"]["row_count"] == 40
+
+
+def test_state_includes_the_analysis_once_it_exists(client):
+    sid = start(client)
+    run_stage(client, sid, "analyze")
+    payload = client.get(f"/pipeline/{sid}/state").get_json()
+    assert payload["analysis"]["overview"]["shape"]["rows"] == 40
+
+
+def test_another_browser_cannot_resume_my_session(client):
+    sid = start(client)
+    other = datadragon.app.test_client()
+    assert other.get(f"/pipeline/{sid}/state").status_code == 404
+
+
+def test_the_page_puts_the_session_in_the_url_and_resumes_from_it():
+    html = open("templates/data_readiness_pipeline.html", encoding="utf-8").read()
+    assert "history.replaceState(null, '', location.pathname + '?s='" in html
+    assert "new URLSearchParams(location.search).get('s')" in html and "resumeFromUrl();" in html

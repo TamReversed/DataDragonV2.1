@@ -5697,7 +5697,11 @@ def pipeline_get_state(session_id):
         'stage_data': {
             str(k): v is not None for k, v in state.stage_data.items()
         },
-        'user_decisions': state.user_decisions
+        'user_decisions': state.user_decisions,
+        # what a reloaded page needs to rebuild its view of the session
+        'columns': [str(c) for c in state.df.columns] if isinstance(state.df, pd.DataFrame) else [],
+        'preview': df_preview(state.df, 20) if isinstance(state.df, pd.DataFrame) else [],
+        'analysis': state.stage_data[1],
     })
 
 

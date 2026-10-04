@@ -2166,38 +2166,55 @@
             const response = await fetch('/pipeline/start', { method: 'POST', body: formData });
             const data = await response.json();
             if (!data.success) throw new Error(data.error);
-
-            state.sessionId = data.session_id;
-            state.filename = data.filename;
-            state.columns = data.column_names;
-            state.preview = data.preview || [];
-            state.rowCount = data.rows;
-
-            // Show file badge
-            document.getElementById('fileBadge').classList.add('visible');
-            document.getElementById('fileNameDisplay').textContent = data.filename + ' (' + data.rows.toLocaleString() + ' rows)';
-
-            // Mark upload zone as complete
-            document.getElementById('uploadZone').classList.add('uploaded');
-
-            // Show upload success info
-            document.getElementById('uploadSuccess').classList.remove('hidden');
-            document.getElementById('uploadFilename').textContent = data.filename;
-            document.getElementById('uploadStats').textContent = `${data.rows.toLocaleString()} rows × ${Number(data.columns)} columns`;
-
-            // Show continue button
-            document.getElementById('stage1Buttons').classList.remove('hidden');
-
-            // Load preview into right panel
-            showUploadPreview(data.preview, data.column_names, data.rows);
-
-            // Setup column lists for later stages
-            setupColumnLists();
-
+            applySession(data);
+            // The session id in the address lets a reload (or a bookmark) pick the session up again
+            history.replaceState(null, '', location.pathname + '?s=' + encodeURIComponent(data.session_id));
         } catch (error) {
             showError('uploadError', error.message);
         }
     }
+
+    // Show an uploaded (or resumed) session: badge, upload summary, first rows, column lists
+    function applySession(data) {
+        state.sessionId = data.session_id;
+        state.filename = data.filename;
+        state.columns = data.column_names;
+        state.preview = data.preview || [];
+        state.rowCount = data.rows;
+
+        document.getElementById('fileBadge').classList.add('visible');
+        document.getElementById('fileNameDisplay').textContent = data.filename + ' (' + data.rows.toLocaleString() + ' rows)';
+        document.getElementById('uploadZone').classList.add('uploaded');
+        document.getElementById('uploadSuccess').classList.remove('hidden');
+        document.getElementById('uploadFilename').textContent = data.filename;
+        document.getElementById('uploadStats').textContent = `${data.rows.toLocaleString()} rows × ${Number(data.columns)} columns`;
+        document.getElementById('stage1Buttons').classList.remove('hidden');
+        showUploadPreview(data.preview, data.column_names, data.rows);
+        setupColumnLists();
+    }
+
+    // Reload / bookmark: ?s=<session id> restores the session if this browser owns it and it has not expired
+    async function resumeFromUrl() {
+        const id = new URLSearchParams(location.search).get('s');
+        if (!id) return;
+        try {
+            const response = await fetch('/pipeline/' + encodeURIComponent(id) + '/state');
+            if (!response.ok) throw new Error('expired');
+            const data = await response.json();
+            applySession({
+                session_id: id, filename: data.state.filename, column_names: data.columns, preview: data.preview,
+                rows: data.state.row_count, columns: data.state.col_count,
+            });
+            if (data.analysis) {
+                state.analysis = data.analysis;
+                goToStage(2);
+            }
+        } catch (error) {
+            history.replaceState(null, '', location.pathname);
+            showError('uploadError', 'That session has expired, or it belongs to another browser. Upload the file again.');
+        }
+    }
+    resumeFromUrl();
 
     function showUploadPreview(previewData, columns, totalRows) {
         const thead = document.querySelector('#previewTable thead');
@@ -2225,6 +2242,7 @@
     }
 
     function resetUpload() {
+        history.replaceState(null, '', location.pathname);
         // Reset state
         state.sessionId = null;
         state.filename = null;
@@ -2242,31 +2260,6 @@
         document.getElementById('emptyPreview').classList.remove('hidden');
         document.getElementById('previewContainer').classList.add('hidden');
         document.getElementById('previewInfo').classList.add('hidden');
-    }
-
-    async function loadPreview() {
-        try {
-            const formData = new FormData();
-            // We need to get preview data - let's use the state's file
-            const response = await fetch(`/pipeline/${state.sessionId}/state`);
-            const data = await response.json();
-
-            // For now, show columns in preview header
-            const thead = document.querySelector('#previewTable thead');
-            const tbody = document.querySelector('#previewTable tbody');
-
-            thead.innerHTML = '<tr>' + state.columns.map(c => `<th>${escapeHtml(c)}</th>`).join('') + '</tr>';
-            tbody.innerHTML = '<tr><td colspan="' + state.columns.length + '" style="text-align:center;color:var(--text-muted);padding:30px;">Preview loads after analysis</td></tr>';
-
-            document.getElementById('emptyPreview').classList.add('hidden');
-            document.getElementById('previewContainer').classList.remove('hidden');
-            document.getElementById('previewInfo').classList.remove('hidden');
-            document.getElementById('previewCount').textContent = `${state.columns.length} columns`;
-            document.getElementById('previewInfo').textContent = 'Run analysis to see data statistics';
-
-        } catch (error) {
-            console.error('Preview error:', error);
-        }
     }
 
     function setupColumnLists() {
