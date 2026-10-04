@@ -80,5 +80,5 @@ illustrations). Nothing was generated in Phases 4 and 5.
 - Replace the alias variables in page CSS with the `--dd-*` tokens, then delete the alias block from `main.css`.
 - Make the download button the only ember button once results are shown.
 - Move inline styles and scripts to files, then tighten the CSP.
-- Open a pull request for `redesign/v2`. It sits on top of the hardening branch (PR #1), so merge that first or
-  the redesign PR will include its commits.
+- Open a pull request for `redesign/v2` into `main`. The hardening work (PR #1) is already merged, so the redesign
+  PR contains only its own 12 commits and merges cleanly.
