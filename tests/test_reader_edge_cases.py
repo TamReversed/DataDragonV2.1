@@ -144,3 +144,13 @@ def test_read_headers_of_an_empty_csv_is_a_clear_error(tmp_path):
     path.write_text("")
     with pytest.raises(datadragon.UserError, match="empty"):
         datadragon.read_headers(str(path), "e.csv")
+
+
+def test_top_values_break_ties_by_first_appearance():
+    """Equally frequent values are listed in file order, the same on every machine (the default sort is not stable)."""
+    import pandas as pd
+    import datadragon
+    values = [f"v{i:02d}" for i in range(30)]                       # every value once: all ties
+    df = pd.DataFrame({"name": values + ["v17", "v17", "v03"]})     # v17 three times, v03 twice
+    result = datadragon.analyze_dataframe(df)
+    assert list(result["columns"]["name"]["top_values"]) == ["v17", "v03", "v00", "v01", "v02", "v04", "v05", "v06", "v07", "v08"]

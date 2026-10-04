@@ -951,15 +951,15 @@
      },
      "top_values": {
       "2024-01-01": 1,
+      "2024-01-02": 1,
+      "2024-01-03": 1,
+      "2024-01-04": 1,
+      "2024-01-05": 1,
+      "2024-01-06": 1,
       "2024-01-07": 2,
-      "2024-01-24": 1,
-      "2024-01-25": 1,
-      "2024-01-26": 1,
-      "2024-01-27": 1,
-      "2024-01-28": 1,
-      "2024-01-29": 1,
-      "2024-01-30": 1,
-      "2024-01-31": 1
+      "2024-01-09": 1,
+      "2024-01-10": 1,
+      "2024-01-11": 1
      },
      "type_confidence": 100.0,
      "type_samples": [
@@ -1021,15 +1021,15 @@
      },
      "top_values": {
       "alice0@example.com": 1,
-      "alice24@example.com": 1,
-      "alice28@example.com": 1,
-      "bob25@example.com": 1,
-      "bob29@example.com": 1,
-      "carol26@example.com": 1,
-      "carol30@example.com": 1,
+      "alice4@example.com": 1,
+      "alice8@example.com": 1,
+      "bob5@example.com": 1,
+      "bob9@example.com": 1,
+      "carol10@example.com": 1,
+      "carol2@example.com": 1,
       "carol6@example.com": 2,
-      "dave27@example.com": 1,
-      "dave31@example.com": 1
+      "dave11@example.com": 1,
+      "dave3@example.com": 1
      },
      "type_confidence": 100.0,
      "type_samples": [
@@ -1114,15 +1114,15 @@
      },
      "top_values": {
       "PR-00001": 1,
+      "PR-00002": 1,
+      "PR-00003": 1,
+      "PR-00004": 1,
+      "PR-00005": 1,
+      "PR-00006": 1,
       "PR-00007": 2,
-      "PR-00024": 1,
-      "PR-00025": 1,
-      "PR-00026": 1,
-      "PR-00027": 1,
-      "PR-00028": 1,
-      "PR-00029": 1,
-      "PR-00030": 1,
-      "PR-00031": 1
+      "PR-00009": 1,
+      "PR-00010": 1,
+      "PR-00011": 1
      },
      "type_confidence": 100.0,
      "type_samples": [

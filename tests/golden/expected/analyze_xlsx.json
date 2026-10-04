@@ -173,15 +173,15 @@
    },
    "top_values": {
     "alice0@example.com": 1,
-    "alice24@example.com": 1,
-    "alice28@example.com": 1,
-    "bob25@example.com": 1,
-    "bob29@example.com": 1,
-    "carol26@example.com": 1,
-    "carol30@example.com": 1,
+    "alice4@example.com": 1,
+    "alice8@example.com": 1,
+    "bob5@example.com": 1,
+    "bob9@example.com": 1,
+    "carol10@example.com": 1,
+    "carol2@example.com": 1,
     "carol6@example.com": 2,
-    "dave27@example.com": 1,
-    "dave31@example.com": 1
+    "dave11@example.com": 1,
+    "dave3@example.com": 1
    },
    "type_confidence": 100.0,
    "type_samples": [
@@ -260,15 +260,15 @@
    },
    "top_values": {
     "PR-00001": 1,
+    "PR-00002": 1,
+    "PR-00003": 1,
+    "PR-00004": 1,
+    "PR-00005": 1,
+    "PR-00006": 1,
     "PR-00007": 2,
-    "PR-00024": 1,
-    "PR-00025": 1,
-    "PR-00026": 1,
-    "PR-00027": 1,
-    "PR-00028": 1,
-    "PR-00029": 1,
-    "PR-00030": 1,
-    "PR-00031": 1
+    "PR-00009": 1,
+    "PR-00010": 1,
+    "PR-00011": 1
    },
    "type_confidence": 100.0,
    "type_samples": [
